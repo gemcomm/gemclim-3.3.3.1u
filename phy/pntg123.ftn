@@ -1,0 +1,69 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P PNTG123
+*
+      SUBROUTINE PNTG123
+*
+*Author
+*          J.Mailhot RPN(July 1989)
+*
+*Revision
+* 001      Louis Garand - Add CO2 wing bands
+* 002      B. Bilodeau  - (JUL93) Add the common block RADPNT
+*          and the common block RADPARAM to eliminate
+*          parameters in the call of this routine.
+*
+*Object
+*          to determine the position of pointers (including the
+*          ones in common block RADPNT) to the radiation
+*          table
+*
+*Arguments
+*          None.
+*
+*
+**
+*
+#include "impnone.cdk"
+*
+#include "radpnt.cdk"
+*
+#include "radparam.cdk"
+*
+*
+*     POINTEURS
+*
+      G1=5+1
+      G2=G1+MXX*NTT
+      G3=G2+MXX*NTT
+      TH2O=G3+MXX*NTT
+      TRO3=TH2O+MXX*NCO2
+      YG3=TRO3+MXX
+      BCN=YG3+NCO2*MXX*NCX
+      DBCN=BCN+NCO2*NTT
+      BO3=DBCN+NTT*NCO2
+      DBO3=BO3+NTT
+      TO3=DBO3+NTT
+      UU=TO3+NO3
+      TT=UU+MXX
+*
+      IF(TT+NTT-1 .NE. NTOTAL) THEN
+         WRITE(6,*) 'S/R PNTTG123. ERREUR DANS LES POINTEURS. STOP'
+         CALL QQEXIT(1)
+      ENDIF
+*
+      RETURN
+      END

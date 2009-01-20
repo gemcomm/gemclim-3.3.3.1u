@@ -1,0 +1,108 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P VERTDIFF
+#include "phy_macros_f.h"
+      SUBROUTINE VERTDIFF(QC,WORK,NI,NK)
+#include "impnone.cdk"
+*
+      INTEGER NI,NK
+      INTEGER I,K,L,KK
+*
+      REAL WORK(NI,NK),QC(NI,NK)
+*
+*Author
+*          Stephane Belair (1994)
+*
+*Revision
+* 001      B. Bilodeau (Jan 2001) - Automatic arrays
+*
+*Revision
+*
+*Object
+*          To calculate the diffusion specifically for the
+*          cloud water/ice and the rainwater/snow
+*
+*Arguments
+*
+*          - Input/Output -
+* QC       field just treated after horizontal diffusion as input
+*          field just tread after vertical diffusion as output
+* WORK     work field
+*
+*          - Output -
+* NI       1st dimension of variables
+* NK       2nd dimension of variables
+*
+*Notes
+*
+*          Numerical scheme is an implicit one
+*          Crank-Nicolson scheme
+**
+*
+      REAL R,A,B,C
+*
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (  D , REAL , (NK) )
+      AUTOMATIC (  E , REAL , (NK) )
+      AUTOMATIC (  F , REAL , (NK) )
+*
+************************************************************************
+*
+*
+      R = 0.072
+      A = R
+      B = 2.0+2.0*R
+      C = R
+*
+      DO 10 I=1,NI
+*
+      E(1) = 0.0
+      F(1) = QC(I,1)
+      E(NK) = 0.0
+      F(NK) = QC(I,NK)
+*
+      DO 20 K=2,NK-1
+*
+        D(K) = R*QC(I,K-1) + R*QC(I,K+1)
+     1          + (2.0-2.0*R)*QC(I,K)
+        E(K) = A/(B-C*E(K-1))
+        F(K) = ( D(K)+C*F(K-1) )/( B-C*E(K-1) )
+*
+ 20   CONTINUE
+*
+      WORK(I,NK)= QC(I,NK)
+*
+      DO 30 K=1,NK-1
+*
+        KK = NK-K
+        WORK(I,KK) = E(KK)*QC(I,KK+1) + F(KK)
+*
+ 30   CONTINUE
+*
+      DO 40 K=1,NK
+        QC(I,K) = WORK(I,K)
+ 40   CONTINUE
+*
+ 10   CONTINUE
+*
+*
+      RETURN
+      END

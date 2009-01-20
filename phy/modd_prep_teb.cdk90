@@ -1,0 +1,83 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ################
+      MODULE MODD_PREP_TEB
+!     ################
+!
+!!****  *MODD_PREP - declaration for field interpolations
+!!
+!!    PURPOSE
+!!    -------
+!     Declaration of surface parameters
+!
+!!
+!!**  IMPLICIT ARGUMENTS
+!!    ------------------
+!!      None 
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!    AUTHOR
+!!    ------
+!!	V. Masson    *Meteo France*
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original       01/2004
+!
+!*       0.   DECLARATIONS
+!             ------------
+!
+IMPLICIT NONE
+!
+!--------------------------------------------------------------------------
+!
+CHARACTER(LEN=28) :: CFILE_TEB      ! input file name
+CHARACTER(LEN=6)  :: CTYPE          ! input file type
+CHARACTER(LEN=28) :: CFILE_WS       ! input file name for Ws
+CHARACTER(LEN=6)  :: CTYPE_WS       ! input file type for Ws
+CHARACTER(LEN=28) :: CFILE_TS       ! input file name for Ts
+CHARACTER(LEN=6)  :: CTYPE_TS       ! input file type for Ts
+!
+REAL              :: XWS_ROOF       ! roof uniform water content (kg/m2)
+REAL              :: XWS_ROAD       ! road uniform water content (kg/m2)
+REAL              :: XTS_ROOF       ! roof uniform temperature   (K)
+REAL              :: XTS_ROAD       ! road uniform temperature   (K)
+REAL              :: XTS_WALL       ! wall uniform temperature   (K)
+REAL              :: XTI_BLD        ! uniform building interior T(K)
+REAL              :: XTI_ROAD       ! uniform deep road Temp.    (K)
+!
+REAL              :: XT_CAN         ! uniform canyon air Temp.   (K)
+REAL              :: XQ_CAN         ! uniform canyon air Humidity(kg/kg)
+
+!
+REAL              :: XWS_ROOF_DEF   ! default roof uniform water content (kg/m2)
+REAL              :: XWS_ROAD_DEF   ! default road uniform water content (kg/m2)
+REAL              :: XTI_BLD_DEF    ! default uniform building interior T(K)
+REAL              :: XTI_ROAD_DEF   !
+!--------------------------------------------------------------------------
+!
+!* normalized dimensions for interpolation grids for roof, wall, and roads
+REAL, DIMENSION(10) :: XGRID_ROOF = (/ 0., 0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.7, 0.9, 1. /)
+REAL, DIMENSION(10) :: XGRID_WALL = (/ 0., 0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.7, 0.9, 1. /)
+REAL, DIMENSION(10) :: XGRID_ROAD = (/ 0., 0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.7, 0.9, 1. /)
+!
+!--------------------------------------------------------------------------
+!
+END MODULE MODD_PREP_TEB
+
+

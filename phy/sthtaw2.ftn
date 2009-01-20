@@ -1,0 +1,161 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***FONCTION sthtaw2  -  CALCULE TW OU THETAW
+*
+      FUNCTION sthtaw2(HU,TX,PX,LNPS,MODP,SWTT,SWPH,SWTH,ti)
+*
+#include "impnone.cdk"
+      REAL sthtaw2, HU, TX, PX, LNPS, ti
+      INTEGER MODP
+      LOGICAL SWTT, SWPH, SWTH
+*
+*Author
+*          N. Brunet  (Jan91)
+*Revision
+* 001      B. Bilodeau  (August 1991)- Adaptation to UNIX
+* 002      N. Brunet  (May 1994) - change to l2ocprv in order
+*          to obtain results closer to those of tephigram
+* 003      N. Brunet (sept 2000) adaptation to new functions
+*          sgamasp and schal.
+*
+*Object
+*          to compute TW or THETAW, function of specific
+*          humidity, temperature and pressure. Result returned is in
+*          Kelvins
+*
+*Arguments
+*
+*          - Input -
+* HU       specific humidity in kg/kg
+* TX       temperature or virtual temperature in Kelvins
+* PX       see MODP
+* LNPS     see MODP
+* MODP     pressure mode (SI units only):
+*          =0; pressure level in PX
+*          =1; sigma level in PX
+*          =2; sigma level in PX and logarithm of sigma level in
+*          LNPS
+*          =3; all points of pressure in LNPS(NI,*) in Pascals
+*          =4; sigma level in PX and logarithm of sigma level in
+*          LNPS(in millibars unless using SI units)
+*          =5; logarithm of pressure level in PX(in millibars unless
+*          using SI units)
+* SWTT     .TRUE. to pass TT for argument
+*          .FALSE. to pass TV for argument
+* SWPH     .TRUE. to consider water and ice phase
+*          .FALSE. to consider water phase only
+* SWTH     .TRUE. to calculate THETA
+*          .FALSE. to calculate TW
+* TI       temperature (K) at which we start considering only
+*          latent heat of sublimation
+*          if swph=false, ti is n/a
+*          ti must be .LE. trpl
+*
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY, sgamasp, schal
+*
+**
+*--------------------------------------------------------------------
+      REAL Q1, DQ1, Q0, PN, TH, FT0, DFT0
+      real latheat, lvt0, lsti, dt, dtpr
+      real hscp
+      real sgamasp, schal
+      REAL D, DLP, PR
+      INTEGER ITER, N, J
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*--------------------------------------------------------------------
+#include "initcph.cdk"
+*
+      TH = TX
+      IF(.NOT.SWTT)TH = FOTTV(TX,HU)
+#include "modpr1.cdk"
+*
+*     TROUVE D'ABORD  TW
+*
+      Q0 = HU
+*
+*     SOLUTIONNE PAR METHODE DE NEWTON DU 1ER ORDRE.
+*
+      DO 10 ITER=1,4
+*        --- calcule la chaleur latente
+         latheat = schal(th, ti, swph)
+*
+*        --- methode de newton
+*
+         hscp = latheat / cpd
+*
+         Q1=FOQST(TH,PN)
+         IF(.NOT.SWPH)Q1=FOQSA(TH,PN)
+         DQ1=FODQS(Q1,TH)
+         IF(.NOT.SWPH)DQ1=FODQA(Q1,TH)
+         FT0 = -hscp * (Q1-Q0)
+         DFT0 = -1.0 - (hscp*DQ1)
+         TH = TH - FT0/DFT0
+         Q0 = Q0 + FT0/(DFT0*hscp)
+10    CONTINUE
+*
+      IF(.NOT.SWTH)THEN
+         sthtaw2 = TH
+         RETURN
+      END IF
+*
+*     TROUVE THETAW EN UTILISANT LA PENTE DE L'ADIABATIQUE
+*     MOUILLEE ET EN FAISANT LES CALCULS PAR TRANCHE DE
+*     1000 PA (PASSANT DE PN A 100000 PA).
+*
+      IF(PN.EQ.100000.)THEN
+         sthtaw2 = TH
+      ELSE
+         DLP=1000.
+         D = 100000. - PN
+         N = INT(ABS(D/DLP))
+         IF(D.LT.0.)DLP = -DLP
+         D = D - FLOAT(N)*DLP
+         IF(D.NE.0.)THEN
+            N = N + 1
+         ELSE
+            D = DLP
+         END IF
+*
+         PR = PN
+*
+         DO 100 J=1,N
+*
+*           --- calcule dt/dp
+            dt = sgamasp(th, pr, swph, ti)
+*           --- multiplie par delta P --> donne delta T
+            dtpr = dt * d
+*           --- mise a jour de la temp et de la pression
+            th = th + dtpr
+            PR = PR + D
+*
+            IF(J.EQ.1)D = DLP
+*
+100      CONTINUE
+*
+         sthtaw2 = TH
+*
+      END IF
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

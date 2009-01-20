@@ -1,0 +1,276 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #################################################################################
+SUBROUTINE PREP_TEB_GEM(HSURF,PFIELD)
+!     #################################################################################
+!
+!!****  *PREP_TEB_GEM* - prepares TEB field from operational GRIB
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     A. Lemonsu
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    09/2004
+!Revision
+! 001      A. Lemonsu (Dec 2005) Correction of Troof, Troad, anf Twall initialisation
+!!------------------------------------------------------------------
+!
+
+USE MODD_CSTS,     ONLY : XTT
+USE MODD_PREP,     ONLY : CINGRID_TYPE, CINTERP_TYPE
+USE MODD_TOWN,     ONLY : XMASK, XINI_LAT, XINI_LON, XINI_ZS, XINI_TS, XINI_TSOIL, &
+                          XINI_TA, XINI_QA, XTOWN
+USE MODD_PREP_TEB, ONLY : XGRID_ROAD, XGRID_WALL, XGRID_ROOF,                      &
+                          XTI_ROAD_DEF, XTI_BLD_DEF,                               &
+                          XTS_ROOF, XTS_ROAD, XTS_WALL
+USE MODD_SURF_PAR, ONLY : XUNDEF
+!
+USE MODI_INTERP_GRID1D
+!
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=7),   INTENT(IN)  :: HSURF     ! type of field
+REAL,DIMENSION(:,:), POINTER    :: PFIELD    ! field to interpolate horizontally
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(:,:), POINTER   :: ZFIELD         ! field read
+REAL, DIMENSION(:,:), POINTER   :: ZD             ! depth of field in the soil
+INTEGER                         :: JL             ! loop counter
+!
+!-------------------------------------------------------------------------------------
+!
+!*      1.     Reading of grid
+!              ---------------
+!
+!---------------------------------------------------------------------------------------
+SELECT CASE(HSURF)
+!---------------------------------------------------------------------------------------
+!
+!*     2.      Orography
+!              ---------
+!
+  CASE('ZS     ')
+    ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+    PFIELD(:,1) = XINI_ZS(:) 
+!
+!*      3.     Profile of temperatures in roads
+!              --------------------------------
+!
+  CASE('T_ROAD')
+    !* reading of the profile and its depth definition
+    ALLOCATE(ZFIELD(SIZE(XINI_ZS),3))
+    ALLOCATE(ZD(SIZE(XINI_ZS),3))
+    WHERE (XTOWN(:) > 0.)
+     ZFIELD(:,1) = XINI_TS(:) 
+     ZFIELD(:,2) = XINI_TSOIL(:)
+     ZFIELD(:,3) = XINI_TSOIL(:)
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.2
+     ZD(:,3)     = 3.0
+    ELSEWHERE 
+     ZFIELD(:,1) = XUNDEF
+     ZFIELD(:,2) = XUNDEF
+     ZFIELD(:,3) = XUNDEF
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.2
+     ZD(:,3)     = 3.0
+    ENDWHERE
+    !* if deep road temperature is prescribed
+    !IF (XTS_ROAD/=XUNDEF) THEN
+    !  ZFIELD(:,1)  = XTS_ROAD
+    !END IF
+    !IF (XTI_ROAD_DEF/=XUNDEF) THEN
+    ! WHERE (XTOWN(:) > 0.) 
+    !  ZFIELD(:,2) = XTI_ROAD_DEF
+    !  ZFIELD(:,3) = XTI_ROAD_DEF
+    ! ENDWHERE
+    !END IF
+    CALL TEB_PROFILE_GRIB(XGRID_ROAD)
+
+!*      4.     Profile of temperatures in walls
+!              --------------------------------
+!
+  CASE('T_WALL')
+    !* reading of the profile and its depth definition
+    ALLOCATE(ZFIELD(SIZE(XINI_ZS),3))
+    ALLOCATE(ZD(SIZE(XINI_ZS),3))
+    WHERE (XTOWN(:) > 0.)
+     ZFIELD(:,1) = XINI_TS(:) 
+     ZFIELD(:,2) = XTI_BLD_DEF
+     ZFIELD(:,3) = XTI_BLD_DEF
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.5
+     ZD(:,3)     = 1.0
+    ELSEWHERE
+     ZFIELD(:,1) = XUNDEF
+     ZFIELD(:,2) = XUNDEF
+     ZFIELD(:,3) = XUNDEF
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.5
+     ZD(:,3)     = 1.0
+    ENDWHERE     
+    !IF (XTS_WALL/=XUNDEF) THEN 
+    ! WHERE (XTOWN(:) > 0.)
+    !  ZFIELD(:,1)  = XTS_WALL
+    ! ENDWHERE
+    !ENDIF
+    CALL TEB_PROFILE_GRIB(XGRID_WALL)
+
+!*      5.     Profile of temperatures in roofs
+!              --------------------------------
+
+  CASE('T_ROOF')    
+    !* reading of the profile and its depth definition
+    ALLOCATE(ZFIELD(SIZE(XINI_ZS),3))
+    ALLOCATE(ZD(SIZE(XINI_ZS),3))
+    WHERE (XTOWN(:) > 0.)
+     ZFIELD(:,1) = XINI_TS(:) 
+     ZFIELD(:,2) = XTI_BLD_DEF
+     ZFIELD(:,3) = XTI_BLD_DEF
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.5
+     ZD(:,3)     = 1.0
+    ELSEWHERE
+     ZFIELD(:,1) = XUNDEF
+     ZFIELD(:,2) = XUNDEF
+     ZFIELD(:,3) = XUNDEF
+     ZD(:,1)     = 0.0
+     ZD(:,2)     = 0.5
+     ZD(:,3)     = 1.0
+    ENDWHERE
+
+    !IF (XTS_ROOF/=XUNDEF) THEN
+    ! WHERE (XTOWN(:) > 0.)
+    !  ZFIELD(:,1)  = XTS_ROOF
+    ! ENDWHERE
+    !END IF
+    CALL TEB_PROFILE_GRIB(XGRID_ROOF)
+
+!
+!*      6.     Canyon air temperature
+!              ----------------------
+!
+  CASE('T_CAN  ')
+    ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+    WHERE (XTOWN(:) > 0.)
+     PFIELD(:,1) = XINI_TA(:) 
+    ELSEWHERE
+     PFIELD(:,1) = XUNDEF
+    ENDWHERE
+!
+!*      7.      Canyon air humidity
+!               -------------------
+!
+  CASE('Q_CAN  ')
+    ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+    WHERE (XTOWN(:) > 0.)
+     PFIELD(:,1) = XINI_QA(:) 
+    ELSEWHERE
+     PFIELD(:,1) = XUNDEF
+    ENDWHERE
+
+!*      9.     Deep road temperature
+!              ---------------------
+
+  CASE('TI_ROAD')
+    IF (XTI_ROAD_DEF==XUNDEF) THEN
+     ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+     WHERE (XTOWN(:) > 0.)
+      PFIELD(:,1) = XINI_TSOIL(:) 
+     ELSEWHERE
+      PFIELD(:,1) = XUNDEF
+     ENDWHERE
+    ELSE
+     ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+     WHERE (XTOWN(:) > 0.)
+      PFIELD(:,1) = XTI_ROAD_DEF
+     ELSEWHERE
+      PFIELD(:,1) = XUNDEF
+     ENDWHERE
+    END IF
+
+!*      9.     Building temperature
+!              --------------------
+
+  CASE('TI_BLD ')    
+    ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+    WHERE (XTOWN(:) > 0.)
+     PFIELD(:,1) = XTI_BLD_DEF
+    ELSEWHERE
+     PFIELD(:,1) = XUNDEF
+    ENDWHERE
+
+!*     10.     Other quantities (water reservoirs)
+!              ----------------
+
+  CASE DEFAULT
+    ALLOCATE(PFIELD(SIZE(XINI_ZS),1))
+    WHERE (XTOWN(:) > 0.)
+     PFIELD(:,1) = 0.
+    ELSEWHERE
+     PFIELD(:,1) = XUNDEF
+    ENDWHERE
+
+END SELECT
+!
+!*      4.     Interpolation method
+!              --------------------
+!
+CINTERP_TYPE='NONE  '
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+CONTAINS
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+SUBROUTINE TEB_PROFILE_GRIB(PGRID)
+!-------------------------------------------------------------------------------------
+!
+REAL, DIMENSION(:),   INTENT(IN)  :: PGRID  ! destination grid
+!
+INTEGER                           :: JL     ! loop counter
+!
+!-------------------------------------------------------------------------------------
+!
+!* interpolation on fine vertical grid
+ALLOCATE(PFIELD(SIZE(ZFIELD,1),SIZE(PGRID)))
+CALL INTERP_GRID1D(ZD,ZFIELD,PGRID,PFIELD)
+!
+!* end
+DEALLOCATE(ZFIELD)
+DEALLOCATE(ZD)
+
+END SUBROUTINE TEB_PROFILE_GRIB
+!-------------------------------------------------------------------------------------
+END SUBROUTINE PREP_TEB_GEM

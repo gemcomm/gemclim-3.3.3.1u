@@ -1,0 +1,67 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  PRODEF
+      SUBROUTINE PRODEF(PU,U,SD,N,MAX)
+*
+#include "impnone.cdk"
+      INTEGER N,MAX
+      REAL PU(MAX,2),U(N),SD(N)
+*
+*Author
+*          J. Cote (RPN 1983)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      M. Lepine  -  RFE model code revision project (Feb 87)
+*
+*Object
+*          to prepare product of finite-element operator by U
+*
+*Arguments
+*
+*          - Output -
+* PU       product of finite-element operator by U
+*          PU(*,1) sub-diagonal
+*          PU(*,2) diagonal
+*
+*          - Input -
+* U        multiplicative function
+* SD       intervals (N)
+* N        finite-element space dimension
+* MAX      1st dimension of PU
+*
+*
+**
+*
+      REAL T,D
+      INTEGER J
+*
+      SD(N)=0.0
+      T=3.0
+      D=1.0/12.0
+      PU(1,1)=0.0
+      PU(1,2)=D*SD(1)*(T*U(1)+U(2))
+*
+      DO 1 J=2,N-1
+*
+         PU(J,1)=D*SD(J-1)*(U(J-1)+U(J))
+    1    PU(J,2)=D*(SD(J-1)*(U(J-1)+T*U(J))+SD(J)*(T*U(J)+U(J+1)))
+*
+      PU(N,1)=D*SD(N-1)*(U(N-1)+U(N))
+      PU(N,2)=D*SD(N-1)*(U(N-1)+T*U(N))
+*
+      RETURN
+      END

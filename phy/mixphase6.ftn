@@ -1,0 +1,1038 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P MIXPHASE, VERSION 5.XX
+*
+#include "phy_macros_f.h"
+      subroutine mixphase6 (t,qv,m,s,ps,fice,rl,rs,fneige,
+     1                     rip,dtdt,dqdt,dmdt,gz,ccs,flag,
+     2                     selimw,selimi,vlmax,vsmax,complim,kount,
+     3                     dt,ni,nk)
+*
+#include "impnone.cdk"
+      integer ni,nk,kount
+      real t(ni,nk),qv(ni,nk),m(ni,nk),s(ni,nk),ps(ni)
+      real fice(ni,nk),rl(ni),rs(ni),rip(ni),fneige(ni)
+      real selimw(ni,nk),selimi(ni,nk),vlmax(ni),vsmax(ni)
+      real dtdt(ni,nk),dqdt(ni,nk),dmdt(ni,nk)
+      real gz(ni,nk),ccs(ni,nk),flag(ni,nk),dt
+      logical complim
+*
+*Author
+*          Andre Tremblay / Anna Glazer (1996)
+*
+*Revision     
+* 001   A. Methot and A. Tremblay (Feb 1999) - Change calculation
+*       of ESI and ESW (use Tetens formulation)
+* 002   A. Methot and A. Tremblay (Mar 1999) - Use virtual 
+*       temperature for calculation of air density
+* 003   A. Methot (Jan 1999) - Corrections to avoid negative condensate
+* 004   A. Methot (Apr 1999) - Optimization: rewrite sedimentation loop
+* 005   A. Methot (Apr 1999) - Introduction of a constant flux layer 
+*       near the surface
+* 006   A. Glazer and A. Tremblay (Oct 1999) - Introduce homogeneous 
+*       nucleation for T < -35 deg C 
+* 007   A. Methot (Jan 2000) - Correction of loop 33: update fluxes
+* 008   A. Methot (Apr 2000) - Melting of snowfall moved to sedimentation loop
+* 009   A. Tremblay, J. Mailhot, A. Glazer and P. Vaillancourt (Apr 2000) 
+*       - Sursaturation generation term generalized
+* 010   A. Tremblay  (Jul 2000)  - Remove references to vertical velocity
+* 011   A. Tremblay and A. Glazer  (Nov 2000)  - General IP distrib from Platt-Ryan
+* 012   A. Glazer (Aug 2001) - Changes necessary to run mixphase: 
+*       replace stkmemw by automatic arrays
+*       include phy_macros_f.h, options.cdk and dzcond.cdk
+*       (remove nksurf and dzmin, defined in dzcond.cdk)
+*       (modifs as B. Bilodeau did for mixphas2 (Jan 2001)) 
+*       Change arguments: - rip add  
+*                         - ccs add (compute as in mixphas2)
+* 013   A. Glazer and J. Mailhot (Sept 2001) - Update FICE at each fractional timestep 
+* 014   A. Methot and A. Glazer (Sept 2001) - Precipitation types (Bourgouin's method) added
+* 015   A. Glazer and A. Tremblay (Oct 2001) - Sedimentation precedes the classical 
+*       freezing precipitation algorithms, precipitation fluxes updated 
+* 016   A. Glazer A. Plante (Oct 2001) - Implement box-Lagrangian (BLG) sedimentation 
+*       (S/P blg de Girard and Plante) 
+* 017   A. Glazer and A. Tremblay (Nov 2001) - Polynomial approxmation for a3b(t)
+* 018   A. Glazer and A. Tremblay (Nov 2001) - Melting reformulated, sdep limited,
+*       polynomial approxmation for a2b(t)
+* 019   A. Glazer and A. Tremblay (Feb 2002) - Ryan4 (threshold ksv as function of temperature)  
+* 020   P. Vaillancourt (Mar 2002) - Deposition/sublimation limited as for initiation (cni)
+* 021   A. Glazer (Mar 2002) -  tnuc=tcdk
+* 022   A. Tremblay, J. Mailhot and A. GLAZER (Mar 2002) - chop supersat w/r to water to 1.05 
+* 023   A. Plante (August 2002)
+*          - separation of solid and liquid lagragian sedimentation in order to allow a different
+*            number of pass for each phase.
+*          - Replace elementary snow melting with melting according to fice
+*          - Add the flag "fonte" to identify points where melting by the extended Bourgouin
+*            methot occurs. This is used to identity freezing drizzle. freezing drizzle is added 
+*            to snow for now.
+*          - Minor modifications to the extended Bourgouin methot :
+*            1) force the extended Bourgouin methot to overwrite fice for points where T > 0C before
+*               the microphysics and T < 0C after the microphysics.
+*            2) Replace flow control (if statements) by min and max functions.
+*            3) adjuste fraction of snow and ice pellet from value at the top of layers.
+* 024   B. Bilodeau and A. Glazer (Nov 2002) - Flag
+* 025   B. Bilodeau (Mar 2003) - kkl read from namelist and 
+* 026   A. Glazer (Mar 2003) - Add flag=4 if initialization of warm phase
+*                              and remove "superfit" from ksv
+* 027   B. Bilodeau (Mar 2003) - Change value for threshold of cloud fraction
+* 028   A. PLante (June 2003) - IBM conversion plus reentrance blg2.ftn
+* 029   B. Bilodeau (Sept 2003) - exponen4 replaced by vspow1n and vspownn
+* 030   A. Glazer (Sept 2003) - Eliminate revision 22 (chop supersat to 1.05)
+* 031   A. Plante (Mar 2004) - mixphase6 Add fneige, snow fraction
+*
+*Object
+*          to calculate the temperature, humidity and total condensate
+*          tendencies due to microphysical processes,
+*          to calculate the liquid and solid precipitation rates
+*          to diagnose the solid fraction of total condensate
+*          to diagnose cloud fraction and
+*          the ratio of liquid precipitation that has refrozen (RIP)
+*
+*Arguments
+*
+*          - Input -
+* T        temperature                                (t+dt)
+* QV       specific humidity                          (t+dt)
+* M        total condensate                           (t+dt)
+* S        sigma levels
+* PS       surface pressure                           (t+dt)
+*
+*          - Output -
+* FICE     ice fraction of total condensate           (t+dt)
+* RL       liquid precipitation rate                  (t+dt)
+* RS       solid precipitation rate                   (t+dt)
+* DTDT     temperature (T) tendency                   (t+dt)
+* DQDT     specific humidity (QV) tendency            (t+dt)
+* DMDT     total condensate (M) tendency              (t+dt)
+* CCS      cloud fraction                             (t+dt)
+* RIP      ratio of ice pellet precipitation over rainfall 
+*
+*          - Input -
+* GZ       geopotential height
+* DT       timestep
+* NI       horizontal dimension
+* NK       vertical dimension
+*
+*References
+*          Tremblay et al., TELLUS, 1996
+*          Tremblay & Glazer, MON. WEA. REV., 2000.
+*
+C PHYSICAL CONSTANTS & PARAMETERS
+*
+#include "consphy.cdk"
+#include "options.cdk"
+#include "dzcond.cdk"
+*
+      real dvair,kair,fv
+      parameter (dvair=2.11e-5,kair=.0236,fv=1.)
+      real rhos,rho0,e0
+      parameter (rhos=100.,rho0=1.,e0=610.78)
+      real kep
+      parameter (kep=5.53e-4)
+      real m0i,n0i,beta
+      parameter (m0i=1e-9,n0i=1e-2,beta=0.6)
+      real c3,esc,v0
+      parameter (c3=1.9e-5,esc=1.,v0=-5.1)
+      real tmin,mmin,tice
+      parameter (tmin=253.16,mmin=0.01,tice=238.16)
+      real kks
+      parameter (kks=0.01)
+      real wam,wdm,wtm,cam,cdm
+      parameter (wam=30.,wdm=350.,wtm=400.,cam=0.,cdm=0.)
+      real cvl,evl
+      parameter (cvl=-31.2,evl=0.125)
+      real tnuc,d2
+      parameter(tnuc=268.16,d2=200e-6)
+      real b1,b2b,b3b,c31
+      parameter(b1=1.,b2b=1.,b3b=1.,c31=3.82e-6)
+*
+      integer kf,idir,npass_l,npass_s
+      parameter(kf=0,idir=0,npass_l=3,npass_s=2)
+*
+C VARIABLES DEFINITION
+      integer i,k,l,nn,ndts
+      real qvs,qvsi,rho,rvs,rvsi,c1,c2,cn,er,xn,de,qvx
+      real cni,xnn,dts,val,df,fm,om,xi,ec,rhod,ev
+      real tt,pp,qqs,qqv,esw,esi,aa,bb,fr,mm,omeg2,ff,mx
+      real qsatw,qsati,vqsatw,vqsati,qs,sdep,siw,fd,zero
+      real wt,si,simax,q,tv,qtn,eswa,esic,vsiw
+      real mml,mms,c31exb3b
+      real p2b,p3b,lr,a1,a2b,a3b
+      real area, seuil1, seuil2
+      real sml,sms,smt,aaa,bbb
+      real vlmaxl,vsmaxl,vmax
+      parameter(vlmaxl=10.,vsmaxl=2.)
+
+      logical check,locallim
+
+***************************************************
+*     AUTOMATIC ARRAYS
+***************************************************
+*     
+      real work1(ni,nk),work2(ni,nk),work3(ni,nk),ficef(ni,nk)
+      real ficetop(ni),riptop(ni)
+      integer warm(ni),fonte(ni)
+      AUTOMATIC ( ICODE   , INTEGER , (NI,NK) )
+      AUTOMATIC ( KBAS    , INTEGER , (NI   ) )
+      AUTOMATIC ( KTOP    , INTEGER , (NI   ) )
+      AUTOMATIC ( KD      , INTEGER , (NI   ) )
+*
+      AUTOMATIC ( PHIML   , REAL    , (NI,NK) )
+      AUTOMATIC ( PHIMS   , REAL    , (NI,NK) )
+      AUTOMATIC ( KSV     , REAL    , (NI,NK) )
+      AUTOMATIC ( KSVT    , REAL    , (NI,NK) )
+      AUTOMATIC ( CA      , REAL    , (NI   ) )
+      AUTOMATIC ( CD      , REAL    , (NI   ) )
+      AUTOMATIC ( WA      , REAL    , (NI   ) )
+      AUTOMATIC ( WD      , REAL    , (NI   ) )
+      AUTOMATIC ( ZBAS    , REAL    , (NI   ) )
+      AUTOMATIC ( ZTOP    , REAL    , (NI   ) )
+      AUTOMATIC ( P       , REAL    , (NI,NK) )
+      AUTOMATIC ( TINI    , REAL    , (NI,NK) )
+      AUTOMATIC ( QINI    , REAL    , (NI,NK) )
+      AUTOMATIC ( MINI    , REAL    , (NI,NK) )
+      AUTOMATIC ( PRCUML  , REAL    , (NI,NK) )
+      AUTOMATIC ( PRCUMS  , REAL    , (NI,NK) )
+      AUTOMATIC ( RO0FACL , REAL    , (NI,NK) )
+      AUTOMATIC ( RO0FACS , REAL    , (NI,NK) )
+      AUTOMATIC ( FICEAV  , REAL    , (NI   ) )
+      AUTOMATIC ( DZAV    , REAL    , (NI   ) )
+      AUTOMATIC ( DZ      , REAL    , (NI,NK) )
+*
+      AUTOMATIC ( RAIN    , REAL    , (NI,NK) )
+      AUTOMATIC ( SNOW    , REAL    , (NI,NK) )
+      AUTOMATIC ( CL_WAT  , REAL    , (NI,NK) )
+      AUTOMATIC ( CL_ICE  , REAL    , (NI,NK) )
+      AUTOMATIC ( VL      , REAL    , (NI,NK) )
+      AUTOMATIC ( VS      , REAL    , (NI,NK) )
+      AUTOMATIC ( RRL     , REAL    , (NI   ) )
+      AUTOMATIC ( RRS     , REAL    , (NI   ) )
+      AUTOMATIC ( work4   , REAL    , (NI,NK) )
+      AUTOMATIC ( qswa    , REAL    , (NI,NK) )
+      AUTOMATIC ( qsic    , REAL    , (NI,NK) )
+      AUTOMATIC ( fsiw    , REAL    , (NI,NK) )
+*
+***************************************************
+*
+C  LOGICAL SWITCHES FOR TESTING
+      logical mixphas,sedim,zrc,icephas,melt,homnuc,ipc
+      logical blg_sedim,diag
+      data mixphas/.true./,sedim/.true./,zrc/.false./,icephas/.true./,
+     1melt/.true./,homnuc/.true./,ipc/.true./,diag/.false./,
+     2blg_sedim/.true./,zero/1e-8/,simax/5./
+*
+C  DEFINITION OF INLINE MICROPHYSICS FUNCTIONS
+c      p2b(tt)=max(-78.739+(0.621-1.185e-3*tt)*tt,0.)
+c      p3b(tt)=max(-278.078+(2.238-4.362e-3*tt)*tt,0.)
+      lr(tt)=1220.*10**(-0.0245*(tt-trpl))
+      a1(tt)=lr(tt)*lr(tt)*(1.+lr(tt)*d2)/
+     1 (6.+6.*lr(tt)*d2+3.*lr(tt)*lr(tt)*d2*d2+
+     2 lr(tt)*lr(tt)*lr(tt)*d2*d2*d2)
+c      a1(tt)=lr(tt)**2*(1.+lr(tt)*d2)/
+c     1 (6.+6.*lr(tt)*d2+3.*lr(tt)**2*d2**2+lr(tt)**3*d2**3)
+c      a2b(tt)=(lr(tt)**.73*exp(lr(tt)*d2)*p2b(tt))/
+c     1 (6.+6.*lr(tt)*d2+3.*lr(tt)**2*d2**2+lr(tt)**3*d2**3)
+c      a3b(tt)=(lr(tt)**(-.27)*exp(lr(tt)*d2)*p3b(tt))/
+c     1 (6.+6.*lr(tt)*d2+3.*lr(tt)**2*d2**2+lr(tt)**3*d2**3)
+
+c      a1(tt)=min(2.e7,3.9977821886e8+(-2.9190018398e6+
+c     1   5.328638878e3*tt)*tt)
+      a2b(tt)=min(321.,5457.6726226+(-35.6319115987+
+     1   0.058310679*tt)*tt)
+      a3b(tt)=min(0.2,25.566659549+(-0.3111695135+
+     1   (1.2586332114e-3-1.6823765004e-6*tt)*tt)*tt)
+
+      esw(tt)=e0*exp(17.269*(tt-trpl)/(tt-35.86))
+      esi(tt)=e0*exp(21.875*(tt-trpl)/(tt-7.66))
+      qsatw(tt)=1e3*eps1*esw(tt)/(rgasd*tt)
+      qsati(tt)=1e3*eps1*esi(tt)/(rgasd*tt)
+      vqsatw(eswa,tt)=1e3*eps1*eswa/(rgasd*tt)
+      vqsati(esic,tt)=1e3*eps1*esic/(rgasd*tt)
+c      aa(tt)=(chlc+chlf)**2/(kair*rgasv*tt**2)
+      aa(tt)=(chlc+chlf)*(chlc+chlf)/(kair*rgasv*tt*tt)
+      bb(tt)=(rgasv*tt)/(esi(tt)*dvair)
+      siw(tt)=qsatw(tt)/qsati(tt)
+cc           AS b1=b2b=b3b=1.  WE PUT THEM EXPLICITLY:
+cc    fd(tt)=2.*pi*(siw(tt)-1.)/(aa(tt)+bb(tt))*fv*a1(tt)*c31**b1
+cc    sdep(qqs,qqv,tt)=(1e3)*2.*pi*(qqv/qsati(tt)-1.)/(aa(tt)+bb(tt))*
+cc   1fv*a1(tt)*c31**b1*qqs**b1
+cc    fr(tt,pp)=0.00025*pi*esc*(-v0)*sqrt(rho0*rgasd*tt/pp)*a2b(tt)
+cc   1 *c31**b2b
+cc    omeg2(ff,pp,tt,mm,qtn)=fr(tt,pp)*(mm*ff)**b2b*mm*(1.-ff)
+cc   1+fd(tt)*(mm*ff)**b1-ff*1e-3*qtn
+      fd(tt)=2.*pi*(siw(tt)-1.)/(aa(tt)+bb(tt))*fv*a1(tt)*c31
+      sdep(qqs,qqv,tt)=(1e3)*2.*pi*(qqv/qsati(tt)-1.)/(aa(tt)+bb(tt))*
+     1fv*a1(tt)*c31*qqs
+      fr(tt,pp)=0.00025*pi*esc*(-v0)*sqrt(rho0*rgasd*tt/pp)*a2b(tt)
+     1 *c31
+      omeg2(ff,pp,tt,mm,qtn)=fr(tt,pp)*(mm*ff)*mm*(1.-ff)
+     1+fd(tt)*(mm*ff)-ff*1e-3*qtn
+*
+      if(kount.eq.0)then
+         vlmax(1)=vlmaxl
+         vsmax(1)=vsmaxl
+      endif
+
+*
+C CALCULATE PRESSURE (PA)
+C CHANGE UNITS OF M(KG/KG -->G/M3) AND QV(KG/KG -->G/M3)
+c      print *, 'mixphase_516'
+      do 1 k=1,nk
+         do 1 i=1,ni
+         p(i,k)=s(i,k)*ps(i)
+ 1    continue
+      do 2 k=1,nk
+         do 2 i=1,ni
+         tini(i,k)=t(i,k)
+         qini(i,k)=qv(i,k)
+         mini(i,k)=m(i,k)
+         tv=t(i,k)*(1.+delta*qv(i,k))
+         rho=p(i,k)/(rgasd*tv)
+         m(i,k)=1.e3*rho*m(i,k)
+         qv(i,k)=1.e3*rho*qv(i,k)
+ 2    continue
+C DEFINE THICKNESSES OF LAYERS FOR SEDIMENTATION CALCULATION
+      do 3 k=2,nk
+         do 3 i=1,ni
+         dz(i,k)=(gz(i,k-1)-gz(i,k))/(grav)
+ 3    continue
+      do 4 i=1,ni
+         dz(i,1)=dz(i,2)
+ 4    continue
+C---------------------------------------------------------
+C DIAGNOSTIC ON INPUT FIELDS ...
+c      if(diag) then
+c      call chksatw2('mxp_inpdia',qv,t,p,dt,ni,nk)
+c      endif
+C---------------------------------------------------------
+C DEFINE THRESHOLD KSV AS FUNCTION OF HEIGHT
+C THRESHOLD KSV FROM HEYMSFIELD-PLATT SMALL IP DISTRIB [PLATT, JAS 1997; RYAN JAS 2000]
+      aaa=1.e3*2.316
+      bbb=1.e3*1.158
+      do k=1,nk
+         do i=1,ni
+            work1(i,k)=-6.-.0413*(t(i,k)-tcdk)
+            work2(i,k)=-4.+.0519*(t(i,k)-tcdk)
+         enddo
+      enddo
+      call vspow1n (work3,10.,work1,ni*nk)
+      call vspow1n (work4,10.,work2,ni*nk)
+      call mfoewa(qswa,t,ni,nk,ni)
+      call mfoeic(qsic,t,ni,nk,ni)
+       do k=1,nk
+         do i=1,ni
+            qswa(i,k)=vqsatw(qswa(i,k),t(i,k))
+            qsic(i,k)=vqsati(qsic(i,k),t(i,k))
+         enddo
+      enddo
+      do 5 k=1,nk
+        do 5 i=1,ni
+        ksv(i,k)=1.e3*2.316*work3(i,k)
+        if ( t(i,k) .lt. 254.92 ) ksv(i,k)=1.e3*1.158*work4(i,k)
+ 5    continue
+        do k=1,nk
+        do i=1,ni
+           si=(p(i,k)-70000.)/10000.
+           ksv(i,k)=ksv(i,k)*(1. + 2.*(1. + tanh(si)))
+        end do
+        end do
+*
+cc        ksv(i,k)=1.e3*2.316*10.**(-6.-.0413*(t(i,k)-tcdk))
+cc      if ( t(i,k) .lt. 255.66 )
+cc   1  ksv(i,k)=1.e3*1.158*10.**(-4.+.0519*(t(i,k)-tcdk))
+cc         if (t(i,k) .lt. 193.16 ) ksv(i,k)=0.0
+c reset ks constant for cold clouds.
+cc      if (t(i,k).lt.255.66.and.t(i,k).gt.213.16) ksv(i,k)=1.223e-2 
+cc        if ( t(i,k) .lt. 213.66 )
+cc     1  ksv(i,k)=1.e3*1.158*10.**(-4.+.0519*(t(i,k)-tcdk))
+C---------------------------------------------------------
+*
+C 1 MICROPHYSICS CALCULATIONS
+C   1.1 CASE CLASSIFICATION AND CALCULATION OF FICE
+C         ICODE=1 -SOLID PHASE
+C         ICODE=2 -MIXED-PHASE
+      do 6 k=1,nk
+         do 6 i=1,ni
+         if (m(i,k).lt.zero) m(i,k)=0.
+         fice(i,k)=0.
+         icode(i,k)=0
+         if (icephas) then
+            fice(i,k)=1.
+            icode(i,k)=0
+            if (t(i,k).lt.tcdk.and.m(i,k).gt.0.) icode(i,k)=1
+!            if (icode(i,k).eq.1.and.qv(i,k)
+!     1       .gt.qsatw(t(i,k)).and.t(i,k).gt.tmin.and.mixphas) then
+            if (icode(i,k).eq.1.and.qv(i,k)
+     1       .gt.qswa(i,k).and.t(i,k).gt.tmin.and.mixphas) then
+               xi=0.
+!               qtn=(qv(i,k)-qsatw(t(i,k)))/dt
+               qtn=(qv(i,k)-qswa(i,k))/dt
+               val=omeg2(1.,p(i,k),t(i,k),m(i,k),qtn)
+               if (val.lt.0.) icode(i,k)=2
+            end if
+         end if
+ 6    continue
+C   SOLVE FOR FRACTIONAL ICE CONTENT (TELLUS, 1996) 
+      do 8 k=1,nk
+         do 8 i=1,ni
+         if (icode(i,k).eq.2) then
+            xi=0.
+!            qtn=(qv(i,k)-qsatw(t(i,k)))/dt
+            qtn=(qv(i,k)-qswa(i,k))/dt
+            fice(i,k)=1.-zero
+            df=zero-fice(i,k)
+            do 7 l=1,7
+               df=0.5*df
+               fm=fice(i,k)+df
+               om=omeg2(fm,p(i,k),t(i,k),m(i,k),qtn)
+               if (om.lt.0.) fice(i,k)=fm
+ 7          continue
+         end if
+ 8    continue
+*
+C   1.2 MIXED-PHASE IN SATURATED REGIONS AND SOLID PHASE
+        
+      do 9 k=1,nk
+         do 9 i=1,ni
+         if (icode(i,k).ge.1) then
+            ev=1.e-03*qv(i,k)*rgasv*t(i,k)
+            rhod=(p(i,k)-ev)/(rgasd*t(i,k))
+            rho=rhod+1.e-03*qv(i,k)
+!            qvs=qsatw(t(i,k))
+            qvs=qswa(i,k)
+!            if (t(i,k).le.tice.and.homnuc) qvs=qsati(t(i,k))
+            if (t(i,k).le.tice.and.homnuc) qvs=qsic(i,k)
+            rvs=1e-3*qvs/rhod
+            c1=1./(1.+chlc**2/(cpd*rgasv*t(i,k)**2)*rvs)
+            if (t(i,k).le.tice.and.homnuc)c1=1./(1.+(chlc+chlf)**2/(cpd*
+     1       rgasv*t(i,k)**2)*rvs)
+c***8 mars***********
+c modifications paulv pour limiter terme de deposition/sublimation
+!               qvsi=qsati(t(i,k))
+               qvsi=qsic(i,k)
+               rvsi=1e-3*qvsi/rhod
+               c2=1./(1.+(chlc+chlf)**2/(cpd*rgasv*t(i,k)**2)*rvsi)
+               cni=(qv(i,k)-qvsi)*c2/dt
+               qs=fice(i,k)*m(i,k)
+               de=sdep(qs,qv(i,k),t(i,k))
+               if(de .gt. 0.) de=min(de,cni)
+               if(de .lt. 0.) de=max(de,cni)
+               de=max(de,-m(i,k)/dt)
+c code original avant modifs ci-haut
+c            qs=fice(i,k)*m(i,k)
+c            de=sdep(qs,qv(i,k),t(i,k))
+c            de=min(de,qv(i,k)/dt)
+c            de=max(de,-m(i,k)/dt)
+c***8 mars***********
+            qvx=qv(i,k)-de*dt
+            cn=0.
+            if (qvx.gt.qvs) cn=c1*(qvx-qvs)/dt
+            m(i,k)=m(i,k)+(cn+de)*dt
+            if ((cn+de)*dt.gt.zero) then
+               flag(i,k)=1
+            else if ((cn+de)*dt.lt.-zero) then
+               flag(i,k)=-1
+            endif
+            qv(i,k)=qv(i,k)-(cn+de)*dt
+            if (t(i,k).le.tice.and.homnuc) then
+c              TEMPERATURE CHANGE
+               t(i,k)=t(i,k)+1e-3/(rho*cpd)*((chlc+chlf)*(cn+de))*dt
+            else
+c              TEMPERATURE CHANGE
+               t(i,k)=t(i,k)+1e-3/(rho*cpd)*(chlc*cn+(chlc+chlf)*de)*dt
+            end if
+         end if
+ 9    continue
+*
+C   1.3 INITIATION OF M AT SUBFREEZING TEMPERATURE
+      if (icephas) then
+         call mfoewa(qswa,t,ni,nk,ni)
+         call mfoeic(qsic,t,ni,nk,ni)
+         do k=1,nk
+            do i=1,ni
+               qswa(i,k)=vqsatw(qswa(i,k),t(i,k))
+               qsic(i,k)=vqsati(qsic(i,k),t(i,k))
+            enddo
+         enddo
+         do 10 k=1,nk
+            do 10 i=1,ni
+!            qvs=qsatw(t(i,k))
+            qvs=qswa(i,k)
+!            qvsi=qsati(t(i,k))
+            qvsi=qsic(i,k)
+c initiation of ice at tnuc=268.13 
+            if (t(i,k).lt.tcdk.and.m(i,k).le.0..and.qv(i,k).ge.qvsi)
+     1      then
+               ev=1.e-03*qv(i,k)*rgasv*t(i,k)
+               rhod=(p(i,k)-ev)/(rgasd*t(i,k))
+               rho=rhod+1.e-03*qv(i,k)
+               rvs=1e-3*qvs/rhod
+               rvsi=1e-3*qvsi/rhod
+               c1=1./(1.+chlc**2/(cpd*rgasv*t(i,k)**2)*rvs)
+               c2=1./(1.+(chlc+chlf)**2/(cpd*rgasv*t(i,k)**2)*rvsi)
+               cni=(qv(i,k)-qvsi)*c2/dt
+               si=qv(i,k)/qvsi
+               if (si.gt.simax) si=simax
+               xnn=m0i*1e3*exp(-0.639+0.1296*(100.*(si-1.)))/dt
+               xn=min(cni,xnn)
+               qvx=qv(i,k)-xn*dt
+               cn=0.
+               if (qvx.gt.qvs) cn=(qvx-qvs)*c1/dt
+               m(i,k)=m(i,k)+(cn+xn)*dt
+               if ((cn+xn)*dt.gt.zero) flag(i,k)=2
+               if (cni.lt.xnn)         flag(i,k)=-2
+               qv(i,k)=qv(i,k)-(cn+xn)*dt
+c              TEMPERATURE CHANGE               
+               t(i,k)=t(i,k)+1e-3/(rho*cpd)*(chlc*cn+(chlc+chlf)*xn)*dt
+            end if
+ 10      continue
+      end if
+*
+C   1.4 WARM RAIN PROCESSES
+      do 11 k=1,nk
+         do 11 i=1,ni
+         if (t(i,k).lt.tcdk.and.icephas) then
+         else
+            fice(i,k)=0.
+            cn=0.
+            er=0.
+            ec=0.
+            qvs=qsatw(t(i,k))
+            ev=1.e-03*qv(i,k)*rgasv*t(i,k)
+            rhod=(p(i,k)-ev)/(rgasd*t(i,k))
+            rho=rhod+1.e-03*qv(i,k)
+            rvs=1e-3*qvs/rhod
+            c1=1./(1.+chlc**2/(cpd*rgasv*t(i,k)**2)*rvs)
+            mm=m(i,k)
+            qvx=(qv(i,k)-qvs)
+            if (qvx.gt.0.) then
+               cn=qvx*c1/dt
+            else if (mm.gt.0.) then
+               if (mm.lt.kkl2) then
+                  mx=min(-qvx*c1,mm)
+                  ec=-mx/dt
+               else
+                  mx=min(-qvx*c1,kkl2)
+                  ec=-mx/dt
+                  mx=mm+ec*dt
+                  qvx=qvx-ec*dt
+                  if (qvx.lt.0.and.mx.gt.0.) er=kep*qvx*mx**.65
+               end if
+            end if
+            er=max(er,-(ec+m(i,k)/dt))
+            if ((cn+er+ec)*dt.gt.zero) then
+               flag(i,k)=3
+               if (m(i,k).le.0) flag(i,k)=4
+            else if ((cn+er+ec)*dt.lt.-zero) then
+               flag(i,k)=-3
+            endif
+            m(i,k)=m(i,k)+(cn+er+ec)*dt
+            qv(i,k)=qv(i,k)-(cn+er+ec)*dt
+c           TEMPERATURE CHANGE
+            t(i,k)=t(i,k)+1e-3/(rho*cpd)*chlc*(cn+er+ec)*dt
+         end if
+ 11   continue
+*
+C   1.5 SEDIMENTATION
+      do 22 i=1,ni
+         rl(i)=0.
+         rs(i)=0.
+ 22   continue
+      if (sedim) then
+*
+         if (blg_sedim) then
+*
+C           INITIALIZE FIELDS
+            do i=1,ni
+               rrl(i)=0.
+               rrs(i)=0.
+            enddo
+*     
+C           MAIN SEDIMENTATION LOOP (BLG) STARTS
+*
+c           pre-calculations
+            c31exb3b=1.
+            call vsdiv(work1,t,p,ni*nk)
+            do k=1,nk
+               do i=1,ni
+                  aaa=sqrt(rho0*rgasd*work1(i,k))
+                  ro0facl(i,k)=cvl*aaa*(1.e-6)**evl
+                  ro0facs(i,k)=v0*aaa*a3b(t(i,k))*c31exb3b
+
+c                 Compute liquid mass and ice mass in work1 and work2
+c                 And save m defore sedimation in work3 for melting computations.
+                  work1(i,k)=max( 0., m(i,k)*(1.-fice(i,k)) )
+                  work2(i,k)=max( 0., m(i,k)*    fice(i,k)  )
+                  work3(i,k)=m(i,k)
+
+               enddo
+            enddo
+*     
+c           Compute the ind_limit at the first time step and
+c           until the model mountains are fully grown. This is
+c           controlled in calling routine via complim parameter.
+*
+*
+c           Sediment liquid
+            dts=dt/float(npass_l)
+            do nn=1,npass_l
+*     
+               do k=1,nk
+                  do i=1,ni
+
+c                    Compute the precipitating fields
+                     rain(i,k)=max(0.,work1(i,k)-kkl2     )
+
+c                    Store the non precipitating fields
+c                    these fields will be added to the precipitating fields
+c                    after sedimentation (done in s/p blg)
+                     cl_wat(i,k)=max(0.,work1(i,k)-rain(i,k))
+
+                  enddo
+               enddo
+*     
+c              Compute the velocities and precipitating fields (in kg/m3)   
+               call vspown1 (work4,rain,evl,ni*nk)
+               vmax=vlmax(1)
+               do k=1,nk
+                  do i=1,ni
+!                     vl(i,k)= ro0facl(i,k)*rain(i,k)**evl
+                     vl(i,k)= ro0facl(i,k)*work4(i,k)
+                     vmax=max(vmax,-1.2*vl(i,k))
+                  enddo
+               enddo
+*     
+c              Find the new distribution of the precipitating fields (in kg/m3)
+c              according to box-Lagrangian scheme
+*
+               locallim=.false.
+               if(complim.and.nn.eq.1)locallim=.true.
+               if(vmax.gt.vlmax(1))then
+                  locallim=.true.
+                  vlmax(1)=vmax
+               endif
+               call blg2(rain,rrl,dz,vl,ni,nk,dts,locallim,kf,vlmax(1),
+     $              selimw,idir)
+*     
+               do i=1,ni
+                  rl(i)=rl(i)+rrl(i)
+               enddo
+*     
+c              Compute liquid mass
+               do k=1,nk
+                  do i=1,ni
+                     work1(i,k) = cl_wat(i,k) + rain(i,k)
+                  enddo
+               enddo
+*     
+            enddo
+*     
+C           Sediment solid
+            dts=dt/float(npass_s)
+            do nn=1,npass_s
+*     
+               vmax=vsmax(1)
+               do k=1,nk
+                  do i=1,ni
+
+c                    Compute the precipitating fields
+                     snow(i,k)=max(0.,work2(i,k)-ksv(i,k))
+
+c                    Store the non precipitating fields
+c                    these fields will be added to the precipitating fields
+c                    after sedimentation (done in s/p blg)
+                     cl_ice(i,k)=max(0.,work2(i,k)-snow(i,k))
+
+c                    Compute the velocities and precipitating fields (in kg/m3)   
+                     mms=snow(i,k)
+                     vs(i,k)=0. 
+                     if (mms.gt.zero) vs(i,k)= ro0facs(i,k)
+                     vmax=max(vmax,-1.2*vs(i,k))
+
+                  enddo
+               enddo
+*     
+c              Find the new distribution of the precipitating fields (in kg/m3)
+c              according to box-Lagrangian scheme
+*
+               locallim=.false.
+               if(complim.and.nn.eq.1)locallim=.true.
+               if(vmax.gt.vsmax(1))then
+                  locallim=.true.
+                  vsmax(1)=vmax
+               endif               
+               call blg2(snow,rrs,dz,vs,ni,nk,dts,locallim,kf,vsmax(1),
+     $              selimi,idir)
+*     
+               do i=1,ni
+                  rs(i)=rs(i)+rrs(i)
+               enddo
+*     
+c              Compute ice mass.
+               do k=1,nk
+                  do i=1,ni
+                     work2(i,k) = cl_ice(i,k) + snow(i,k)
+                  enddo
+               enddo
+*     
+            enddo
+*     
+C           MAIN SEDIMENTATION LOOP (BLG) ENDS
+*
+c           Total condensate (m) and its solid fraction (fice) distribution after sedim
+            do k=1,nk
+               do i=1,ni
+                  sml = work1(i,k)
+                  sms = work2(i,k)
+                  smt = sml + sms
+                  if (smt.gt.zero) fice(i,k)=max(0.,sms/smt)
+                  m(i,k) = smt
+               enddo
+            enddo
+*
+c           PRECIPITATION RATE
+            do i=1,ni
+               rl(i)=1.e-3*rl(i)/dt
+               rs(i)=1.e-3*rs(i)/dt
+            enddo
+*     
+         else
+*
+C   PREPARE PROPERTIES OF SURFACE LAYER
+         if (nksurf.lt.nk) then
+            do 25 i=1,ni
+               ficeav(i)=fice(i,nksurf)
+               dzav(i)=dz(i,nksurf)
+               m(i,nksurf)=m(i,nksurf)*dz(i,nksurf)
+ 25         continue
+            do 26 k=nksurf+1,nk
+               do 26 i=1,ni
+               m(i,nksurf)=m(i,nksurf)+m(i,k)*dz(i,k)
+               fice(i,nksurf)=max(fice(i,nksurf),fice(i,k))
+               dz(i,nksurf)=dz(i,nksurf)+dz(i,k)
+ 26         continue
+            do 27 i=1,ni
+               m(i,nksurf)=m(i,nksurf)/dz(i,nksurf)
+ 27         continue
+         end if
+C   PRE-CALCULATIONS
+cc            c31exb3b=c31**(b3b-1.)
+            c31exb3b=1.
+         do 28 k=1,nksurf
+            do 28 i=1,ni
+            phiml(i,k)=0.
+            phims(i,k)=0.
+            prcuml(i,k)=0.
+            prcums(i,k)=0.
+C_AG_11_July_02            ro0facs(i,k)=sqrt(rho0*rgasd*t(i,k)/p(i,k))
+            ro0facl(i,k)=cvl*sqrt(rho0*rgasd*t(i,k)/p(i,k))*(1.e-6)**(evl)
+            ro0facs(i,k)=v0*sqrt(rho0*rgasd*t(i,k)/p(i,k))*a3b(t(i,k))*c31exb3b
+ 28      continue
+C   DETERMINE SUB-TIMESTEPS
+         dts=0.1*dzmin
+         if (dts.gt.dt) dts=dt
+         ndts=nint(dt/dts+0.5)
+         dts=dt/float(ndts)
+C   MAIN SEDIMENTATION LOOP
+         do 31 nn=1,ndts
+            do 30 k=2,nksurf
+               do 30 i=1,ni
+               mml=m(i,k)*(1.-fice(i,k))-kkl2
+               mms=m(i,k)*fice(i,k)-ksv(i,k)
+               phiml(i,k)=0.
+               if (mml.gt.zero) phiml(i,k)=ro0facl(i,k)*mml**(evl+1.)
+               phims(i,k)=0.
+cc               if (mms.gt.zero) phims(i,k)=ro0facs(i,k)*mms**b3b
+               if (mms.gt.zero) phims(i,k)=ro0facs(i,k)*mms
+               sml=m(i,k)*(1.-fice(i,k))+(dts/dz(i,k))*(phiml(i,k)-
+     1             phiml(i,k-1))
+               sms=m(i,k)*fice(i,k)     +(dts/dz(i,k))*(phims(i,k)-
+     1             phims(i,k-1))
+               smt=sml+sms
+               if (smt.gt.zero) fice(i,k)=max(0.,sms/smt)
+               m(i,k)=smt
+               prcuml(i,k)=prcuml(i,k)+phiml(i,k)
+               prcums(i,k)=prcums(i,k)+phims(i,k)
+ 30         continue
+ 31      continue
+C   RECOVER INDIVIDUAL LEVELS PROPERTIES IN SURFACE LAYER
+         if (nksurf.lt.nk) then
+            do 32 i=1,ni
+               fice(i,nksurf)=ficeav(i)
+               dz(i,nksurf)=dzav(i)
+ 32         continue
+C   UPDATE CONDENSATE RATIO AND FLUXES FOR EACH LEVEL
+            do 33 k=nksurf+1,nk
+               do 33 i=1,ni
+               m(i,k)=m(i,nksurf)
+               phims(i,k) = prcuml(i,nksurf) + prcums(i,nksurf)
+               prcums(i,k)= fice(i,k) * phims(i,k)
+               prcuml(i,k)= min(0., phims(i,k) - prcums(i,k))
+ 33         continue
+         end if
+C   NORMALIZATION OF PRECIPITATION FLUXES
+         do 34 i=1,ni
+            rl(i)=-1e-3*prcuml(i,nk)/float(ndts)
+            rs(i)=-1e-3*prcums(i,nk)/float(ndts)
+ 34      continue
+*
+         end if
+*
+      end if
+*
+C   1.6 CLASSICAL FREEZING PRECIPITATION (HUFFMAN & NORMAN, MWR, 1988)
+      if (zrc .and. icephas .and. .not. ipc) then
+	 print*,'This code has to be validated with blg and snow melting'
+	 call qqexit(1)
+
+         do 13 i=1,ni
+            k=nk
+            kbas(i)=k
+            zbas(i)=0.
+ 12         if (m(i,k).le.mmin) then
+               k=k-1
+               kbas(i)=k
+               zbas(i)=zbas(i)+dz(i,k)
+               if (k.le.1) go to 13
+               go to 12
+            end if
+ 13      continue
+         do 15 i=1,ni
+            k=kbas(i)
+            ktop(i)=k
+            ztop(i)=zbas(i)
+            if (k.le.1) go to 15
+ 14         if (m(i,k).gt.mmin) then
+               k=k-1
+               ktop(i)=k
+               ztop(i)=ztop(i)+dz(i,k)
+               if (k.le.1) go to 15
+               go to 14
+            end if
+ 15      continue
+         do 18 i=1,ni
+            ca(i)=0.
+            cd(i)=0.
+            wa(i)=0.
+            wd(i)=0.
+            k=nk
+            kd(i)=k
+            if (kbas(i).eq.1.or.t(i,nk).ge.tcdk) go to 18
+ 16         if (t(i,k).le.tcdk) then
+               k=k-1
+               kd(i)=k
+               ca(i)=ca(i)+abs(t(i,k+1)-tcdk)*dz(i,k+1)
+               cd(i)=cd(i)+dz(i,k+1)
+               if (k.le.1) go to 18
+               go to 16
+            end if
+ 17         k=k-1
+            wa(i)=wa(i)+abs(t(i,k+1)-tcdk)*dz(i,k+1)
+            wd(i)=wd(i)+dz(i,k+1)
+            if (k.le.1.or.t(i,k).lt.tcdk) go to 18
+            go to 17
+ 18      continue
+         do 21 i=1,ni
+            if (ztop(i).le.cd(i).or.t(i,nk).gt.tcdk) go to 21
+            wt=cd(i)+wd(i)
+            if (ztop(i).le.wt.and.cd(i).ge.cdm.and.ca(i).ge.cam) then
+               do 19 k=kd(i),nk
+                  fice(i,k)=0.
+ 19            continue
+            end if
+            if (ztop(i).gt.wt.and.wd(i).ge.wdm.and.wa(i)
+     1       .ge.wam.and.cd(i).ge.cdm.and.ca(i).ge.cam) then
+               do 20 k=kd(i),nk
+                  fice(i,k)=0.
+ 20            continue
+            end if
+ 21      continue
+      end if
+*
+C   1.7 CLASSICAL FREEZING PRECIPITATION ALGORITHM
+C       Partly based on Bourgouin's method [WEA. FORECASTING, 2000]
+C       and modified by A. Methot.
+C       This loop was not validated by Tremblay & Glazer [MON. WEA. REV., 2000]
+C       and was included for the convenience of CMC.
+*
+      if (ipc .and. icephas .and. .not. zrc) then
+       do k=2,nk-1
+         do i=1,ni
+!           work1(i,k)=log( (s(i,k+1)+s(i,k)) / (s(i,k)+s(i,k-1)) )
+           work1(i,k)=(s(i,k+1)+s(i,k)) / (s(i,k)+s(i,k-1))
+         enddo
+       enddo
+       call vslog(work1(1,2),work1(1,2),ni*(nk-2))
+       do i=1,ni
+!          work1(i,nk)=log( (1.+s(i,nk)) / (s(i,nk)+s(i,nk-1)) )
+          work1(i,nk)=(1.+s(i,nk)) / (s(i,nk)+s(i,nk-1))
+          wa(i) = 0.
+          ca(i) = 0.
+          rip(i)= 0.
+       enddo
+       call vslog(work1(1,nk),work1(1,nk),ni)
+*
+       do k=1,nk
+         do i=1,ni
+            ficef(i,k)=fice(i,k)
+         enddo
+       enddo
+*     
+       do i=1,ni
+          warm(i)=0
+          fonte(i)=0
+       enddo
+*     
+       do k=2,nk
+         do i=1,ni
+           check=.false.
+           if ( tini(i,k) .gt. tcdk .and. t(i,k) .lt. tcdk )check=.true.
+           if ( t(i,k) .gt. tcdk .or. check) then
+c------------------------------------------WARM LAYER-----------------                
+             if (warm(i).eq.0)then
+c               Begining of a warm layer
+	        warm(i)=1
+                ficetop(i)=fice(i,k-1)
+                 riptop(i)=rip(i)
+             endif
+
+             if ( ca(i) .gt. 0. )
+     %             wa(i) = max(0.,wa(i) - rip(i)*ca(i))
+             area= rgasd * max(0.,t(i,k)-tcdk) * work1(i,k)
+             wa(i)  = wa(i) + area
+
+             ficef(i,k)=ficetop(i)*max(0.,(1. -wa(i)/(13.2)))
+
+             area=min( 1. , max( 0. , 1. - (wa(i)-5.6)/(13.2-5.6) ) )
+             if(area.lt.1.)fonte(i)=1
+             fice(i,k)= ficetop(i)* area
+             rip(i)  =  riptop(i)* area
+
+             ca(i) = 0.
+
+           else if ( wa(i) .gt. .00001 ) then
+c--------------------------------------------COLD LAYER BELOW WARM LAYER
+
+             if (warm(i).eq.1)then
+c               Begining of a cold layer
+	        warm(i)=0
+                ficetop(i)=fice(i,k-1)
+                 riptop(i)=rip(i)
+             endif
+             area= rgasd * max(0.,tcdk-t(i,k)) * work1(i,k)
+             ca(i)  = ca(i) + area
+
+             fice(i,k)=ficetop(i)
+             ficef(i,k)=ficef(i,k-1)
+
+             seuil1= 46. + .66 * wa(i)
+             seuil2= 66. + .66 * wa(i)
+
+             area=min( 1. , max( 0. , (ca(i)-seuil1)/(seuil2-seuil1) ) )
+
+             rip(i)=riptop(i) + (1.-ficetop(i)-riptop(i))*area
+
+           endif
+         enddo
+       enddo
+       do i=1,ni
+          if ( fice(i,nk) .gt. 0.9999 ) then
+              rip(i) = 0.
+          else
+              rip(i) = rip(i) / ( 1. - fice(i,nk) )
+          endif
+       enddo 
+      endif
+*   
+C   MODIFICATION OF PRECIPITATION FLUXES DUE TO MODIFICATION OF FICE
+         do i=1,ni
+            wt=rl(i)+rs(i)
+            rs(i)=fice(i,nk)*wt
+            rl(i)=wt-rs(i)
+            fneige(i)=fice(i,nk)
+            if(fonte(i).eq.0)then
+c	       No melting from EBM therefore liquid water is from a non-classical source.
+c              If we leave it as liquid this will be accumulated in freezing rain in phyexe1.ftn 
+c              if the temperature is below freezing.
+c              To avoid this we put all this non-classical water in the solid precipitation.
+c              This should be improved by adding a vector for the non-classical liquid water.
+c              From this, freezing drizzle could be accumulated in phyexe1.ftn in a similar way
+c              freezing rain is.
+               rs(i)=wt
+               rl(i)=0.
+               fneige(i)=1.
+            endif	
+         enddo
+C        CONSIDER MELTING OF SNOWFALL, THIS MAY PRODUCE TEMPERATURE TENDENCIES.
+         if(melt)then
+c           Compute pcpn flux through levels.
+            do k=1,nk
+               do i=1,ni
+                  work4(i,k)=dz(i,k)*(m(i,k)-work3(i,k))
+               enddo 
+            enddo
+            do k=1,nk
+               do i=1,ni
+                  work2(i,k)=1.e3*(rs(i)+rl(i))*dt
+               enddo
+               do l=k,nk
+                  do i=1,ni
+                     work2(i,k)=work2(i,k)+work4(i,l)
+                  enddo
+               enddo 
+            enddo
+            do k=2,nk
+               do i=1,ni
+                  if (work2(i,k).gt.0..and.t(i,k).gt.tcdk)then
+                     ev=1.e-03*qv(i,k)*rgasv*t(i,k)
+                     rhod=(p(i,k)-ev)/(rgasd*t(i,k))
+                     rho=rhod+1.e-03*qv(i,k)
+                     mm=max(0., ficef(i,k-1)-ficef(i,k))
+                     mm=-mm*work2(i,k)
+                     t(i,k)=max(tcdk,t(i,k)+1e-3/
+     $                    (rho*cpd*dz(i,k))*chlf*mm)
+                  endif
+               enddo
+            enddo
+c           Melting ends
+         endif
+*
+C---------------------------------------------------------
+C DIAGNOSTIC ON OUTPUT FIELDS ...
+c      if(diag) then
+c      call chksatw2('mxp_outdia',qv,t,p,dt,ni,nk)
+c      endif
+C---------------------------------------------------------
+*
+C 2 TENDENCIES
+      do 35 k=1,nk
+         do 35 i=1,ni
+                                 ccs(i,k)=0.
+         if ( m(i,k) .ge. 1.e-5 ) ccs(i,k)=1.0
+         dtdt(i,k)=(t(i,k)-tini(i,k))/dt
+         ev=1.e-03*qv(i,k)*rgasv*t(i,k)
+         rhod=(p(i,k)-ev)/(rgasd*t(i,k))
+         rho=rhod+1.e-03*qv(i,k)
+         mm=1e-3*m(i,k)/rho
+         dmdt(i,k)=(mm-max(0.,mini(i,k)))/dt
+         q=1.e-03*qv(i,k)/rho
+         dqdt(i,k)=(q-qini(i,k))/dt
+         t(i,k)=tini(i,k)
+         qv(i,k)=qini(i,k)
+         m(i,k)=mini(i,k)
+ 35   continue
+*
+      return
+      end

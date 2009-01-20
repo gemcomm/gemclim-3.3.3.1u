@@ -1,0 +1,49 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*COMMON BLOCK /ACMCON/
+*          contains variables related to humidity calculations.  All
+*          are initialized in WETCON.
+*
+* HC       between 0.0 and 1.0; threshold (Relative Humidity) for
+*          onset of  moist convective adjustment
+* HF       between 0.0 and 1.0; threshold (Relative Humidity) for
+*          upward moisture flux during convective adjustment
+* HM       between 0.0 and 1.0; an input in the calculation of the
+*          saturation (R.H) for the first iteration
+* AA       =0.0 unless HM<0 then AA=1.0/(6.0*(1.0-HM)**2)
+* DEPTH    1.0/(RAUW*GRAV) where RAUW is in COMMON CTESPHY
+* LHEAT    if=1; to add the latent heat released by condensation
+* MOIADJ   if=1; adjusts gamma towards wet adiabat
+*          if=0; adjusts gamma towards dry adiabat
+* MOIFLX   if=1; moves the humidity upward
+* ITRET    (recommended to be 1) iteration number where one makes the
+*          "Gather-Scatter"
+* ITRMAX   ABS(ITRMAX) gives the number of the last iteration, if <0,
+*          abort. It is commended to be (-4*NK)
+* HCI      =1 unless HC not 1 then HCI = 1.0/(1-HC)
+* HCMTOL   HC - TOL
+* HMHCMIN  minimum of either (HM or HC)
+* TOL      =.01
+* TRESHLD  =.01
+*
+#endif
+      REAL HC,HF,HM,AA,DEPTH
+      INTEGER LHEAT,MOIADJ,MOIFLX,ITRET,ITRMAX
+      REAL HCI,HCMTOL,HMHCMIN,TOL,TRESHLD
+      COMMON/ACMCON/HC,HF,HM,AA,DEPTH,LHEAT,MOIADJ,MOIFLX,ITRET,
+     X              ITRMAX,HCI,HCMTOL,HMHCMIN,TOL,TRESHLD
+

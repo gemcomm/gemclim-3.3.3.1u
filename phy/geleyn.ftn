@@ -1,0 +1,100 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  GELEYN
+*
+      SUBROUTINE GELEYN(RI,T,TVE,Q,QE,PS,SIGMA,SE,S,N,M,NK)
+#include "impnone.cdk"
+*
+      INTEGER N,M,NK,j,k
+*
+      REAL RI(N,NK)
+      REAL T(M,NK),TVE(N,NK),Q(M,NK),QE(N,NK),PS(N)
+      REAL SIGMA(n,NK),SE(n,NK),S(N,NK)
+*
+      REAL TVBAR,GAMAA,GAMAV,FAC,DZ,DLNP
+      REAL BETA,GAMAS,TE,QSAT
+*
+*Author
+*        C .Girard November 1995
+*
+*Revisions
+*
+*Object
+*        Parameterization of certain effects of the shallow convection:
+*        -To modify the stability (via the Richardson number)
+*         whenever the the gradient Dq/Dz is less then Dqs/Dz
+*
+*Arguments
+*
+*          -Output-
+* RI       Modified Richardson number
+*
+*          -Input-
+* T        Temperature
+* TVE      Virtual Temperature at intermediate levels
+* Q        Specific humidity
+* QE       Specific humidity at intermediate levels
+* PS       Surface pressure
+* SIGMA    Sigma levels
+* SE       Intermediate sigma levels
+* S        (dV/dz)**2
+* N        Horizontal dimension
+* M        1st dimension of T and Q in the calling program
+* NK       vertical dimension
+*
+**
+*
+#
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+      DO k=NK-1,2,-1
+         DO j=1,N
+*
+*           CALCUL APPROX. DE L/Cp Dq/Dz
+*
+            TVBAR=0.5*(FOTVT(T(j,k),Q(j,k)) + FOTVT(T(j,k+1),Q(j,k+1)))
+            DLNP = ALOG(SIGMA(j,k+1)/SIGMA(j,k))
+            DZ = (RGASD/GRAV)*TVBAR*DLNP
+            GAMAV = 2.5E+3*(Q(j,k)-Q(j,k+1))/DZ
+*
+*           CALCUL APPROX. DE GAMAS: - L/Cp Dqs/Dz
+*
+            TE=FOTTV(TVE(j,k),QE(j,k))
+            QSAT=FOQST(TE,SE(j,k)*PS(j))
+            BETA=1.35E7*QSAT/(TE*TVE(j,k))
+            GAMAS=(GRAV/CPD)*(1.-6.46E-4*TE)*BETA/(1.+BETA)
+*
+*           CALCUL DE LA DIFFERENCE: L/Cp ( Dqs/Dz - Dq/Dz ) 
+*
+            GAMAA = max(-GAMAS-GAMAV,0.)
+*
+*           MODIFICATION DE RI: ssi L/Cp Dq/Dz < L/Cp Dqs/Dz
+*
+            FAC = GRAV / ( TE * S(j,k) )
+*
+            if( Ri(j,k).gt.0. ) then
+               RI(j,k) =  max( RI(j,k) - FAC * GAMAA , 0. )
+            endif
+*
+         END DO
+      END DO
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

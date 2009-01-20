@@ -1,0 +1,264 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_CONDS1_TL
+*
+      SUBROUTINE LIN_CONDS1_TL (TE,QE,SRR,SSR,TP1,QP1,PSP1,TP5,QP5,PSP5,
+     %                          SIGMA,TAU,N,NK)
+*
+#include "impnone.cdk"
+      INTEGER N, NK
+      REAL TE(N,NK),QE(N,NK),SRR(N),SSR(N)
+      REAL TP1(N,NK),QP1(N,NK),PSP1(N)
+      REAL TP5(N,NK),QP5(N,NK),PSP5(N)
+      REAL SIGMA(N,NK), TAU
+*
+*Author
+*          S. Laroche (May 2001)
+*
+*Revisions
+* 001   S. Laroche (Nov 2002)  - add effect of surface pressure perturbations
+*
+*
+*Object
+*          to calculate the TLM of T and Q tendencies due to large scale
+*          precipitation
+*
+*Arguments
+*
+*          - Output -
+* TE       temperature tendency due to stratiform processes
+* QE       specific humidity tendency due to stratiform processes
+* SRR      rate of liquid precipitation
+* SSR      rate of solid precipitation
+*
+*          - Input -
+* TP1      perturbation of temperature
+* QP1      perturbation of specific humidity
+* PSP1     perturbation of surface pressure
+* TP5      trajectory   of temperature
+* QP5      trajectory   of specific humidity
+* PSP5     trajectory   of surface pressure
+* SIGMA    sigma levels
+* TAU      timestep
+* N        dimension of some arrays
+* NK       vertical dimension
+**
+*
+#include "phy_macros_f.h"
+#include "consphy.cdk"
+
+      INTEGER i,k,iter,niter
+      REAL A1,A3,A4,LC
+      REAL CHLS,ZCONS2
+
+      PARAMETER(niter=2)
+      REAL QS(niter),DQSDT(niter),DELQ(niter)
+      REAL TW(niter+1),QW(niter+1)
+
+      REAL QS5(niter),DQSDT5(niter),DELQ5(niter)
+      REAL TW5(niter+1),QW5(niter+1),ZRIT5
+
+C
+C*    POINTEURS POUR ALLOCATION DYNAMIQUE
+C*    -----------------------------------
+C
+      AUTOMATIC ( ZDSG,  REAL , (N,NK) )
+      AUTOMATIC ( ZPP1,  REAL , (N,NK) )
+      AUTOMATIC ( ZDPP1, REAL , (N,NK) )
+      AUTOMATIC ( ZRFLN, REAL , (N) )
+      AUTOMATIC ( ZRFL , REAL , (N) )
+      AUTOMATIC ( ZSFLN, REAL , (N) )
+      AUTOMATIC ( ZSFL , REAL , (N) )
+      AUTOMATIC ( ZFLN , REAL , (N) )
+
+      AUTOMATIC ( ZPP5,   REAL , (N,NK) )
+      AUTOMATIC ( ZDPP5,  REAL , (N,NK) )
+      AUTOMATIC ( ZRFLN5, REAL , (N) )
+      AUTOMATIC ( ZRFL5 , REAL , (N) )
+      AUTOMATIC ( ZSFLN5, REAL , (N) )
+      AUTOMATIC ( ZSFL5 , REAL , (N) )
+      AUTOMATIC ( ZFLN5 , REAL , (N) )
+C
+C*    COMPUTATIONAL CONSTANTS
+C*    -----------------------
+C
+      CHLS   = CHLC + CHLF
+      ZCONS2 = 1./(TAU*GRAV)
+      A1     = 610.78
+
+      DO i=1,N
+       ZDSG(i,1) = 0.5*(SIGMA(i,2)-SIGMA(i,1))
+       DO k=2,NK-1
+        ZDSG(i,k) = 0.5*(SIGMA(i,k+1)-SIGMA(i,k-1))
+       ENDDO
+       ZDSG(i,NK) = 0.5*(1.-SIGMA(i,NK-1))+0.5*(1.-SIGMA(i,NK))
+      ENDDO
+
+      DO k=1,NK
+       DO i=1,N
+        ZPP1(i,k)  = SIGMA(i,k)*PSP1(i)
+        ZDPP1(i,k) = ZDSG(i,k) *PSP1(i)
+        ZPP5(i,k)  = SIGMA(i,k)*PSP5(i)
+        ZDPP5(i,k) = ZDSG(i,k) *PSP5(i)
+       ENDDO
+      ENDDO
+
+      DO i=1,N
+       ZRFL (i)  = 0.
+       ZSFL (i)  = 0.
+       ZFLN (i)  = 0.
+       ZRFL5(i)  = 0.
+       ZSFL5(i)  = 0.
+       ZFLN5(i)  = 0.
+      ENDDO
+C
+C*    CALCULATE TW AND QW IN SUPERSATURATED LAYERS
+C*    --------------------------------------------
+C
+      DO k=1,NK
+       DO i=1,N
+*
+*       ************************* TRAJECTORY  ***********************
+*
+        TW5(1)  = TP5(i,k)
+        QW5(1)  = QP5(i,k)
+        IF(TP5(i,k).ge.TGL) THEN
+          A3 = 17.269
+          A4 = 35.860
+          LC = CHLC
+        ELSE
+          A3 = 21.875
+          A4 =  7.660
+          LC = CHLS
+        ENDIF
+
+        QS5(1) = EPS1*A1*exp(A3*(TW5(1) - TGL)/(TW5(1) - A4))/ZPP5(i,k)
+        IF(QS5(1).lt.QP5(i,k)) THEN
+          DO iter = 1,niter
+              QS5(iter) = EPS1*A1*exp(A3*(TW5(iter) - TGL)/(TW5(iter) - A4))/ZPP5(i,k)
+           DQSDT5(iter) = QS5(iter)*A3*(TGL - A4)/((TW5(iter) - A4)**2)
+            DELQ5(iter) = (QW5(iter) - QS5(iter))/(1.0 + (LC/CPD)*DQSDT5(iter))
+            TW5(iter+1) = TW5(iter) + (LC/CPD)*DELQ5(iter)
+            QW5(iter+1) = QW5(iter) - DELQ5(iter)
+          ENDDO
+        ELSE
+         QW5(niter+1) = QW5(1)
+         TW5(niter+1) = TW5(1)
+        ENDIF
+
+        ZRFLN5(i) = ZRFL5(i)
+        ZSFLN5(i) = ZSFL5(i)
+        IF(QW5(niter+1).lt.QP5(i,k)) THEN
+         IF(TP5(i,k).gt.TGL) THEN
+           ZRFLN5(i) = ZRFLN5(i) + (QP5(i,k)-QW5(niter+1))*ZDPP5(i,k)*ZCONS2
+         ELSE
+           ZSFLN5(i) = ZSFLN5(i) + (QP5(i,k)-QW5(niter+1))*ZDPP5(i,k)*ZCONS2
+         ENDIF
+        ENDIF
+
+        IF (k.GT.1) THEN
+         ZFLN5(i) = ZRFLN5(i) + ZSFLN5(i)
+         IF(TP5(i,k).lt.TGL) ZRIT5 = 1.
+         IF(TP5(i,k).ge.TGL) ZRIT5 = 0.
+         ZSFLN5(i) =     ZRIT5 *ZFLN5(i)
+         ZRFLN5(i) = (1.-ZRIT5)*ZFLN5(i)
+        ENDIF
+*
+*       **************************** TLM ****************************
+*
+        TW(1) = TP1(i,k)
+        QW(1) = QP1(i,k)
+        IF(QS5(1).lt.QP5(i,k)) THEN
+          DO iter = 1,niter
+              QS(iter) = TW(iter)*(QS5(iter)*A3/(TW5(iter) - A4))
+     %                   *(1.0 - (TW5(iter) - TGL)/(TW5(iter) - A4))
+     %                 - ZPP1(i,k)*QS5(iter)/ZPP5(i,k)
+           DQSDT(iter) = DQSDT5(iter)*(QS(iter)/QS5(iter) - 2*TW(iter)/(TW5(iter) - A4))
+            DELQ(iter) = (QW(iter) - QS(iter))/(1.0 + (LC/CPD)*DQSDT5(iter))
+     %                 - DELQ5(iter)*(LC/CPD)*DQSDT(iter)/(1.0 + (LC/CPD)*DQSDT5(iter))
+            TW(iter+1) = TW(iter) + (LC/CPD)*DELQ(iter)
+            QW(iter+1) = QW(iter) - DELQ(iter)
+
+          ENDDO
+        ELSE
+         QW(niter+1) = QW(1)
+         TW(niter+1) = TW(1)
+        ENDIF
+C
+C*      CALCULATE RAIN/SNOW FLUX IN SUPERSATURATED LAYERS
+C*      -------------------------------------------------
+C
+        ZRFLN(i) = ZRFL(i)
+        ZSFLN(i) = ZSFL(i)
+        IF(QW5(niter+1).lt.QP5(i,k)) THEN
+         IF(TP5(i,k).gt.TGL) THEN
+          ZRFLN(i) = ZRFLN(i) + (QP1(i,k)-QW(niter+1))*ZDPP5(i,k)*ZCONS2
+     %                        + (QP5(i,k)-QW5(niter+1))*ZDPP1(i,k)*ZCONS2
+         ELSE
+          ZSFLN(i) = ZSFLN(i) + (QP1(i,k)-QW(niter+1))*ZDPP5(i,k)*ZCONS2
+     %                        + (QP5(i,k)-QW5(niter+1))*ZDPP1(i,k)*ZCONS2
+         ENDIF
+        ENDIF
+
+        IF (k.GT.1) THEN
+C
+C        ===================================================================
+C*       DOES NOT INCLUDE THE EVAPORATION OF PRECIPITATIONS YET.
+C*       (SEE ROUTINE CONDS IN PHYSICS LIBRARY AND MAHFOUF99 FOR THE REASON)
+C        ===================================================================
+C
+C
+C*        MELTING/FREEZING OF PRECIPITATIONS
+C*        ----------------------------------
+C
+          ZFLN(i)  = ZRFLN(i)  + ZSFLN(i)
+          ZSFLN(i) =       ZRIT5 *ZFLN(i)
+          ZRFLN(i) =   (1.-ZRIT5)*ZFLN(i)
+        ENDIF
+C
+C*      TENDENCIES DUE TO CONDENSATION
+C*      ------------------------------
+C
+        QE(i,k) = -((ZRFLN(i)-ZRFL(i)) +         (ZSFLN(i)-ZSFL(i)))
+     %            *(GRAV/ZDPP5(i,k))
+     %          +  ((ZRFLN5(i)-ZRFL5(i)) +       (ZSFLN5(i)-ZSFL5(i)))
+     %            *(GRAV/(ZDPP5(i,k)**2))*ZDPP1(i,k)
+
+        TE(i,k) = ((ZRFLN(i)-ZRFL(i))*CHLC/CPD + (ZSFLN(i)-ZSFL(i))*CHLS/CPD)
+     %            *(GRAV/ZDPP5(i,k))
+     %          - ((ZRFLN5(i)-ZRFL5(i))*CHLC/CPD + (ZSFLN5(i)-ZSFL5(i))*CHLS/CPD)
+     %            *(GRAV/(ZDPP5(i,k)**2))*ZDPP1(i,k)
+
+        ZRFL5(i) = ZRFLN5(i)
+        ZSFL5(i) = ZSFLN5(i)
+
+        ZRFL(i)  = ZRFLN(i)
+        ZSFL(i)  = ZSFLN(i)
+
+       ENDDO  !( DO ON i)
+      ENDDO  !( DO ON k)
+
+C
+C*    PRECIPITATION RATE AT THE GROUND LEVEL
+C*    --------------------------------------
+C
+      DO i=1,N
+        SRR(i) = ZRFL(i)
+        SSR(i) = ZSFL(i)
+      ENDDO
+*
+      RETURN
+      END

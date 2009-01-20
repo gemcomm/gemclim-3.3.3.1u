@@ -1,0 +1,246 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  RADIX
+*
+#include "phy_macros_f.h"
+      SUBROUTINE RADIX(R,T,Q,TS,ZAI,PS,S,P,W,X,Y,Z,N,M,NK)
+*
+#include "impnone.cdk"
+      INTEGER N,M,NK
+      REAL R(N,NK),T(M,NK),Q(M,NK),TS(N),ZAI(N),PS(N),S(n,NK)
+      REAL P(N),W(N),X(N),Y(N),Z(N)
+*
+*Author
+*          J. Cote (RPN 1983)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      R. Benoit RPN(Nov 1984)Corrections to boundaries
+* 003      M. Lepine  -  RFE model code revision project (Feb 87)
+* 004      N. Brunet  (May90)
+*               Standardization of thermodynamic functions
+* 005      N. Brunet  (May91)
+*               New version of thermodynamic functions
+*               and file of constants
+* 006      B. Bilodeau  (August 1991)- Adaptation to UNIX
+* 007      R. Benoit (August 93) -  Local sigma coordinate
+* 008      B. Bilodeau (May 1994) - New physics interface
+* 009      M. Lepine (March 2003) -  CVMG... Replacements
+* 010      J.P.Toviessi (June 2003) - IBM conversion
+*               - calls to exponen4 (to calculate power function '**')
+*               - divisions replaced by reciprocals
+*               - unnecessary calculations removed
+* 011      B. Bilodeau (Aug 2003) - exponen4 replaced by vspown1
+*
+*
+*Object
+*          to calculate infra-red rate of cooling
+*
+*Arguments
+*
+*          - Output -
+* R        infra-red rate of cooling
+*
+*          - Input -
+* T        temperature
+* Q        specific humidity
+* TS       surface temperature
+* ZAI      inverse of anemometre
+* PS       surface pressure
+* S        sigma levels
+* P        work field
+* W        work field
+* X        work field
+* Y        work field
+* Z        work field
+* N        horizontal dimension
+* M        1st dimension of T and Q
+* NK       vertical dimension
+*
+*Notes
+*          Calculation of cooling radiation in degrees Kelvin/sec
+*          (MKS) by using the Sasamori Method. The empirical
+*          formulas are contained in the functions DAH2O, ACO2,
+*          DACO2, TH2O, DTH2O.
+*
+*IMPLICITES
+*
+#include "clefcon.cdk"
+*
+#include "consphy.cdk"
+*
+*
+**
+*
+      REAL FACT
+      REAL PET
+      REAL RO0,P0,PR
+      REAL CO2M
+      REAL TH2O,DTH2O,WW
+      REAL CORO,PRI,DO4GP0,UTOP,ALFAC,SCO,ALFRS2G,P0CPI,SC,SCW,SCWTF,SCP
+      SAVE PET,RO0,P0,PR,CO2M
+      INTEGER J,K
+*
+      REAL ttmp
+      REAL ttmp1
+      REAL ttmp2
+      REAL tmp
+      AUTOMATIC ( tmp1    , REAL  , (N ) )
+      AUTOMATIC ( tmp2    , REAL  , (N ) )
+      AUTOMATIC ( tmp3    , REAL  , (N ) )
+      AUTOMATIC ( tmp4    , REAL  , (N ) )
+*
+*
+      DATA PET / 1.E-20 /
+      DATA    RO0  ,  P0  ,  PR
+     X     / 1.293 , 1013.25 , 1000.0 /
+      DATA CO2M / 3.25E-4 /
+*
+      TH2O(WW) = 1.33 - .832*exp(.260*LOG( WW + .0286 ))
+      ttmp(WW)  = exp(.740*LOG( WW + .0286 ))
+      DTH2O(WW) = - .216/ttmp(WW)
+*
+*
+*
+*     QUELQUES FACTEURS
+*
+      CORO=CO2M*100.0/RO0
+      PRI=1.0/PR
+      DO4GP0=2.5/(GRAV*P0)
+      ALFAC=CO2M/(100.*P0*RO0*RGASD)
+      SCO=1.E6*ALFAC
+      ALFRS2G=ALFAC*RGASD/(2.*GRAV)
+      P0CPI=1.0/(P0*CPD)
+*
+      FACT = 0.01
+*
+      tmp = 4.0
+      call vspown1 (tmp1,TS,tmp,N)
+      call VSREC(tmp2,ZAI,N)
+      call VSREC(tmp3,T(1,NK),N)
+      tmp = P0*RGASD
+      tmp = 1.0/tmp 
+      DO 1 J=1,N
+*
+         X(J)=STEFAN*tmp1(J)
+*        PS DOIT ETRE EN MB
+         W(J)=PS(J)*FACT
+         W(J)=W(J)*W(J)
+*
+*  CONTRIBUTION DE LA COUCHE DE SURFACE (ENTRE SURFACE ET ANEMOMETRE)
+*  AU CHEMIN OPTIQUE DE H2O  (EN G/CM2)
+*
+    1    R(J,NK)=10.*W(J)*Q(J,NK)*tmp*tmp3(J)*tmp2(J)
+*
+*     CHEMIN OPTIQUE POUR  H2O ( EN G/CM2  )
+*
+      DO 2 K=NK-1,1,-1
+*
+*        SC=DO4GP0*(S(K+1)**2-S(K)**2)
+*
+         DO 2 J=1,N
+            ttmp1 = S(j,K)
+            ttmp1 = ttmp1*ttmp1
+            ttmp2 = S(j,K+1)
+            ttmp2 = ttmp2*ttmp2
+            SC=DO4GP0*(ttmp2-ttmp1)
+*
+    2       R(J,K)=R(J,K+1)+SC*(Q(J,K+1)+Q(J,K))*W(J)
+*
+      DO 3 J=1,N
+*
+         ttmp1 = S(j,1)
+         ttmp1 = ttmp1*ttmp1
+         UTOP=2.0*DO4GP0*ttmp1
+         Z(J)=R(J,1)+UTOP*W(J)*Q(J,1)
+    3    R(J,NK)=0.5*(R(J,NK)+R(J,NK-1))
+*
+      DO 4 K=1,NK
+*
+         tmp = 4.0
+         call vspown1 (tmp1,T(1,K),tmp,N)
+         DO 4 J=1,N
+            SCP=1-S(j,K)*S(j,K)
+            SCW   = 1.E6 * ALFRS2G * SCP
+            ttmp1 = S(j,1)
+            ttmp1 = ttmp1*ttmp1
+            SCWTF = 1.E6 * ALFRS2G * ( ( 1.0 - 0.5 *  ttmp1) - SCP )
+            SCP = S(j,K)
+*
+*
+*     CHEMIN OPTIQUE POUR LE CO2  ( EN CM )
+*
+            P(J)=SCP*PS(J)*FACT
+            Y(J)=exp(CAPPA*log(P(J)*PRI))
+            tmp = 1.0/Y(J)
+            P(J)=P0CPI*P(J)/Y(J)
+            Y(J)=STEFAN*tmp1(J)
+*
+*     TAUX DE REFROIDISSENENT RADIATIF
+*
+    4       R(J,K)=-P(J)*(
+     X              ABSR ( R(J,K) ,
+     X                       W(J)*(SCW+SCO/(ZAI(J)*T(J,NK))) ,
+     X                         Q(J,K) )
+     Y             *(Y(J)-X(J))
+     Z             +ABSR ( Z(J)-R(J,K) ,
+     Z                       SCWTF*W(J) ,
+     Z                         Q(J,K) )
+     T             *Y(J))
+*
+      CONTAINS
+         REAL FUNCTION DAH2O(WW)
+         REAL WW, dtmp
+         
+         if (WW .GE. 0.01 ) then
+            dtmp =  WW + .01
+            dtmp = 1.0/dtmp
+            DAH2O = .1042*dtmp
+         else
+            DAH2O = .205578*exp(-.757*LOG( WW + 3.59E-5 ))
+         endif
+         END FUNCTION DAH2O
+
+         REAL FUNCTION ACO2(WW)
+         REAL WW
+
+         if ( WW .GE. 1. ) then
+            ACO2 = .02371*ALOG( WW+PET ) + .0581
+         else
+            ACO2 = .0676*exp(.421*LOG( WW + .01022 )) - .00982
+         endif
+         END FUNCTION ACO2
+
+         REAL FUNCTION DACO2(WW)
+         REAL WW, dtmp
+
+         if (WW .GE. 1. ) then
+            dtmp = WW+PET
+            dtmp = 1.0/dtmp
+            DACO2 = .02371*dtmp
+         else
+            DACO2 = .02846*exp(-.579*Log( WW + .01022 ))
+         endif
+         END FUNCTION DACO2
+
+         REAL FUNCTION ABSR(XX,YY,ZZ)
+         REAL XX,YY,ZZ
+*        ABSORPTIVITE TOTALE EN  M2/KG  ( MKS )
+*
+         ABSR = ZZ*( DAH2O(XX) + ACO2(YY)*DTH2O(XX) )*0.1
+     X                  + CORO*TH2O(XX)*DACO2(YY)
+         END FUNCTION ABSR
+      END

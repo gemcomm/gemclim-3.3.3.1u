@@ -1,0 +1,202 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #############################################################
+      SUBROUTINE INIT_TEB(HPROGRAM,HINIT,HSV,PCO2,PRHOA,              &
+                          PZENITH,PAZIM,PSW_BANDS,PDIR_ALB,PSCA_ALB,  &
+                          PEMIS,PTSRAD,                               &
+                          HATMFILE,HATMFILETYPE,KYEAR,KMONTH,KDAY,PTIME)
+!     #############################################################
+!
+!!****  *INIT_TEB$n* - routine to initialize TEB
+!!
+!!    PURPOSE
+!!    -------
+!!
+!!**  METHOD
+!!    ------
+!!
+!!    EXTERNAL
+!!    --------
+!!
+!!
+!!    IMPLICIT ARGUMENTS
+!!    ------------------
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!
+!!    AUTHOR
+!!    ------
+!!	V. Masson   *Meteo France*	
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2003
+!-------------------------------------------------------------------------------
+!
+!*       0.    DECLARATIONS
+!              ------------
+!
+USE MODD_SNOW_PAR, ONLY : XEMISSN
+USE MODD_TEB,      ONLY : XTSTEP, XOUT_TSTEP,                        &
+                          XBLD, XWALL_O_HOR, XCAN_HW_RATIO,          &
+                          XSVF_ROAD, XSVF_WALL,                      &
+                          TSNOW_ROOF, TSNOW_ROAD,                    &
+                          XEMIS_ROOF, XEMIS_ROAD, XEMIS_WALL,        &
+                          XALB_ROOF, XALB_ROAD, XALB_WALL,           &
+                          XT_ROOF, XT_ROAD, XT_WALL              
+USE MODD_SURF_PAR, ONLY : XUNDEF
+!
+USE MODI_DEFAULT_TEB
+!USE MODI_READ_DEFAULT_TEB$n
+!USE MODI_READ_TEB$n
+!USE MODI_READ_PGD_TEB$n
+!USE MODI_CONVERT_COVER_TEB
+USE MODI_INIT_SNOW_LW
+USE MODI_AVERAGED_TSRAD_TEB
+USE MODI_AVERAGED_ALBEDO_TEB
+!USE MODI_DIAG_TEB_INIT$n
+!USE MODI_END_IO_SURF$n
+!USE MODI_GET_LUOUT
+!USE MODI_READ_SURF
+!
+USE MODD_TOWN
+!
+IMPLICIT NONE
+!
+!*       0.1   Declarations of arguments
+!              -------------------------
+!
+CHARACTER(LEN=6),                INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=3),                INTENT(IN)  :: HINIT     ! choice of fields to initialize
+CHARACTER(LEN=6), DIMENSION(:),  INTENT(IN)  :: HSV       ! name of all scalar variables
+REAL,             DIMENSION(:),  INTENT(IN)  :: PCO2      ! CO2 concentration (kg/m3)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PRHOA     ! air density       (kg/m3)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PZENITH   ! solar zenithal angle
+REAL,             DIMENSION(:),  INTENT(IN)  :: PAZIM     ! solar azimuthal angle (rad from N, clock)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PSW_BANDS ! middle wavelength of each band
+REAL,             DIMENSION(:,:),INTENT(OUT) :: PDIR_ALB  ! direct albedo for each band
+REAL,             DIMENSION(:,:),INTENT(OUT) :: PSCA_ALB  ! diffuse albedo for each band
+REAL,             DIMENSION(:),  INTENT(OUT) :: PEMIS     ! emissivity
+REAL,             DIMENSION(:),  INTENT(OUT) :: PTSRAD    ! radiative temperature
+CHARACTER(LEN=28), INTENT(IN)  :: HATMFILE    ! atmospheric file name
+CHARACTER(LEN=6),  INTENT(IN)  :: HATMFILETYPE! atmospheric file type
+INTEGER,           INTENT(IN)  :: KYEAR     ! current year (UTC)
+INTEGER,           INTENT(IN)  :: KMONTH    ! current month (UTC)
+INTEGER,           INTENT(IN)  :: KDAY      ! current day (UTC)
+REAL,              INTENT(IN)  :: PTIME     ! current time since midnight (UTC, s)
+!
+!*       0.2   Declarations of local variables
+!              -------------------------------
+!
+INTEGER           :: ILU      ! sizes of TEB arrays
+INTEGER           :: ILUOUT   ! unit of output listing file
+INTEGER           :: IRESP    ! return code
+!
+!
+INTEGER           :: ISWB     ! number of shortwave spectral bands
+INTEGER           :: JLAYER   ! loop counter on layers
+INTEGER           :: JSWB     ! loop on shortwave spectral bands
+!
+REAL, DIMENSION(:), ALLOCATABLE :: ZDIR_ALB ! direct town albedo
+REAL, DIMENSION(:), ALLOCATABLE :: ZSCA_ALB ! diffuse town albedo
+!-------------------------------------------------------------------------------
+!
+!         Other littel things
+!
+!
+PDIR_ALB = XUNDEF
+PSCA_ALB = XUNDEF
+PEMIS    = XUNDEF
+PTSRAD   = XUNDEF
+!
+!
+!*       0.     Defaults
+!               --------
+!
+!        0.1. Hard defaults
+!      
+CALL DEFAULT_TEB(XTSTEP,XOUT_TSTEP)
+!
+ILU = SIZE(XBLD)
+!
+!*       3.     Physiographic data fields from land cover:
+!               -----------------------------------------
+!
+!*       4.     User physiographic fields:
+!               -------------------------
+!
+!*       5.     Sky-view-factors:
+!               ----------------
+!
+WHERE (XCAN_HW_RATIO /= XUNDEF)
+ XSVF_ROAD = SQRT(XCAN_HW_RATIO**2+1.) - XCAN_HW_RATIO
+ XSVF_WALL = 0.5 *  (XCAN_HW_RATIO + 1. - SQRT(XCAN_HW_RATIO**2+1.) ) &
+                 /  XCAN_HW_RATIO
+ELSEWHERE
+ XSVF_ROAD = XUNDEF
+ XSVF_WALL = XUNDEF
+ENDWHERE
+!
+!
+!*       6.     Prognostic fields:
+!               -----------------
+!
+!*       7.     Infra-red Radiative fields:
+!               --------------------------
+!
+!* snow long-wave properties (not initialized in read_gr_snow)
+!
+CALL INIT_SNOW_LW(XEMISSN,TSNOW_ROOF)
+CALL INIT_SNOW_LW(XEMISSN,TSNOW_ROAD)
+!
+!* averaged albedo, emissivity and radiative temperature
+!
+CALL AVERAGED_TSRAD_TEB(XEMIS_ROOF,XT_ROOF(:,1), &
+                        XEMIS_ROAD,XT_ROAD(:,1), &
+                        XEMIS_WALL,XT_WALL(:,1), &
+                        TSNOW_ROOF,TSNOW_ROAD,   &
+                        XBLD,XWALL_O_HOR,        &
+                        XSVF_ROAD,XSVF_WALL,     &
+                        PEMIS,PTSRAD             )
+!
+!
+!*       8.     Visible and near-infra-red Radiative fields:
+!               -------------------------------------------
+!
+ALLOCATE(ZDIR_ALB(ILU))
+ALLOCATE(ZSCA_ALB(ILU))
+!
+CALL AVERAGED_ALBEDO_TEB(PZENITH,                                  &
+                     XBLD, XWALL_O_HOR, XCAN_HW_RATIO,             &
+                     XALB_ROOF,                                    &
+                     XALB_ROAD, XSVF_ROAD,                         &
+                     XALB_WALL, XSVF_WALL,                         &
+                     TSNOW_ROOF, TSNOW_ROAD,                       &
+                     ZDIR_ALB, ZSCA_ALB                            )
+!
+!
+ISWB=SIZE(PSW_BANDS)
+DO JSWB=1,ISWB
+  PDIR_ALB(:,JSWB) = ZDIR_ALB(:)
+  PSCA_ALB(:,JSWB) = ZSCA_ALB(:)
+END DO
+!
+DEALLOCATE(ZDIR_ALB)
+DEALLOCATE(ZSCA_ALB)
+!
+END SUBROUTINE INIT_TEB

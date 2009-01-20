@@ -1,0 +1,80 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P SERKH
+*
+      SUBROUTINE SERKH ( BSQ , GSURR , KT , WORK , J , N , NK )
+*
+#include "impnone.cdk"
+      INTEGER J,N,NK
+      REAL BSQ(N,NK) , GSURR , KT(NK) , WORK(N,NK)
+*
+*Author
+*          R. Benoit (RPN 1984)
+*
+*Revision
+* 001      J. Cote RPN (Jan 1985)
+*          Recoding version to be compatible with SEF/RFE
+*          Documentation
+* 002      M. Lepine - Revision project of RFE model
+* 003      B. Bilodeau (July1991) adaptation to UNIX
+*
+*Object
+*          to extract KH (Cressman/RFE)
+*
+*Arguments
+*
+*          - Input -
+* BSQ      (sigma/temperature)**2
+* GSURR    GRAV/RGAS
+* KT       operator profile of vertical diffusion of temperature in Z
+*          coordinates (Cressman/RFE)
+* WORK     work space
+* J        latitude of extraction, all stations if J=0
+* N        horizontal dimension of extracted fields
+* NK       vertical dimension
+*
+*Notes
+*          See SERDBU for more information
+*
+*
+*IMPLICITES
+*
+#include "sercmdk.cdk"
+*
+*MODULES
+*
+      EXTERNAL MZONXST, SERXST
+*
+**
+*
+      INTEGER IJ,K
+      REAL CON
+*
+      IF (NSTAT.LE.0) RETURN
+*
+      CON = GSURR**2
+*
+      CALL SERXST ( 0.0 , 'KH' , J , N , 0.0 , 1.0 , 0 )
+*
+      DO 1 IJ = 1,N
+         DO 1 K=1,NK
+    1       WORK(IJ,K) = BSQ(IJ,K)*CON*KT(K)
+*
+      CALL SERXST ( WORK , 'KH' , J , N , 0.0 , 1.0 , -1 )
+      CALL MZONXST ( WORK, 'KH', J, N, HEURE, 1.0, -1, 1 )
+*
+      RETURN
+      END

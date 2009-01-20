@@ -1,0 +1,76 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #################################################################################
+SUBROUTINE PREP_SNOW_GEM(HPROGRAM,HSURF,PFIELD)
+!     #################################################################################
+!
+!!****  *PREP_SNOW_GEM* - prepares snow field from operational GEM 
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     A. Lemonsu
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    09/2004
+!!------------------------------------------------------------------
+!
+!
+USE MODD_PREP,           ONLY : CINTERP_TYPE
+USE MODD_PREP_SNOW,      ONLY : XGRID_SNOW
+USE MODD_TOWN,           ONLY : NNI
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=7),   INTENT(IN)  :: HSURF     ! type of field
+REAL,DIMENSION(:,:,:), POINTER  :: PFIELD    ! field to interpolate horizontally
+!
+!-------------------------------------------------------------------------------------
+!
+!*      1.     Reading of the physical field for urban areas
+!              ---------------------------------------------
+!
+  SELECT CASE(HSURF(1:1))
+    CASE('D','A','W')
+      ALLOCATE(PFIELD(NNI,1,1))
+    CASE('H','R')
+      ALLOCATE(PFIELD(NNI,SIZE(XGRID_SNOW),1))
+  END SELECT
+  !
+  PFIELD(:,:,:) = 0.
+!
+!-------------------------------------------------------------------------------------
+!
+!*      2.     Interpolation method
+!              --------------------
+!
+CINTERP_TYPE='NONE  '
+!
+!-------------------------------------------------------------------------------------
+END SUBROUTINE PREP_SNOW_GEM

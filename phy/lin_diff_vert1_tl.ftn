@@ -1,0 +1,210 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_DIFF_VERT1_TL TLM of LIN_DIFF_VERT1
+*
+      SUBROUTINE LIN_DIFF_VERT1_TL(TU, U, KU, GU, ALFA, BETA, S, SK,
+     %                             TAU, F, A, B, C, D, N, NK,
+     %                             U5,KU5,A5,B5,C5,D5,W1,W2,W3,BETA5)
+*
+#include "impnone.cdk"
+      INTEGER N, NK
+      REAL TU(N, NK), U(N, NK),  KU(N, NK), GU(N, NK)
+      REAL ALFA(N),   BETA(N),   S(N,NK),   SK(N,NK), TAU, F
+      REAL A(N, NK),  B(N, NK),  C(N, NK),  D(N, NK)
+      REAL U5(N, NK), KU5(N, NK)
+      REAL A5(N, NK), B5(N, NK), C5(N, NK), D5(N, NK)
+      REAL W1(N, NK), W2(N, NK), W3(N, NK)
+      REAL BETA5(N)
+*
+*
+*Author
+*          S. Laroche (fev 2001)
+*
+*Revisions
+* 001      L. Spacek (Jun 2008)  - Staggered version
+*
+*Object
+*          to solve a TLM vertical diffusion equation by finite
+*          differences
+*
+*Arguments
+*
+**
+*
+**
+*
+      INTEGER I, K
+      REAL SC, SCTU, ST, SB, HM, HP, HD, KUM, KUP, SCK1
+      EXTERNAL LIN_DIFUVD1_TL, LIN_DIFUVD2_TL
+*
+*
+******START TRAJECTORY **********************************************
+*
+      ST(I)=S(I,1)-0.5*(S(I,2)-S(I,1))
+      SB(I)=1.
+*
+      SC   = 1.0
+      SCTU = 0
+      SCK1 = 0
+*
+*     K=1
+*
+         HM=0
+         DO I=1,N
+            HP=S(I,2)-S(I,1)
+            HD=0.5*(S(I,1)+S(I,2))-ST(I)
+            A5(I,1)=0
+            B5(I,1)=-SCK1*KU5(I,1)/(HP*HD)
+            C5(I,1)=-SCK1*B5(I,1)
+            D5(I,1)=SCK1*KU5(I,1)*GU(I,1)/HD
+         ENDDO
+*
+*     K=2...NK-1
+*
+         DO K=2,NK-1,1
+            DO I=1,N
+               HM=S(I,K)-S(I,K-1)
+               HP=S(I,K+1)-S(I,K)
+               HD=0.5*(HM+HP)
+               A5(I,K)=KU5(I,K-1)/(HM*HD)
+               B5(I,K)=-(KU5(I,K-1)/HM +KU5(I,K)/HP)/HD
+               C5(I,K)=KU5(I,K)/(HP*HD)
+               D5(I,K)=(KU5(I,K)*GU(I,K)-KU5(I,K-1)*GU(I,K-1))/HD
+            ENDDO
+         ENDDO
+*
+*     K=NK
+*
+         HP=0
+         DO I=1,N
+            HM=S(I,NK)-S(I,NK-1)
+            HD=SB(I)-SK(I,NK-1) 
+            A5(I,NK)=KU5(I,NK-1)/(HM*HD)
+            B5(I,NK)=-(KU5(I,NK-1)/HM + 0)/HD
+            C5(I,NK)=0
+            D5(I,NK)=(0-KU5(I,NK-1)*GU(I,NK-1))/HD
+         ENDDO
+
+*
+*
+* (2) CALCULER LE COTE DROIT D=TAU*(SC*N(U)+D/DS(KU*GU))
+*
+       CALL LIN_DIFUVD1 (D5, SC, A5, B5, C5, U5, D5, N, NK)
+      DO K=1,NK
+         DO I=1,N
+           D5(I,K)  = TAU*D5(I,K)
+         ENDDO
+      ENDDO
+*
+******END TRAJECTORY ************************************************
+*
+
+*
+* (1) CONSTRUIRE L'OPERATEUR TRIDIAGONAL DE DIFFUSION N=(A,B,C)
+*                ET LE TERME CONTRE-GRADIENT (DANS D)
+*
+*
+*     K=1
+*
+         HM=0
+         DO I=1,N
+            HP=S(I,2)-S(I,1)
+            HD=0.5*(S(I,1)+S(I,2))-ST(I)
+            A(I,1) =  0.
+            B(I,1) = -SCK1*     KU(I,1)/(HP*HD)
+            C(I,1) =  SCK1*SCK1*KU(I,1)/(HP*HD)
+            D(I,1) =  SCK1*     KU(I,1)*GU(I,1)/HD
+         ENDDO
+*
+*     K=2...NK-1
+*
+         DO K=2,NK-1,1
+            DO I=1,N
+               HM=S(I,K)-S(I,K-1)
+               HP=S(I,K+1)-S(I,K)
+               HD=0.5*(HM+HP)
+               A(I,K) =  KU(I,K-1)/(HM*HD)
+               B(I,K) = -KU(I,K-1)/(HM*HD)  - KU(I,K)/(HP*HD)
+               C(I,K) =  KU(I,K)/(HP*HD)
+               D(I,K) =  KU(I,K)*GU(I,K)/HD - KU(I,K-1)*GU(I,K-1)/HD
+            ENDDO
+         ENDDO
+*
+*     K=NK
+*
+         HP=0
+         DO I=1,N
+            HM=S(I,NK)-S(I,NK-1)
+            HD=SB(I)-SK(I,NK-1) 
+            A(I,NK) =  KU(I,NK-1)/(HM*HD)
+            B(I,NK) = -KU(I,NK-1)/(HM*HD)
+            C(I,NK) =  0.
+            D(I,NK) = -KU(I,NK-1)*GU(I,NK-1)/HD
+         ENDDO
+*
+*
+* (2) CALCULER LE COTE DROIT D=TAU*(SC*N(U)+R+D/DS(KU*GU))
+*
+      CALL LIN_DIFUVD1_TL (D, SC, A, B, C, U, D, N, NK,
+     &                     A5, B5, C5, U5)
+
+      DO K=1,NK
+         DO I=1,N 
+           D(I,K)  = TAU*D(I,K)
+         ENDDO
+      ENDDO
+*
+* (3) CALCULER OPERATEUR DU COTE GAUCHE
+*
+      DO K=1,NK
+         DO I=1,N
+            A(I,K)  =     - SC*TAU*A(I,K)
+            B(I,K)  =     - SC*TAU*B(I,K)
+            C(I,K)  =     - SC*TAU*C(I,K)
+            A5(I,K) =     - SC*TAU*A5(I,K)
+            B5(I,K) = 1.0 - SC*TAU*B5(I,K)
+            C5(I,K) =     - SC*TAU*C5(I,K)
+         ENDDO
+      ENDDO
+*
+* (4) AJOUTER TERME DE FLUX DE SURFACE POUR TYPE='U'/'UT'
+*
+      DO I=1,N
+         HD=SB(I)-SK(I,NK-1) 
+         B5(I,NK) = B5(I,NK) - SC*TAU*BETA5(I)/HD
+         B(I,NK)  = B(I,NK)  - SC*TAU*BETA(I)/HD
+         D(I,NK)  = D(I,NK)  + (ALFA(I)+BETA5(I)*U(I,NK))*TAU/HD
+     &                            + (BETA(I)*U5(I,NK))*TAU/HD
+      ENDDO
+*
+* (5) RESOUDRE SYSTEME TRIDIAGONAL [A,B,C] X = D. METTRE X DANS TU.
+*
+      CALL LIN_DIFUVD2_TL (TU, A, B, C, D, D, N, NK,
+     &                     A5, B5, C5, D5, W1, W2, W3)
+
+
+*
+* (6) OBTENIR TENDANCE
+*
+      DO K=1,NK
+         DO I=1,N
+           TU(I,K)=TU(I,K)/TAU
+         ENDDO
+      ENDDO
+
+*
+      RETURN
+      END

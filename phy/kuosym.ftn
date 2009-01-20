@@ -1,0 +1,495 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P KUOSYM
+*
+#include "phy_macros_f.h"
+      SUBROUTINE KUOSYM ( CTT,CQT,ilab,CCF,DBDT,
+     +                    TP,TM,QP,QM,GZM,PSP,PSM,
+     +                    SIGMA, TAU, NI, NK )
+#include "impnone.cdk"
+*
+C
+      INTEGER NI,NK
+      REAL CTT(NI,NK),CQT(NI,NK)
+      INTEGER ilab(NI,NK)
+      REAL CCF(NI,NK),DBDT(NI)
+      REAL TP(NI,NK),TM(NI,NK),QP(NI,NK),QM(NI,NK),GZM(NI,NK)
+      REAL PSP(NI),PSM(NI),SIGMA(NI,NK)
+      REAL TAU
+*
+*Authors
+*          Claude Girard and Gerard Pellerin 1995
+*
+*Revision
+* 001      B.Bilodeau (Jan 2001) - Automatic arrays
+* 002      M. Lepine (March 2003) -  CVMG... Replacements
+* 003      G. Pellerin (Mai 03) - Conversion IBM
+*            - calls to vslog routine (from massvp4 library)
+*            - calls to optimized routine MFOQST 
+*
+*Object
+*          To calculate the convective tendencies of T and Q
+*          using a scheme with a "symmetric Kuo-type closure".
+*          Geleyn's method is used to obtain the cloud profiles.
+*
+*Arguments
+*
+*            - Outputs -
+* CTT      convective temperature tendency
+* CQT      convective specific humidity tendency
+* ilab     flag array: an indication of convective activity
+* CCF      estimated cumulus cloud fraction
+* DBDT     estimated averaged cloud fraction growth rate
+*            - Inputs -
+* TP       temperature at (t+dt)
+* TM       temperature at (t-dt)
+* QP       specific humidity at (t+dt)
+* QM       specific humidity at (t-dt)
+* GZM      geopotential
+* PSP      surface pressure at (t+dt)
+* PSM      surface pressure at (t-dt)
+* SIGMA    sigma levels
+* TAU      effective timestep (2*dt)
+* NI       horizontal dimension
+* NK       vertical dimension
+*
+*Notes
+*          The routine is divided into 5 parts:
+*           1)allocation and position for work space
+*           2)preliminary computations
+*           3)cloud ascent and flagging
+*           4)total dry and moist enthalpy accession calculations
+*           5)cloud heating and moistening (drying)  calculations
+*
+**
+      LOGICAL LO
+      INTEGER IS,IKA,IKB,jk,jkm1,jl,MODP
+      REAL ZTVC
+      REAL ENTRM,TAUCU,CHLS,DELTA2
+      REAL ZCOR,rCPD,rtau,rGRAV3
+      REAL ZQCD,ZK,ZDH,temp1,temp2
+C
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( LO1    , LOGICAL , (NI   ))
+*
+      AUTOMATIC ( ZCP    , REAL    , (NI   ))
+      AUTOMATIC ( ZLDCP0 , REAL    , (NI   ))
+      AUTOMATIC ( ZQSC   , REAL    , (NI   ))
+      AUTOMATIC ( CPR    , REAL    , (NI   ))
+      AUTOMATIC ( ZPP    , REAL    , (NI,NK))
+      AUTOMATIC ( ZDSG   , REAL    , (NI,NK))
+      AUTOMATIC ( ZDP    , REAL    , (NI,NK))
+      AUTOMATIC ( ZSDP   , REAL    , (NI,NK))
+      AUTOMATIC ( ZQAC   , REAL    , (NI,NK))
+      AUTOMATIC ( ZLDCP  , REAL    , (NI,NK))
+      AUTOMATIC ( ZTAC   , REAL    , (NI,NK))
+      AUTOMATIC ( ZSTAC  , REAL    , (NI,NK))
+      AUTOMATIC ( ZHAC   , REAL    , (NI,NK))
+      AUTOMATIC ( ZSHAC  , REAL    , (NI,NK))
+      AUTOMATIC ( ZQSE   , REAL    , (NI,NK))
+      AUTOMATIC ( ZTC    , REAL    , (NI,NK))
+      AUTOMATIC ( ZQC    , REAL    , (NI,NK))
+      AUTOMATIC ( ZTE    , REAL    , (NI,NK))
+      AUTOMATIC ( ZQE    , REAL    , (NI,NK))
+      AUTOMATIC ( ZTVE   , REAL    , (NI,NK))
+      AUTOMATIC ( ZDQ    , REAL    , (NI,NK))
+      AUTOMATIC ( ZDT    , REAL    , (NI,NK))
+      AUTOMATIC ( ZSDH   , REAL    , (NI,NK))
+*
+************************************************************************
+
+C
+C*    PHYSICAL CONSTANTS.
+C     -------- ----------
+C
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+C
+      ENTRM = 5.E-6
+      TAUCU = 3600.
+      rtau  = 1./TAU
+      rgrav3 = 1./(GRAV*1.E3)
+      rCPD = 1./CPD
+      DELTA2 = CPV/CPD - 1.
+      CHLS   = CHLC + CHLF
+C
+C     ------------------------------------------------------------------
+C
+C*         1.     ALLOCATION AND POSITION FOR WORK SPACE.
+C                 ---------- --- -------- --- ---- ------
+C
+C
+C
+C***
+C
+C     METHOD.
+C     -------
+C
+C          IN (3) A NEARLY ADIABATIC ASCENT IS ATTEMPTED FOR A CLOUD
+C     PARCEL STARTING FROM THE LOWEST MODEL LAYER. THIS CLOUD ASCENT
+C     IS COMPUTED IN TERMS OF TEMPERATURE AND SPECIFIC HUMIDITY.
+C     ENTRAINMENT IS SIMULATED VIA AN ENTRAINMENT PARAMETER.
+C     THE LAYERS ARE FLAGGED ACCORDING TO THE FOLLOWING CODE:
+C     0 = STABLE OR INACTIVE LAYER,
+C     1 = PART OF THE WELL MIXED BOUNDARY LAYER OR DRY UNSTABLE LAYER,
+C     2 = MOIST UNSTABLE OR ACTIVE OR CLOUD LAYER.
+C     THE 1-FLAGS ARE RESET TO 0-FLAGS FOR THE NEXT SECTION.
+C          IN (4) THE INTEGRATED MOIST AND DRY ENTHALPY ACCESSIONS
+C     FOR EACH CLOUD LAYER ARE STORED INTO ALL THE CORRESPONDING
+C     LAYERS IF THE FIRST IS POSITIVE WHILE THE SECOND IS NEGATIVE,
+C     OTHERWISE, THE 2-FLAGS ARE ALSO RESET TO 0-FLAGS.
+C          IN (5) THE ACTUAL MODIFICATIONS OF TEMPERATURE AND SPECIFIC
+C     HUMIDITY ARE COMPUTED. A CLOUD-COVER VALUE IS ESTIMATED BY
+C     COMPARING THE TIME AT WHICH THE ENVIRONMENT WOULD REACH
+C     EQUILIBRIUM WITH THE CLOUD TO A PRESCRIBED CLOUD LIFE-TIME.
+C
+C     ------------------------------------------------------------------
+C
+C*         2.     PRELIMINARY COMPUTATIONS.
+C                 ----------- -------------
+C
+C*         2.1     ENVIRONMENTAL PROFILES AND PARAMETERS,
+C*                 DRY AND MOIST ENTHALPY ACCESSIONS (divided by cp)
+C*                 AND INITIALIZATIONS.
+C
+      DO jl=1,NI
+         DBDT(jl) = 0.
+            LO = TP(jl,NK).LT.TRPL
+         if (LO) then
+            ZLDCP0(jl) = CHLS * rCPD
+         else
+            ZLDCP0(jl) = CHLC * rCPD
+         endif
+         ZDSG(jl,1)=0.5*(SIGMA(jl,2)-SIGMA(jl,1))
+         ZDSG(jl,NK)=0.5*(1.-SIGMA(jl,NK-1))+0.5*(1.-SIGMA(jl,NK))
+      END DO
+C
+      DO jk=2,NK-1
+         DO jl=1,NI
+            ZDSG(jl,jk)=0.5*(SIGMA(jl,jk+1)-SIGMA(jl,jk-1))
+         END DO
+      END DO
+
+      DO jk=1,NK
+         DO jl=1,NI
+            ZPP(jl,jk)=SIGMA(jl,jk)*PSP(jl)
+            ZDP(jl,jk)=ZDSG(jl,jk)*PSP(jl)
+            ZTE(jl,jk)=TP(jl,jk)
+         END DO
+      END DO
+C
+      MODP=3
+       CALL MFOQST(ZQSE,ZTE,SIGMA,ZPP,MODP,NI,NK,NI)
+
+      DO jk=1,NK
+         DO jl=1,NI
+            ZQE(jl,jk)=amin1(ZQSE(jl,jk),QM(jl,jk))
+            ZTVE(jl,jk) = FOTVT( ZTE(jl,jk), ZQE(jl,jk) )
+              LO = ZTE(jl,jk).LT.TRPL
+            if (LO) then
+               ZLDCP(jl,jk) = CHLS / ( CPD*(1.+DELTA2*ZQE(jl,jk)) )
+            else
+               ZLDCP(jl,jk) = CHLC / ( CPD*(1.+DELTA2*ZQE(jl,jk)) )
+            endif
+C
+            ZTAC(jl,jk)=(TP(jl,jk)-TM(jl,jk))*ZDP(jl,jk)*rTAU
+            ZQAC(jl,jk)=(QP(jl,jk)-ZQE(jl,jk))*ZDP(jl,jk)*rTAU
+C
+            ZHAC(jl,jk)= ZTAC(jl,jk) + ZLDCP0(jl)*ZQAC(jl,jk)
+C
+            ilab(jl,jk) = 0
+            CTT(jl,jk) = 0.0
+            CQT(jl,jk) = 0.0
+            CCF(jl,jk) = 0.0
+         END DO
+      END DO
+C
+C*         2.2     SPECIFY TC AND QC AT THE LOWEST LAYER TO START THE
+C*                 CLOUD ASCENT. CHECK FOR POSITIVE ACCESSION
+C*                 BETWEEN SURFACE AND CLOUD BASE.
+C*                 ZQC=0 INDICATES STABLE CONDITIONS.
+C
+      DO jl=1,NI
+         CPR(jl) = 0.
+         ZTC(jl,NK)=ZTE(jl,NK)
+         ZQC(jl,NK)=0.
+         IF (ZHAC(jl,NK).GT.0.) THEN
+            ZQC(jl,NK)=ZQE(jl,NK)
+            ilab(jl,NK) = 1
+         ENDIF
+      END DO
+C
+C     ------------------------------------------------------------------
+C
+C*         3.     CLOUD ASCENT AND FLAGGING.
+C                 ----- ------ --- ---------
+C
+C*         3.1     CALCULATE TC AND QC AT UPPER LEVELS BY DRY ADIABATIC
+C*                 LIFTING FOLLOWED BY LATENT HEAT RELEASE WHEN REQUIRED.
+C*                 CONDENSATION CALCULATIONS ARE DONE WITH TWO ITERATIONS.
+C***
+      DO jk=NK-1,1,-1
+C***
+         DO jl=1,NI
+            ZCP(jl)=CPD*(1.+DELTA2*ZQC(jl,jk+1))
+            ZTC(jl,jk)=ZTC(jl,jk+1)+(GZM(jl,jk+1)-GZM(jl,jk))*
+     *         (1./ZCP(jl)+ENTRM*MAX(0.,ZTC(jl,jk+1)-ZTE(jl,jk+1)))
+            ZQC(jl,jk)=ZQC(jl,jk+1)+(GZM(jl,jk+1)-GZM(jl,jk))*
+     *         (            ENTRM*MAX(0.,ZQC(jl,jk+1)-ZQE(jl,jk+1)))
+            ZTVC = FOTVT( ZTC(jl,jk), ZQC(jl,jk) )
+               LO= ZTVC.GT.ZTVE(jl,jk) .AND. ZQC(jl,jk).NE.0.
+            IF (LO) ilab(jl,jk) = 1
+         END DO
+C
+        CALL MFOQST(ZQSC,ZTC(1,jk),SIGMA,ZPP(1,jk),MODP,NI,1,NI)
+         DO jl=1,NI
+            ZCOR=ZLDCP(jl,jk)*FODQS( ZQSC(jl), ZTC(jl,jk) )
+            ZQCD=AMAX1(0.,(ZQC(jl,jk)-ZQSC(jl))/(1.+ZCOR))
+            ZQC(jl,jk)=ZQC(jl,jk)-ZQCD
+            ZTC(jl,jk)=ZTC(jl,jk)+ZQCD*ZLDCP(jl,jk)
+               LO1(jl)=ZQCD.NE.0.
+         END DO
+C
+         LO=.FALSE.
+         DO jl=1,NI
+            LO=LO.OR.LO1(jl)
+         END DO
+C
+         IF (LO) THEN
+          CALL MFOQST(ZQSC,ZTC(1,jk),SIGMA,ZPP(1,jk),MODP,NI,1,NI)
+            DO jl=1,NI
+               ZCOR=ZLDCP(jl,jk)*FODQS( ZQSC(jl), ZTC(jl,jk) )
+               ZQCD=(ZQC(jl,jk)-ZQSC(jl))/(1.+ZCOR)
+               if (.not. LO1(jl)) ZQCD = 0.
+               ZQC(jl,jk)=ZQC(jl,jk)-ZQCD
+               ZTC(jl,jk)=ZTC(jl,jk)+ZQCD*ZLDCP(jl,jk)
+            END DO
+         ENDIF
+C
+         DO jl=1,NI
+            ZTVC = FOTVT( ZTC(jl,jk), ZQC(jl,jk) )
+               LO= ZTVC.GT.ZTVE(jl,jk)  .AND. LO1(jl)
+            IF (LO) ilab(jl,jk) = 2
+               LO1(jl)=ilab(jl,jk).EQ.0
+!            ZTC(jl,jk) = CVMGT(ZTE(jl,jk),ZTC(jl,jk),LO1(jl))
+            if (LO1(jl)) ZTC(jl,jk) = ZTE(jl,jk)
+!            ZQC(jl,jk) = CVMGT(0.,ZQC(jl,jk),LO1(jl))
+            if (LO1(jl)) ZQC(jl,jk) = 0.
+         END DO
+C
+C*         3.2     IF NOT AT THE TOP CHECK FOR NEW LIFTING LEVEL, I.E.
+C*                 ENTHALPY ACCESSION IN A STABLE LAYER.
+C***
+         IF (jk.NE.1) THEN
+            DO jl=1,NI
+                  LO=LO1(jl).AND.(ZHAC(jl,jk).GT.0.)
+!               ZTC(jl,jk) = CVMGT(ZTE(jl,jk),ZTC(jl,jk),LO)
+               if (LO)  ZTC(jl,jk) = ZTE(jl,jk)
+!               ZQC(jl,jk) = CVMGT(ZQE(jl,jk),ZQC(jl,jk),LO)
+               if (LO) ZQC(jl,jk) = ZQE(jl,jk)
+            END DO
+         ENDIF
+C***
+      END DO
+C***
+C*         3.3     ilab=0 UNLESS ilab=2
+C*                 IKA INDICATES THE HIGHEST TOP OF A CLOUD
+C*                 (TO AVOID UNNECESSARY COMPUTATIONS LATER).
+C
+      IKA=NK+1
+C
+      DO jk=1,NK
+C
+         DO jl=1,NI
+               LO=(ilab(jl,jk).EQ.1)
+            IF (LO) ilab(jl,jk) = 0
+         END DO
+C
+         IF (IKA.EQ.NK+1) THEN
+            IS=0
+            DO jl=1,NI
+               IS=IS+ilab(jl,jk)
+            END DO
+            IF (IS.NE.0) IKA=jk
+         ENDIF
+C
+      END DO
+C***
+      IF (IKA.EQ.NK+1) GO TO 600
+C***
+C     ------------------------------------------------------------------
+C
+C*         4.     TOTAL ENERGY ACCESSION
+C                 ----- ------ ---------
+C
+C*         4.1     CALCULATE TOTAL ENTHALPY ACCESSIONS REQUIRING THAT
+C*                    - TOTAL MOIST ENTHALPY ACCESSION BE > 0
+C*                    - TOTAL   DRY ENTHALPY ACCESSION BE < 0
+C*                 IKB IS AN UPDATE OF IKA.
+C
+      DO jl=1,NI
+         ZSHAC(jl,NK) = 0.0
+         ZSTAC(jl,NK) = 0.0
+         ZSDP(jl,NK) = 0.0
+      END DO
+C
+      DO jk=NK-1,IKA,-1
+         DO jl=1,NI
+               LO=ilab(jl,jk).eq.2
+            if (LO) then
+               ZSHAC(jl,jk) = ZSHAC(jl,jk+1)+ZHAC(jl,jk)
+               ZSTAC(jl,jk) = ZSTAC(jl,jk+1)+ZTAC(jl,jk)
+               ZSDP(jl,jk) = ZSDP(jl,jk+1)+ZDP(jl,jk)
+            else
+               ZSHAC(jl,jk) = 0.
+               ZSTAC(jl,jk) = 0.
+               ZSDP(jl,jk) = 0.
+            endif
+         END DO
+      END DO
+C
+      IKB=NK+1
+C
+      DO jk=IKA,NK-1
+      jkm1=max0(jk-1,1)
+C
+         DO jl=1,NI
+               LO=(ilab(jl,jk).EQ.2).AND.(ilab(jl,jkm1).EQ.2)
+!            ZSHAC(jl,jk) = CVMGT(ZSHAC(jl,jkm1),ZSHAC(jl,jk),LO)
+!            ZSTAC(jl,jk) = CVMGT(ZSTAC(jl,jkm1),ZSTAC(jl,jk),LO)
+!             ZSDP(jl,jk) = CVMGT( ZSDP(jl,jkm1), ZSDP(jl,jk),LO)
+            if (LO) then
+               ZSHAC(jl,jk) = ZSHAC(jl,jkm1)
+               ZSTAC(jl,jk) = ZSTAC(jl,jkm1)
+               ZSDP(jl,jk) = ZSDP(jl,jkm1)
+            endif
+               LO = ZSHAC(jl,jk).gt.0. .and. ZSTAC(jl,jk).lt.0.
+     &                   .and. ZSDP(jl,jk).gt.0.
+            IF (.not.LO) ilab(jl,jk) = 0
+         END DO
+C
+         IF (IKB.EQ.NK+1) THEN
+            IS=0
+            DO jl=1,NI
+               IS=IS+ilab(jl,jk)
+            END DO
+            IF (IS.NE.0) IKB=jk
+         ENDIF
+C
+      END DO
+C***
+      IF (IKB.EQ.NK+1) GO TO 600
+C***
+C     ------------------------------------------------------------------
+C
+C*         5.     HEATING AND MOISTENING
+C                 ----------------------
+C
+C*         5.1     COMPUTE THE TOTAL CLOUD-ENVIRONMENT ENTHALPY
+C*                 DIFFERENCE IN CLOUD LAYERS.
+C
+      DO jl=1,NI
+         ZSDH(jl,NK)=0.
+      END DO
+C
+      DO jk=NK-1,IKB,-1
+         DO jl=1,NI
+            ZTVC = FOTVT( ZTC(jl,jk), ZQC(jl,jk) )
+            ZDQ(jl,jk) = (ZQSE(jl,jk)-ZQE(jl,jk))*ZDP(jl,jk)
+            ZDT(jl,jk) = (ZTVC-ZTVE(jl,jk))*ZDP(jl,jk)
+            ZDH = ZDT(jl,jk)+ZLDCP0(jl)*ZDQ(jl,jk)
+               LO=ilab(jl,jk).EQ.2
+!            ZSDH(jl,jk) = CVMGT(ZSDH(jl,jk+1)+ZDH,0.,LO)
+            if (LO) then
+               ZSDH(jl,jk) = ZSDH(jl,jk+1)+ZDH
+            else
+               ZSDH(jl,jk) = 0.
+            endif
+         END DO
+      END DO
+C
+      DO jk=IKB+1,NK-1
+         DO jl=1,NI
+               LO=(ilab(jl,jk).EQ.2).AND.(ilab(jl,jk-1).EQ.2)
+!            ZSDH(jl,jk) = CVMGT(ZSDH(jl,jk-1),ZSDH(jl,jk),LO)
+            if (LO) ZSDH(jl,jk) = ZSDH(jl,jk-1)
+         END DO
+      END DO
+C
+C*         5.2     COMPUTE CONVECTIVE HEATING AND MOISTENING.
+C*                 ESTIMATE CONVECTIVE CLOUD FRACTION.
+C
+      DO jk=IKB,NK-1
+         DO jl=1,NI
+           LO=ilab(jl,jk).eq.0
+            if (LO) then
+               ZQAC(jl,jk) = 0.
+               ZTAC(jl,jk) = 0.
+               ZSHAC(jl,jk) = 0.
+            endif
+C
+           LO=ZSDH(jl,jk).GT.0.
+            if (.not. LO) ZSDH(jl,jk) = -1.
+C
+            ZK = ZSHAC(jl,jk)/ZSDH(jl,jk)
+C
+            CQT(jl,jk) = (ZK*ZDQ(jl,jk)-ZQAC(jl,jk))/ZDP(jl,jk)
+            CTT(jl,jk) = (ZK*ZDT(jl,jk)-ZTAC(jl,jk))/ZDP(jl,jk)
+C
+            CPR(jl) = CPR(jl) + CTT(jl,jk)/ZLDCP0(jl)*ZDP(jl,jk)
+C
+            DBDT(jl) = AMAX1(DBDT(jl),ZK)
+C
+         END DO
+      END DO
+C
+      DO jl=1,NI
+         CPR(jl) = max( 1.E-12, CPR(jl)*rGRAV3 )
+      END DO
+         call vslog (cpr,cpr,ni)
+      DO jl=1,NI
+         CPR(jl) = 2.5 + .125 * CPR(jl)
+         CPR(jl) = min( max( DBDT(jl) * TAU , CPR(jl) ) , 0.8 )
+      END DO
+C
+      DO jk=IKB,NK-1
+         DO jl=1,NI
+                LO=ilab(jl,jk).ne.2
+             if (LO) then
+                CCF(jl,jk) = 0.
+             else
+                CCF(jl,jk) = CPR(jl)
+             endif
+             temp1=(SIGMA(jl,jk)*1.25)*(SIGMA(jl,jk)*1.25)
+             CCF(jl,jk) = CCF(jl,jk)* min(temp1, 1.0 )
+         END DO
+      END DO
+C***
+C     ------------------------------------------------------------------
+C
+C*         6.     RETURN WORKSPACE.
+C                 ------ ----------
+  600 CONTINUE
+C
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

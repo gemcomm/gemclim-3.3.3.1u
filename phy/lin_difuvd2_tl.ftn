@@ -1,0 +1,106 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_DIFUVD2_TL TLM of LIN_DIFUVD2
+*
+      SUBROUTINE LIN_DIFUVD2_TL(P, A, B, C, D, DELTA, N, NK,
+     &                          A5, B5, C5, D5, P5, P5P, DELTA5)
+*
+
+      IMPLICIT NONE
+      INTEGER N, NK
+      REAL P(N,NK), A(N,NK), B(N,NK), C(N,NK), D(N,NK), DELTA(N,NK)
+      REAL A5(N,NK), B5(N,NK), C5(N,NK), D5(N,NK)
+      REAL P5(N,NK), DELTA5(N,NK),P5P(N,NK)
+*
+*Author
+*          S. Laroche (oct 2000)
+*
+**
+*
+*-----------------------------------------------------------------------
+*
+      REAL X
+      INTEGER I, K
+*
+******START TRAJECTORY **********************************************
+*
+      DO I=1,N
+       C5(I,NK)    = 0.
+       P5(I,1)     =-C5(I,1)/B5(I,1)
+       P5P(I,1)    =-C5(I,1)/B5(I,1)
+       DELTA5(I,1) = D5(I,1)/B5(I,1)
+      ENDDO
+*
+      DO K=2,NK
+      DO I=1,N
+       P5(I,K)     = -C5(I,K)/(B5(I,K)+A5(I,K)*P5(I,K-1))
+       P5P(I,K)    = -C5(I,K)/(B5(I,K)+A5(I,K)*P5P(I,K-1))
+       DELTA5(I,K) = (D5(I,K)-A5(I,K)*DELTA5(I,K-1))/(B5(I,K)+A5(I,K)*P5(I,K-1))
+      ENDDO
+      ENDDO
+*
+      DO I=1,N
+       P5P(I,NK) = DELTA5(I,NK)
+      ENDDO
+      DO K=NK-1,1,-1
+      DO I=1,N
+       P5P(I,K) = P5P(I,K)*P5P(I,K+1) + DELTA5(I,K)
+      ENDDO
+      ENDDO
+*
+******END TRAJECTORY ************************************************
+*
+
+      DO I=1,N
+      C(I,NK)=0.
+      P(I,1)     =              -C(I,1)/B5(I,1)
+      P(I,1)     =  P(I,1)     + B(I,1)*(C5(I,1)/(B5(I,1)**2))
+      DELTA(I,1) =               D(I,1)/B5(I,1)
+      DELTA(I,1) =  DELTA(I,1) - B(I,1)*(D5(I,1)/(B5(I,1)**2))
+      ENDDO
+*
+      DO K=2,NK
+      DO I=1,N
+
+      P(I,K) =         -C(I,K)/(B5(I,K)+A5(I,K)*P5(I,K-1))
+      P(I,K) = P(I,K) + B(I,K)*C5(I,K)/((B5(I,K)+A5(I,K)*P5(I,K-1))**2)
+      P(I,K) = P(I,K) + P(I,K-1)*A5(I,K)*C5(I,K)/((B5(I,K)+A5(I,K)*P5(I,K-1))**2)
+      P(I,K) = P(I,K) + A(I,K)*P5(I,K-1)*C5(I,K)/((B5(I,K)+A5(I,K)*P5(I,K-1))**2)
+
+      X = (D5(I,K)-A5(I,K)*DELTA5(I,K-1))/((B5(I,K)+A5(I,K)*P5(I,K-1))**2)
+
+      DELTA(I,K) =              D(I,K)/(B5(I,K)+A5(I,K)*P5(I,K-1))
+      DELTA(I,K) = DELTA(I,K) - A(I,K)*DELTA5(I,K-1)/(B5(I,K)+A5(I,K)*P5(I,K-1))
+      DELTA(I,K) = DELTA(I,K) - DELTA(I,K-1)*A5(I,K)/(B5(I,K)+A5(I,K)*P5(I,K-1))
+      DELTA(I,K) = DELTA(I,K) - B(I,K)*X
+      DELTA(I,K) = DELTA(I,K) - A(I,K)*P5(I,K-1)*X
+      DELTA(I,K) = DELTA(I,K) - P(I,K-1)*A5(I,K)*X
+
+      ENDDO
+      ENDDO
+*
+      DO I=1,N
+       P(I,NK) = DELTA(I,NK)
+      ENDDO
+      DO K=NK-1,1,-1
+      DO I=1,N
+       P(I,K) = P(I,K)*P5P(I,K+1) + P(I,K+1)*P5(I,K) + DELTA(I,K)
+      ENDDO
+      ENDDO
+
+
+      RETURN
+      END

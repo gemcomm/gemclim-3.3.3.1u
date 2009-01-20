@@ -1,0 +1,104 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P CO2INFO
+*
+      SUBROUTINE CO2INFO(UCO2,TCO2,NN,NK,NMAX,SH,S,SC,DEL)
+*
+#include "impnone.cdk"
+      REAL A1D,A1G,A2D,A2G,AWING
+      INTEGER NN,NMAX,NK,I,JK,L  ,J
+      REAL ECO2,A1C,A2C,QCO2,ELSA,Z,ZU,TRAPEZ2
+      EXTERNAL TRAPEZ2
+      REAL UCO2(NK),DEL(NK),SC(NN),TCO2(NMAX,NN)
+      REAL S(NN),SH(NK)
+*
+*Author
+*          L.Garand (1989)
+*
+*Revision
+* 001      G.Pellerin(Mar90)Standard documentation
+* 002      Louis Garand -Add CO2 wing bands
+*
+*Object
+*          to precalculate the quantities of CO2 and the
+*          transmissivity from level to level
+*
+*Arguments
+*
+*          - Output -
+* UCO2     amount of CO2 in each layer of thickness DEL (multiply by
+*          PS**2 to get kg/metres squared)
+* TCO2     precalculated transmissivity of CO2 from level to level
+*          (EXP(-PS*TCO2) = matrix of transmission.  The upper
+*          triangle of TCO2 is used for the (strong) central band.
+*          The lower triangle of TCO2 is used for the average of the
+*          right and left wings)
+*
+*          - Input -
+* NN       number of levels (NK+1)
+* NK       number of layers
+* NMAX     maximum number of flux layers
+* SH       sigma levels at the centre of layers
+* S        sigma levels at the borders of the layers
+* SC       work space
+* DEL      sigma thickness from level to level
+*
+*PARAMETERS
+*
+      PARAMETER  (ECO2=1.00)
+      PARAMETER (A1C=198.0)
+      PARAMETER (A2C=0.9768)
+      PARAMETER (QCO2=5.01E-4)
+      PARAMETER (A1D=4.035)
+      PARAMETER (A2D=0.8224)
+      PARAMETER (A1G=5.439)
+      PARAMETER (A2G=0.9239)
+*  A1D ET A2D SONT LES PARAMETRES DE L'AILE DROITE DU CO2
+*  A1G ET A2G """"""""""""""""""""""""""""" GAUCHE """""""
+*  A1C ET A2C """"""""""""""""""" DE LA BANDE CENTRALE (FORTE) DU CO2
+**
+      AWING= (A1G*A2G + A1D*A2D)/2.
+*     PARAMETRE D'ABSORTION MOYEN POUR LES DEUX AILES
+      SC(NN)=QCO2
+      S(NN)=1.
+      S(1)=2.*SH(1)-((SH(1)+SH(2))/2.)
+C  CETTE DEFINITION DU PREMIER NIVEAU DE FLUX DOIT ETRE LA MEME
+C  QUE DANS LE CODE DE RADIATION
+      S(1)=AMAX1(S(1),0.0003)
+      S(NN)=1.
+      DO 25 I=2,NK
+      S(I)=(SH(I)+SH(I-1))/2.
+      DEL(I-1)=S(I)-S(I-1)
+25    CONTINUE
+      DEL(NK)=1.-S(NK)
+      DO 10 I=1,NK
+      SC(I)=QCO2*S(I)**ECO2
+  10  CONTINUE
+      ELSA=1.66
+      Z=1./(101325.*9.80616)
+      DO 79 I=1,NN
+      TCO2(I,I)=1.
+      JK=I+1
+      IF(I.EQ.NN)GO TO 42
+      DO 79 J=JK,NN
+      L=J-I+1
+      ZU=Z*TRAPEZ2(DEL(I),SC(I),L,L-1)*ELSA
+      TCO2(I,J)=SQRT(A1C*A2C*ZU)
+      TCO2(J,I)=SQRT(AWING*ZU)
+  79  IF(J.EQ.JK)UCO2(I)=ZU
+  42  CONTINUE
+      RETURN
+      END

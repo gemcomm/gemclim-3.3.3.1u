@@ -1,0 +1,278 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P BLG
+      SUBROUTINE BLG2 (RO,RT,DZ,WW,NI,NK,DT,COMPLIM,KF,WMAX,FLIM,IDIR)
+
+#include "impnone.cdk"
+
+      INTEGER NI,NK,KF,IDIR
+
+      REAL RO(NI,NK),RT(NI),DZ(NI,NK),WW(NI,NK),DT,WMAX,FLIM(NI,NK)
+
+      LOGICAL COMPLIM
+
+c
+*Author
+*          C. Girard and A. Plante (2001)
+c
+*Revision
+*
+* 001	   A. Glazer and A. Plante (Oct 2001) - Introduce complim,  
+*          and ind_limit in computation of precipitation 
+* 002      A. Plante (June 2003) 
+*             - IBM conversion, added ro_star. This imporved sedimentaion
+*               in mixphase4 by 38%.
+*             - Change computation limit to insure reentrance in OpenMP
+*             - blg2.ftn validates perfectly with blg.ftn of PHY 3.8.
+*
+*Object
+c
+*
+*   Version 1.0
+*                                                                 
+*   CALCULATES                                                   
+*                sedimentation of a quantity of matter ro(kg/m3) 
+*                                                                 
+*                falling with negative downward velocity ww(m/s) 
+*                                                               
+*   ACCORDING TO                                               
+*                the BOX-LAGRANGIAN SCHEME                    
+*                         (Kato,1995:JMSJ,73,241-245)        
+*                                                           
+*             OR                                           
+*                the ADJACENT-LAGRANGIAN SCHEME           
+*                Girard and Plante                       
+*                                                       
+*   PLUS                                               
+*                a conservative two-grid-length filter
+*                in order to control noise if needed 
+*
+*Arguments
+*
+*          - Input/Output -
+*
+* RO       density in cell before and after sedimentation.
+*
+*          - Output -
+* 
+* RT       precipitation reaching the surface.
+*
+*          - Input -
+*
+* DZ       cell thickness
+* WW       vertical velocity (negative downward)
+* NI       number of profiles
+* NK       number of grid point in profiles
+* DT       timestep
+* COMPLIM  logical switch to force recomputing the table FLIM
+* KF       number of filtering pass
+* FLIM     index of hier grid point where to look for mass in sedimentation.
+*          Note that only collumn FLIM(1,*) is used.
+* WMAX     maximum vertical velocity (positive or negative value).
+*          This is used to save computation time. For each
+*          level, the index of the heighest level from which
+*          mass can be received will be computed if COMPLIM is .true.
+* IDIR     direction of index:
+*          idir=0 if index one is at top of model
+*          idir=1 if index one is at surface of model
+*                           
+#include "maxlev.cdk"
+*
+      character*6 scheme
+
+      integer i,k,l,km1,kp1,ks,ke,kw
+
+      real vp(ni,nk),zt(ni,nk),zb(ni,nk),dzi(ni,nk),one
+      real zz(ni,idir:nk+idir),ro_star(ni,nk)
+
+      real zmax,tempo,epsilon
+      
+      parameter(one=1.,epsilon=1e-2)
+
+
+      integer idzmin
+
+c     scheme='kato'
+      scheme='girard'
+
+c===========================================================================
+c     Set parametres related to index direction.
+
+      ks=1
+      ke=nk
+      kw=1
+
+      if(idir.eq.0)then
+         ks=nk
+         ke=1
+         kw=-1
+      endif
+
+c===========================================================================
+c     Compute cell height,
+c         and final position of the top (zt) and bottom (zb) of moving boxes.
+c     Initialise rt and vp.
+
+      do i=1,ni
+         rt(i)=0.
+      enddo
+         
+      do i=1,ni
+         zz(i,ks)=0.
+      enddo
+      do k=ks,ke,kw
+         do i=1,ni           
+            zz (i,k+kw)=zz(i,k)+dz(i,k)
+            dzi(i,k)=one/dz(i,k)
+            vp (i,k)=0.
+         enddo
+      enddo
+
+      do k=1,nk
+         do i=1,ni           
+            zb(i,k)=zz(i,k)+ww(i,k)*dt
+         enddo
+      enddo
+      
+      if(scheme.eq.'kato')then
+c        print*,'Kato'
+c        Note that this scheme reproduce the Eulerians scheme if CFL<1.
+         do k=1,nk
+            do i=1,ni           
+               zt(i,k)=zb(i,k)+dz(i,k)
+            enddo
+         enddo
+      endif
+
+      if(scheme.eq.'girard')then
+c        Note that this scheme DOES NOT reproduce the Eulerians scheme.
+         do i=1,ni
+            zt(i,ke)=zb(i,ke)+dz(i,ke)
+         enddo
+         do k=ks,ke-kw,kw
+            do i=1,ni
+               zb(i,k)=min(zb(i,k+kw)-epsilon*dz(i,k),
+     $                     zz(i,k)+ww(i,k)*dt)
+               zt(i,k)=zb(i,k+kw)
+            enddo
+         enddo         
+      endif
+
+c     Compute density in original cell before remapping (ro_star):
+c     ro(i,k) * dz(i,k)/(zt(i,k)-zb(i,k))
+
+      do k=1,nk
+         do i=1,ni           
+            ro_star(i,k)=zt(i,k)-zb(i,k)
+         enddo
+      enddo
+      call vsdiv(ro_star,dz,ro_star,ni*nk)
+      do k=1,nk
+         do i=1,ni           
+            ro_star(i,k)=ro(i,k)*ro_star(i,k)
+         enddo
+      enddo
+
+c===========================================================================
+*
+      if(complim)then
+
+c        Compute limit index where to look for mass.
+
+c        Find domain tightest levels.
+         idzmin=1
+         tempo=dz(1,ks)
+         do i=2,ni
+            if(dz(i,ks).lt.tempo)then
+               tempo=dz(i,ks)
+               idzmin=i
+            endif
+         enddo
+
+         zmax=abs(wmax*dt)
+
+         do l=ks,ke,kw
+            flim(1,l)=float(l)
+            do k=l,ke,kw
+               if(zmax.ge.zz(idzmin,k)-zz(idzmin,l+kw))
+     $              flim(1,l)=float(k)
+            enddo
+         enddo
+
+      endif
+*
+c===========================================================================
+c     Compute sedimentation, store in vp.
+
+      do l=1,nk
+         do k=l,nint(flim(1,l)),kw
+            do i=1,ni
+               vp(i,l)=vp(i,l) + ro_star(i,k)*
+     $              max( 0. , 
+     $              min(zz(i,l+kw),zt(i,k)) - max(zz(i,l),zb(i,k)) )
+
+            enddo
+         enddo
+      enddo
+
+c===========================================================================
+c     Compute precipitation.
+
+      do k=ks,nint(flim(1,ks)),kw
+         do i=1,ni               
+            rt(i)=rt(i)+ro(i,k)* 
+     $           max( 0. , min(zz(i,ks),zt(i,k)) - (zt(i,k)-dz(i,k)) )
+         enddo
+      enddo
+      
+c===========================================================================
+c     Update density.
+
+      do k=1,nk
+         do i=1,ni
+            ro(i,k)=vp(i,k)*dzi(i,k)
+         enddo
+      enddo
+      
+c===========================================================================
+c     Apply conservative two-grid-length filter
+
+c     Loop on filter pass
+      do l=1,kf
+
+         do k=1,nk
+            kp1=min(k+1,nk)
+            km1=max(k-1,1)
+            do i=1,ni
+               vp(i,k) = ro(i,k) +
+     $              0.25*((ro(i,kp1)-ro(i,k))-
+     $              (ro(i,k)-ro(i,km1))*(dz(i,km1)*dzi(i,k)))
+            enddo
+         enddo
+        
+         do k=1,nk
+            do i=1,ni
+               ro(i,k)=vp(i,k)
+            enddo
+         enddo
+        
+      enddo
+      
+c===========================================================================
+*
+      return
+*
+      end

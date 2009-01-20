@@ -1,0 +1,117 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***FONCTION SHRAHU  -  PASSAGE DE HR A HU
+*
+      FUNCTION SHRAHU(HR,TX,PX,LNPS,MODP,SWTT,SWPH)
+*
+#include "impnone.cdk"
+      REAL SHRAHU, HR, TX, PX, LNPS
+      INTEGER MODP
+      LOGICAL SWTT, SWPH
+*
+*Author
+*          N. Brunet  (Jan91)
+*
+*Revision 01 - N. Brunet (May 1994) - Improved iteration for tx = tv
+*
+*Object
+*          to return specific humidity(kg/kg) calculated from
+*          relative humidity, temperature and pressure
+*
+*Arguments
+*
+*          - Input -
+* HR       relative humidity (fraction)
+* TX       temperature or virtual temperature in Kelvins
+* PX       see MODP
+* LNPS     see MODP
+* MODP     pressure mode(SI units only):
+*          =0; pressure level in PX
+*          =1; sigma level in PX and PS(surface pressure) in LNPS
+*          =2; sigma level in PX and logarithm of sigma level in
+*          LNPS
+*          =3; all points of pressure in LNPS(NI,*) in Pascals
+*          =4; sigma level in PX and logarithm of sigma level in
+*          LNPS(in millibars unless using SI units)
+*          =5; logarithm of pressure level in PX(in millibars unless
+*          using SI units)
+* SWTT     .TRUE. to pass TT for argument
+*          .FALSE. to pass TV for argument
+* SWPH     .TRUE. to consider water and ice phase
+*          .FALSE. to consider water phase only
+*
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY
+*
+**
+*--------------------------------------------------------------------
+      REAL E, TP, HUS, PN
+      REAL TG, EPSIL
+      INTEGER ITER, NITER
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*--------------------------------------------------------------------
+#include "initcph.cdk"
+*
+#include "modpr1.cdk"
+*
+      TP = TX
+      IF(SWPH)THEN
+         E = DMIN1(DBLE(PN),HR * FOEW(TP))
+      ELSE
+         E = DMIN1(DBLE(PN),HR * FOEWA(TP))
+      END IF
+      HUS = FOQFE(E,PN)
+      TP = FOTTV(TX,HUS)
+*
+      IF(SWTT)THEN
+         SHRAHU = HUS
+         RETURN
+      END IF
+*
+      NITER = 25
+*
+      EPSIL = 0.001
+      TG = 0.5*(TX+TP)
+*
+      DO 10 ITER=1,NITER
+         IF(SWPH)THEN
+            E = DMIN1(DBLE(PN),HR * FOEW(TG))
+         ELSE
+            E = DMIN1(DBLE(PN),HR * FOEWA(TG))
+         END IF
+         HUS = FOQFE(E,PN)
+         TP = FOTTV(TX,HUS)
+*
+         IF((ABS(TP-TG)).LT.EPSIL)THEN
+            SHRAHU = HUS
+            RETURN
+         END IF
+*
+         TG = 0.5*(TG+TP)
+*
+10    CONTINUE
+*
+      SHRAHU = HUS
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

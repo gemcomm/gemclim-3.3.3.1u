@@ -1,0 +1,475 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P GWDFX95A - gravity wave drag flux (1995 formulation) ...
+#include "phy_macros_f.h"
+      SUBROUTINE GWDFX95A (U,V,TH,TF,ENV,GC,S,SEXPK,SH,SHEXPK,
+     +                   UTENDGW,VTENDGW,GRAV,RGAS,TAU,
+     2                   ILEV,IL1,IL2,ILG,DAMPFAC,ENVELOP,LREF,
+     $                   TAUFAC)
+*
+#include "impnone.cdk"
+*
+*     LOGICAL SWITCHES TO CONTROL ROOF DRAG AND ENVELOP GW DRAG.
+*
+      LOGICAL DAMPFAC, ENVELOP
+*
+      REAL GRAV,RGAS,TAU,TAUFAC
+*
+      INTEGER ILEV,ILG
+      REAL*8 U(ILG,ILEV),       V(ILG,ILEV),       TH(ILG,ILEV),
+     1       TF(ILG,ILEV),      ENV(ILG),          GC(ILG),
+     2       UTENDGW(ILG,ILEV), VTENDGW(ILG,ILEV)
+*
+*    VERTICAL POSITIONNING ARRAYS.
+*
+      REAL*8 S(ilg,ILEV), SEXPK(ilg,ILEV), SH(ilg,ILEV),
+     1       SHEXPK(ilg,ILEV)
+*
+*Author
+*          N.McFarlane - Flux formula, semi-implicit (1995 version)
+*
+*Revision
+* 001      L. Lefaivre (mai 95) - adaptation des changements
+*               de code suggeres par N. McFarlane
+* 002      P. Houtekamer (novembre 95) - Optimization
+*               and New physics interface; TAUFAC passed
+*		in argument
+* 003      B. Dugas (June 2001)  - Automatic arrays
+* 004      B. Bilodeau (May 2002) - Correct VMODB bug and 
+*                          replace CVMGT by IF statements
+*
+*Object
+*          to calculate the tendencies on wind components due
+*          to gravity wave drag
+*
+*Arguments
+*
+*          - Input/Output -
+* U        U component of wind as input
+*          U component of wind modified by the gravity wave
+*          drag as output
+* V        V component of wind as input
+*          V component of wind modified by the gravity wave
+*          drag as output
+*
+*          - Input -
+* TH       temperature level means
+* TF       temperature
+* ENV      variance associated with unresolved orography
+* GC       land-sea mask (between 0(sea) and 1(land))
+* S        sigma levels
+* SEXPK    vertical positioning arrays; (full levels)
+* SH       intermediate levels
+* SHEXPK   vertical positioning arrays (half levels)
+*
+*          - Output -
+* UTENDGW  gravity wave drag tendency on the U component of real
+*          wind
+* VTENDGW  gravity wave drag tendency on the V component of real
+*          wind
+*
+*          - Input -
+* GRAV     gravitational constant
+* RGAS     gas constant
+* TAU      timestep times a factor: 1 for two time-level models
+*                                   2 for three time-level models
+* ILEV     number of levels
+* IL1      1st dimension of U,V,T to start calculation
+* IL2      index on horizontal dimension to stop calculation
+* ILG      total horizontal dimension
+* DAMPFAC  .TRUE. for applying roof drag factor
+* ENVELOP  .TRUE. for gravity wave drag
+* LREF     number of tranche
+* TAUFAC   1/(length scale)
+*
+*          - Internally allocated work fields -
+* BVFREQ   B V frequency
+* BVFREQG  gathered relevant points of BVFREQ
+* VELN     the projection of the local wind on the reference wind.
+*          Negative or zero values are eliminated.
+* UB       U component unit vector of the reference level wind
+* VB       V component unit vector of the reference level
+*          wind(equivalenced to AMPBSQ)
+* UBG      gathered relevant points of UB
+* VBG      gathered relevant points of VB
+* VMODB    reference wind level
+* VMODBG   gathered relevant points of VMODBG
+* DEPFAC   dampening factor
+* HEIGHT   gathered relevant points of ENV
+* AMPBSQ   the V component of the reference level wind
+* AMPDIF   work space
+* DENFAC   DFAC*TENDFAC
+* TFG      gather relevant points of TF
+*
+* UTEND    gravity wave drag tendency on UB
+* VTEND    gravity wave drag tendency on VB
+* DGW      equivalenced to TFG
+* DGWG     equivalenced to DEPFAC
+* DRAG     contains the points where GW calculations will be done,
+*          that is:
+*          A - if over land
+*          B - if bottom wind > VMIN
+*          C - if requested and enveloppe height >= HMIN
+* SG       gathered values of sigma coordinate (s)
+* SHG      gathered values of sh
+*
+* FRB      work array
+* FRMIN    work array
+* FRMAX    work array
+* DNSWTCH  work array
+* DENOFAC  work array
+* DEPFACR  work array
+*
+**
+*
+*
+************************************************************************
+*    AUTOMATIC WORK ARRAYS
+************************************************************************
+*
+     AUTOMATIC ( DRAG     , INTEGER , (ILG     ) )
+*
+     AUTOMATIC ( BVFREQ   , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( VELN     , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( DEPFAC   , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( UB       , REAL*8  , (ILG     ) )
+     AUTOMATIC ( VB       , REAL*8  , (ILG     ) )
+     AUTOMATIC ( VMODB    , REAL*8  , (ILG     ) )
+     AUTOMATIC ( UBG      , REAL*8  , (ILG     ) )
+     AUTOMATIC ( VBG      , REAL*8  , (ILG     ) )
+     AUTOMATIC ( VMODBG   , REAL*8  , (ILG     ) )
+     AUTOMATIC ( HEIGHT   , REAL*8  , (ILG     ) )
+     AUTOMATIC ( AMPBSQ   , REAL*8  , (ILG     ) )
+     AUTOMATIC ( AMPDIF   , REAL*8  , (ILG     ) )
+     AUTOMATIC ( DENFAC   , REAL*8  , (ILG     ) )
+     AUTOMATIC ( BVFREQG  , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( TFG      , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( UTEND    , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( VTEND    , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( DGW      , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( DGWG     , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( SG       , REAL*8  , (ILG,ILEV) )
+     AUTOMATIC ( SHG      , REAL*8  , (ILG,ILEV) )
+*
+     AUTOMATIC ( FRB      , REAL*8  , (ILG     ) )
+     AUTOMATIC ( FRMIN    , REAL*8  , (ILG     ) )
+     AUTOMATIC ( FRMAX    , REAL*8  , (ILG     ) )
+     AUTOMATIC ( DNSWTCH  , REAL*8  , (ILG     ) )
+     AUTOMATIC ( DENOFAC  , REAL*8  , (ILG     ) )
+     AUTOMATIC ( DEPFACR  , REAL*8  , (ILG     ) )
+*
+************************************************************************
+*
+*
+      INTEGER IL1,IL2,LREF,ILEVM,LEN,LREFM,LENGW
+      INTEGER I,L,JYES,JNO
+      REAL*8 VMIN,V0,HMIN,ZERO,UN,ETA,
+     1       DAMPSCA,DTTDSF,DTTDZL,RATIO,
+     2       SIGB,BVFB,HSQMAX,HSQ,HSCAL,DFAC,WIND,BVF,
+     3       DFLXP,DENOM,TENDFAC,DFLXM,DAMPRF,VELMOD,FRN1
+*
+      integer ii
+C
+C     * CONSTANTS VALUES DEFINED IN DATA STATEMENT ARE :
+C
+C     * VMIN     = MIMINUM WIND IN THE DIRECTION OF REFERENCE LEVEL
+C     *            WIND BEFORE WE CONSIDER BREAKING TO HAVE OCCURED.
+C     * DAMPSCAL = DAMPING TIME FOR GW DRAG IN SECONDS.
+C     * HMIN     = MIMINUM ENVELOPE HEIGHT REQUIRED TO PRODUCE GW DRAG.
+C     * V0       = VALUE OF WIND THAT APPROXIMATES ZERO.
+C
+      DATA    VMIN  /  2.0D0 /, V0    / 1.D-30 /, HMIN  / 10.0D0 /,
+     2        ZERO  /  0.0D0 /, UN    /  1.0D0 /, DAMPSCA/ 6.5D+6 /
+C
+C-----------------------------------------------------------------------
+      ILEVM = ILEV - 1
+      LEN   = IL2 - IL1 + 1
+      LREFM = LREF-1
+C
+C     * VMOD IS THE REFERENCE LEVEL WIND AND ( UB, VB)
+C     * ARE IT'S UNIT VECTOR COMPONENTS.
+C
+      DO 100 I=IL1,IL2
+          UB(I)    = U(I,LREFM)
+          VB(I)    = V(I,LREFM)
+          VMODB(I) = SQRT (UB(I)**2 + VB(I)**2)
+          VMODB(I) = MAX( VMODB(I), UN )
+          UB(I)    = UB(I)/VMODB(I)
+          VB(I)    = VB(I)/VMODB(I)
+  100 CONTINUE
+C
+C     * DRAG CONTAINS THE POINTS WHERE GW CALCULATIONS WILL BE DONE,
+C     * THAT IS (A- IF OVER LAND, B- IF BOTTOM WIND > VMIN, C- IF WE
+C     * ASK FOR IT AND C- IF ENVELOPPE HEIGHT >= HMIN )
+C
+      JYES = 0
+      JNO  = LEN + 1
+*VDIR NODEP
+      DO 110 I=IL1,IL2
+          IF (GC(I).EQ.-1 .AND. VMODB(I).GT.VMIN .AND.
+     1        ENVELOP     .AND. ENV(I)  .GE.HMIN     )         THEN
+              JYES        = JYES + 1
+              DRAG(JYES) = I
+          ELSE
+              JNO         = JNO - 1
+              DRAG(JNO)  = I
+          ENDIF
+  110 CONTINUE
+C
+C     * INITIALISE NECESSARY ARRAYS.
+C
+      LENGW = JYES
+      IF (LENGW.GT.0)                                          THEN
+          DO 120 L=1,ILEV
+              DO 120 I=1,LEN
+                  DGWG(I,L)    = ZERO
+                  UTEND(I,L)   = ZERO
+                  VTEND(I,L)   = ZERO
+  120     CONTINUE
+      ELSE
+          DO 130 L=1,ILEV
+              DO 130 I=IL1,IL2
+                  DGW(I,L)     = ZERO
+                  UTENDGW(I,L) = ZERO
+                  VTENDGW(I,L) = ZERO
+  130     CONTINUE
+          GOTO 300
+      ENDIF
+C
+C     * CALCULATE  B V FREQUENCY EVERYWHERE.
+C
+      DO 140 L=2,ILEV
+          DO 140 I=IL1,IL2
+              DTTDSF     =(TH(I,L)/SHEXPK(i,L)-TH(I,L-1)/SHEXPK(i,L-1))
+     1                      /(SH(i,L)-SH(i,L-1))
+              DTTDSF      = MIN( DTTDSF, -5./S(i,L) )
+              DTTDZL      = -DTTDSF*S(i,L)*GRAV/(RGAS*TF(I,L))
+              BVFREQ(I,L) = SQRT (GRAV*DTTDZL*SEXPK(i,L)/TF(I,L))
+  140 CONTINUE
+      DO 150 I=IL1,IL2
+          BVFREQ(I,1)     = BVFREQ(I,2)
+  150 CONTINUE
+C
+C     * GATHER RELEVANT POINTS OF UB, VB, VMODB, BVFREQ, TF,
+C     * AND ENV INTO UBG, VBG, BFREQG, TFG AND HEIGHT.
+C
+*     CALL GATHER(LEN, UBG,    UB(IL1),   DRAG)
+*     CALL GATHER(LEN, VBG,    VB(IL1),   DRAG)
+*     CALL GATHER(LEN, VMODBG, VMODB(IL1),DRAG)
+*     CALL GATHER(LEN, HEIGHT, ENV(IL1),  DRAG)
+*
+      do 155 i=1,len
+         ii = drag(i) + il1 - 1
+         ubg   (i) = ub   (ii)
+         vbg   (i) = vb   (ii)
+         vmodbg(i) = vmodb(ii)
+         height(i) = env  (ii)
+  155 continue
+C
+      DO 160 L=1,ILEV
+*          CALL GATHER(LEN, BVFREQG(1,L), BVFREQ(IL1,L),DRAG)
+*          CALL GATHER(LEN, TFG(1,L),     TF(IL1,L),    DRAG)
+*
+          do 165 i=1,len
+             ii = drag(i) + il1 - 1
+             bvfreqg(i,l) = bvfreq(ii,l)
+             tfg    (i,l) = tf    (ii,l)
+             sg     (i,l) = s     (ii,l)
+             shg    (i,l) = sh    (ii,l)
+  165     continue
+*
+  160 CONTINUE
+C
+C     * SMOOTH B V FREQ.
+C
+      DO 170 L=2,ILEV
+*         RATIO = 5.*LOG( S(L)/S(L-1) )
+          DO 170 I=1,LENGW
+              RATIO = 5.*LOG( Sg(i,L)/Sg(i,L-1) )
+              BVFREQG(I,L) = (BVFREQG(I,L-1) + RATIO*BVFREQG(I,L))
+     1                       /(1.+RATIO)
+  170 CONTINUE
+C
+C     * VELN IS THE PROJECTION OF THE LOCAL WIND ON
+C     * THE REFERENCE WIND. NEGATIVE OR NUL VALUES
+C     * ARE ELEMINATED. AMPDIFF IS ONLY USED AS
+C     * TEMPORARY HOLDING SPACE. GATHER THE RESULT.
+C
+      DO 190 L=1,ILEV
+          DO 180 I=IL1,IL2
+              AMPDIF(I)=MAX( U(I,L)*UB(I)+V(I,L)*VB(I), V0 )
+  180     CONTINUE
+*         CALL GATHER (LEN, VELN(1,L), AMPDIF(IL1), DRAG)
+          do 185 i=1,len
+             ii = drag(i) + il1 - 1
+             veln (i,l) = ampdif(ii)
+  185     continue
+*
+  190 CONTINUE
+C
+C     * CALCULATE EFFECTIVE SQUARE LAUNCHING
+C     * HEIGHT, REFERENCE B V FREQUENCY, ETC.
+C
+*     SIGB = SH(LREFM)
+      DO 200 I=1,LENGW
+               BVFB = BVFREQG(I,LREFM)
+               HSQMAX=    (VMODBG(I)/BVFB)**2
+               HSQ=HEIGHT(I)*HEIGHT(I)
+               HSCAL=RGAS*TFG(I,LREFM)/GRAV
+               SIGB = SHg(i,LREFM)
+               DFAC=BVFB*SIGB*VMODBG(I)/HSCAL
+C*             AMPBSQ(I)=DFAC
+C*             HITESQ(I)=HSQ
+          AMPBSQ(I)=DFAC*HSQ
+          FRB(I) = (BVFB**2)*HSQ/(VMODBG(I)**2)
+          DEPFAC(I,LREF) = TAUFAC*DFAC*HSQ
+          DEPFACR(I) = DEPFAC(I,LREF)
+          DENOFAC(I) = 0.5
+          DNSWTCH(I) = 1.
+          FRMIN(I) = FRB(I)
+          FRMAX(I) = 0.
+  200 CONTINUE
+C
+C
+C     * CALCULATE TERMS FROM THE BOTTOM-UP.
+C
+      DO 240 L=LREFM,1,-1
+          DO 240 I=1,LENGW
+               WIND=VELN(I,L)
+               BVF=BVFREQG(I,L)
+               HSCAL=RGAS*TFG(I,L)/GRAV
+C*               HSQMAX=0.5*(WIND/BVF)**2
+               DFAC=BVF*Sg(i,L)*WIND/HSCAL
+C*               RATIO=AMPBSQ(I)/DFAC
+C*               HSQ=MIN(RATIO*HITESQ(I),HSQMAX)
+C*               HITESQ(I)=HSQ
+C*               AMPBSQ(I)=DFAC
+C*              DEPFAC(I,L)  =TAUFAC*DFAC*HSQ
+          FRN1 = (BVF**2)*AMPBSQ(I)/(DFAC*(WIND**2))
+          IF(FRN1.LE.FRB(I))                           THEN
+            FRMIN(I) = FRN1
+            FRB(I) = FRN1
+            DEPFAC(I,L) = DEPFACR(I)
+            DENOFAC(I) = DENOFAC(I) + (1.-DNSWTCH(I))*FRMAX(I)
+            DNSWTCH(I) = 1.
+          ELSE
+            DENOFAC(I) = DENOFAC(I) - DNSWTCH(I)*FRMIN(I)
+            DNSWTCH(I) = 0.
+            FRMAX(I) = FRN1
+            FRB(I) = FRN1
+            DEPFAC(I,L) = 0.5*DEPFAC(I,LREF)/(DENOFAC(I)+FRN1)
+            DEPFACR(I) = DEPFAC(I,L)
+          ENDIF
+  240 CONTINUE
+C
+C
+C
+C     * CALCULATE GW TENDENCIES.
+C
+C           * TOP LAYER AND BOTTOM LAYER *
+      DO 260 I=1,LENGW
+               DEPFAC(I,LREF)=DEPFAC(I,LREFM)
+               WIND=   VELN(I,1)
+               DFLXP=DEPFAC(I,2)-DEPFAC(I,1)
+               IF (DFLXP.GT.1.D-10) THEN
+                  ETA = UN
+               ELSE
+                  ETA = ZERO
+               ENDIF
+               DFAC=3.*TAU*DEPFAC(I,1)/WIND
+               DENOM=2.*SHg(i,1)+DFAC*eta
+               TENDFAC=DFLXP/DENOM
+               DENFAC(I)=DFAC*TENDFAC
+               UTEND(I,1)=-TENDFAC*UBG(I)
+               VTEND(I,1)=-TENDFAC*VBG(I)
+               UTEND(I,LREF)=ZERO
+               VTEND(I,LREF)=ZERO
+  260 CONTINUE
+       DO 270 L=2,LREFM
+          DO 270 I=1,LENGW
+               WIND=   VELN(I,L)
+               DFLXP=DEPFAC(I,L+1)-DEPFAC(I,L)
+               DFLXM=DEPFAC(I,L)-DEPFAC(I,L-1)
+               IF (DFLXP+DFLXM.GT.1.D-10) THEN
+                  ETA = UN
+               ELSE
+                  ETA = ZERO
+               ENDIF
+               DFAC=3.*TAU*DEPFAC(I,L)/WIND
+               DENOM=2.*(SHg(i,L)-SHg(i,L-1))+DFAC*eta
+               TENDFAC=(DFLXP+DFLXM+DENFAC(I)*eta)/DENOM
+               DENFAC(I)=DFAC*TENDFAC
+              UTEND(I,L) = -TENDFAC*UBG(I)
+              VTEND(I,L) = -TENDFAC*VBG(I)
+  270 CONTINUE
+C           *  ROOF DRAG FACTOR  *
+            DO 275 I=1,LENGW
+                TENDFAC=SQRT(UTEND(I,1)**2 + VTEND(I,1)**2)
+                DGWG(I,1)=DAMPSCA*TENDFAC*VELN(I,1)
+  275       CONTINUE
+C
+C     * SCATTER THESE VALUES OF DGWG AND (U-V)TEND
+C     * INTO DGW AND (U-V)TENDGW.
+C
+      DO 280 L=1,ILEV
+*         CALL SCATTER (LEN, UTENDGW(IL1,L), DRAG, UTEND(1,L))
+*         CALL SCATTER (LEN, VTENDGW(IL1,L), DRAG, VTEND(1,L))
+*         CALL SCATTER (LEN, DGW(IL1,L),     DRAG, DGWG(1,L))
+*
+          do 285 i=1,len
+             ii = drag(i) + il1 - 1
+             utendgw(ii,l) = utend(i,l)
+             vtendgw(ii,l) = vtend(i,l)
+             dgw    (ii,l) = dgwg (i,l)
+  285     continue
+*
+  280 CONTINUE
+C
+C     * APPLY GW DRAG ON U AND V.
+C
+      DO 290 L=1,ILEV
+          DO 290 I=IL1,IL2
+              U(I,L) = U(I,L) + TAU*UTENDGW(I,L)
+              V(I,L) = V(I,L) + TAU*VTENDGW(I,L)
+  290 CONTINUE
+C
+C     * APPLY ROOF DRAG IF THE BACKGROUND GW DRAG IS SMALL ENOUGH.
+C
+  300 CONTINUE
+C
+      IF (DAMPFAC)                                                THEN
+          DAMPRF = UN
+      ELSE
+          DAMPRF = ZERO
+      ENDIF
+C
+      DO 310 I=IL1,IL2
+          VELMOD       = MAX( SQRT( U(I,1)**2 + V(I,1)**2 ), UN )
+          DFAC         = MAX( UN-DGW(I,1)/(VELMOD*VELMOD), ZERO )
+     1                 * DAMPRF / DAMPSCA
+          DENOM        = UN + TAU*DFAC
+          U(I,1)       = U(I,1)/DENOM
+          V(I,1)       = V(I,1)/DENOM
+          UTENDGW(I,1) = UTENDGW(I,1) - DFAC*U(I,1)
+          VTENDGW(I,1) = VTENDGW(I,1) - DFAC*V(I,1)
+  310 CONTINUE
+C
+      RETURN
+C
+C-----------------------------------------------------------------------
+      END
+
+

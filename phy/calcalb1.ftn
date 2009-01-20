@@ -1,0 +1,173 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r calcalb1 - compute surface albedo considering vegetation and snow.
+*
+      subroutine calcalb1(alb, veg, sno, anal, ni)
+*
+#include "impnone.cdk"
+*
+      integer ni
+      real    alb(ni),veg(ni),sno(ni),
+     +        anal(ni)
+*
+*Author
+*          B. Brasnett/A. Methot - CMC - March 1996 (from GEM)
+*
+*Revision
+* 001      N. Brunet (Fall 1999)  - routine moved to "physics" library
+*                              (adaptation)
+* 002      B. Dugas (July 2000) - restrict to soil
+*
+*Language
+*          Fortran 77
+*
+*Object
+*          Compute surface albedo considering vegetation, ice, snow
+*          and a background albedo.
+*          According to the value of  bkgalb the background albedo
+*          is taken from climatological file ( bkgalb=true)
+*          or from a table of background albedo for each vegetation
+*          type (given within this subroutine).
+*
+*          The routine modifies this background albedo considering both
+*          the snow depth analysis and a table of snow masking depths
+*          for each vegetation type ( given in this subroutine ).
+*
+*          Albedo over ice and snow is 0.8.
+*
+*Arguments
+*
+*          - Input -
+* ALB      climatological "no snow" albedos
+* VEG      coded vegetation types 
+* SNO      snow depth (metres)
+* ICE      ice cover  (0. - 1.)
+* MASK     land-sea mask 
+* NI       first working dimension of all fields
+*
+*          - Output -
+* ANAL     final albedo values
+*
+*NOTES
+*          1) THE METHOD USED TO CALCULATE THE ALBEDO WITH SNOW HAS BEEN
+*             ADOPTED FROM A. HENDERSON-SELLERS AND J. GRAHAM COGLEY,
+*             TRENT U. TECHNICAL NOTE 85-1, OBTAINED FROM CCRN.
+*
+*          2) This subroutine expects snow depth (INPUT) in metres.
+*
+***
+*
+*
+      INTEGER I,ICODE,MG2,IFACTR,M,G,GG2 ,J,VG2,AG2,A
+      REAL    MASKDP(0:24)
+      real    albveg(0:24)
+      REAL    ALBSNO
+      real    pralg, albgbar
+      REAL    ISNO
+*
+#include "options.cdk"
+*                                   NOT USED            WATER
+      DATA albveg(0), albveg(1) /    0.06,               0.06/
+*                                  GLACIAL ICE    INLAND LAKES      
+      DATA albveg(2),albveg(3) /     0.80,               0.06 /
+*                            EVERGREEN NEEDLELEAF EVERGREEN BROADLEAF
+      DATA albveg(4),albveg(5) /     0.14,               0.14/
+*                            DECIDUOUS NEEDLELEAF DECIDUOUS BROADLEAF
+      DATA albveg(6),albveg(7) /     0.13,               0.13/ 
+*                            TROPICAL BROADLEAF   DROUGHT DECIDUOUS
+      DATA albveg(8),albveg(9) /     0.13,               0.13/
+*                             EVERGREEN SHRUB     BROADLEAF SHRUB
+      DATA albveg(10),albveg(11)/    0.17,               0.16/
+*                             THORN SHRUB          SHORT GRASS, FORBS
+      DATA albveg(12),albveg(13)/    0.16,               0.19/
+*                             LONG GRASS                ARABLE
+      DATA albveg(14),albveg(15)/    0.20,               0.20/
+*                                  RICE                 SUGAR
+      DATA albveg(16),albveg(17)/    0.12,               0.17/
+*                                  MAIZE                COTTON
+      DATA albveg(18),albveg(19)/     0.19,               0.19/
+*                              IRRIGATED CROP           URBAN
+      DATA albveg(20),albveg(21)/     0.25,               0.18/
+*                                  TUNDRA                SWAMP
+      DATA albveg(22),albveg(23)/     0.15,               0.12/
+*                              SANDY DRY SOIL
+      DATA albveg(24)      /          0.35                   /
+*
+*
+*
+*                                 NOT USED             WATER
+      DATA MASKDP(0), MASKDP(1) /    0.01,               0.01/
+*                                 GLACIAL ICE     INLAND LAKES
+      DATA MASKDP(2),MASKDP(3) /     0.01,               0.01/
+*                            EVERGREEN NEEDLELEAF EVERGREEN BROADLEAF
+      DATA MASKDP(4),MASKDP(5) /    12.00,               8.00/
+*                            DECIDUOUS NEEDLELEAF DECIDUOUS BROADLEAF
+      DATA MASKDP(6),MASKDP(7) /     8.00,               8.00/
+*                            TROPICAL BROADLEAF   DROUGHT DECIDUOUS
+      DATA MASKDP(8),MASKDP(9) /     8.00,               4.00/
+*                             EVERGREEN SHRUB     BROADLEAF SHRUB
+      DATA MASKDP(10),MASKDP(11)/    2.00,               1.00/
+*                             THORN SHRUB          SHORT GRASS, FORBS
+      DATA MASKDP(12),MASKDP(13)/    1.00,               0.10/
+*                             LONG GRASS                ARABLE
+      DATA MASKDP(14),MASKDP(15)/    0.15,               0.10/
+*                                  RICE                 SUGAR
+      DATA MASKDP(16),MASKDP(17)/    0.10,               0.10/
+*                                  MAIZE                COTTON
+      DATA MASKDP(18),MASKDP(19)/    0.10,               0.10/
+*                              IRRIGATED CROP           URBAN
+      DATA MASKDP(20),MASKDP(21)/    0.10,               4.00/
+*                                  TUNDRA                SWAMP
+      DATA MASKDP(22),MASKDP(23)/    0.02,               0.01/
+*                              SANDY DRY SOIL
+      DATA MASKDP(24)      /         0.01                    /
+*
+*
+      DATA ALBSNO/0.8/
+***********************************************************************
+*
+*     isno = 1 centimetre
+      ISNO = 0.01
+      DO 10 I=1,ni
+
+        ICODE = MAX(MIN(24,NINT(VEG(I))),1)
+
+*               compute albedo over ground considering snow and vegetation
+
+        if ( bkgalb ) then
+                  albgbar = alb(i)
+        else
+                  albgbar = albveg(icode)
+        endif
+
+        IF ( sno(i) .GT. ISNO ) THEN
+           IF ( sno(i) .LE. MASKDP(ICODE) ) THEN
+               pralg = albgbar + (sno(i)/maskdp(icode)) *
+     %                                               (albsno-albgbar)
+           ELSE
+               pralg = albsno
+           ENDIF
+        ELSE
+               pralg = albgbar
+        ENDIF
+*
+        anal(i) =  pralg
+
+ 10   CONTINUE
+*
+      RETURN
+      END
+

@@ -1,0 +1,74 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/R INCTPHY3  -  INITIALISE LE COMMON 'CTESPHY'.
+*
+      logical function INCTPHY3 (call_back,proc)
+*
+#include "impnone.cdk"
+*
+      logical call_back
+      external call_back
+      integer proc
+*Author
+*          N. Brunet  (Jan91)
+*
+*Revision
+* 001      B. Bilodeau (Nov 1995) - Change KARMAN to 0.40
+* 002      M. Desgagne (Apr 2000) - Call-back
+*
+*Object
+*          to initialize the variables in common block CTESPHY by
+*          reading the file "CONSTANTES".
+*
+*Arguments
+*          None.
+*
+*PARAMETRES
+*     NBRE - NOMBRE DE CONSTANTES DANS LE FICHIER
+      INTEGER NBRE
+      PARAMETER(NBRE=31)
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+**
+*----------------------------------------------------------------------
+*
+      CHARACTER *10 NOM1(NBRE)
+*
+      DATA NOM1/ 'CPD', 'CPV', 'RGASD', 'RGASV', 'TRPL',
+     $           'TCDK', 'RAUW', 'EPS1', 'EPS2', 'DELTA',
+     $           'CAPPA', 'TGL', 'CONSOL', 'GRAV', 'RAYT',
+     $           'STEFAN', 'PI', 'OMEGA',
+     $           'KNAMS', 'STLO', 'KARMAN', 'RIC', 'CHLC', 'CHLF',
+     $           'T1S', 'T2S', 'AW', 'BW', 'AI', 'BI', 'SLP'/
+*
+*----------------------------------------------------------------------
+*
+      INTEGER FLAG
+*
+      INIT=.TRUE.
+*
+      INCTPHY3 = call_back (cpd,nom1,nbre,proc)
+*
+*     DONNER A LA CONSTANTE "KARMAN" LA VALEUR 0.40
+*     ---------------------------------------------
+*
+      CALL CONSTNT(0.40  ,FLAG,'KARMAN',3)
+      CALL CONSTNT(KARMAN,FLAG,'KARMAN',0)
+*
+      RETURN
+      END

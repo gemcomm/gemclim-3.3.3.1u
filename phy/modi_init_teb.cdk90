@@ -1,0 +1,48 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ####################
+      MODULE MODI_INIT_TEB 
+!     ####################
+INTERFACE
+      SUBROUTINE INIT_TEB(HPROGRAM,HINIT,HSV,PCO2,PRHOA,              &
+                          PZENITH,PAZIM,PSW_BANDS,PDIR_ALB,PSCA_ALB,  &
+                          PEMIS,PTSRAD,                               &
+                          HATMFILE,HATMFILETYPE,KYEAR,KMONTH,KDAY,PTIME)
+!
+CHARACTER(LEN=6),                INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=3),                INTENT(IN)  :: HINIT     ! choice of fields to initialize
+CHARACTER(LEN=6), DIMENSION(:),  INTENT(IN)  :: HSV       ! name of all scalar variables
+REAL,             DIMENSION(:),  INTENT(IN)  :: PCO2      ! CO2 concentration (kg/m3)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PRHOA     ! air density       (kg/m3)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PZENITH   ! solar zenithal angle
+REAL,             DIMENSION(:),  INTENT(IN)  :: PAZIM     ! solar azimuthal angle (rad from N, clock)
+REAL,             DIMENSION(:),  INTENT(IN)  :: PSW_BANDS ! middle wavelength of each band
+REAL,             DIMENSION(:,:),INTENT(OUT) :: PDIR_ALB  ! direct albedo for each band
+REAL,             DIMENSION(:,:),INTENT(OUT) :: PSCA_ALB  ! diffuse albedo for each band
+REAL,             DIMENSION(:),  INTENT(OUT) :: PEMIS     ! emissivity
+REAL,             DIMENSION(:),  INTENT(OUT) :: PTSRAD    ! radiative temperature
+CHARACTER(LEN=28), INTENT(IN)  :: HATMFILE    ! atmospheric file name
+CHARACTER(LEN=6),  INTENT(IN)  :: HATMFILETYPE! atmospheric file type
+INTEGER,           INTENT(IN)  :: KYEAR     ! current year (UTC)
+INTEGER,           INTENT(IN)  :: KMONTH    ! current month (UTC)
+INTEGER,           INTENT(IN)  :: KDAY      ! current day (UTC)
+REAL,              INTENT(IN)  :: PTIME     ! current time since midnight (UTC, s)
+!
+END SUBROUTINE INIT_TEB 
+!
+END INTERFACE
+!
+END MODULE MODI_INIT_TEB

@@ -1,0 +1,120 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  WETCON2
+#include "phy_macros_f.h"
+      SUBROUTINE WETCON2 (STAWS, S, DELWET, n, NK , LEVEZA)
+*
+#include "impnone.cdk"
+      INTEGER n, nk
+      REAL STAWS(n,NK-1,6),S(n,NK),DELWET(n,NK)
+      LOGICAL LEVEZA
+*
+*Author
+*          R. Benoit (Aug 93) adapted from wetcon for local sigma
+*
+*Revision
+* 001      G. Pellerin (Jun 2003) IBM Conversion.
+*                  - calls to vslog routine (from massvp4 library)
+*
+*Object
+*          to prepare (staws and delwet) (2D) used in
+*          the moist convective adjustment (MANABE)
+*
+*Arguments
+*
+*          - Output -
+* STAWS    stabilization matrix (n,NK-1,6)
+*
+*          - Input -
+* S        sigma levels (n,nk)
+*
+*          - Output -
+* DELWET   half thicknesses of layers (n,nk)
+*
+*          - Input -
+* N        1st horizontal dimension
+* NK       vertical dimension
+* LEVEZA   .TRUE. means to remove the anemometer level S(NK)< 1
+*
+*Notes
+*          We must use the compatible versions of MPRECIP and
+*          MCONADJ. This routine computes the stabilization matrix
+*          such that:
+*          TT = STAWS1+T(lower) + STAWS2*T(upper)
+*          GAM = TT + STAWS3*(T(lower) - T(upper))
+*          DT(upper) = STAWS4*(GAC=GAM)
+*          DT(lower) = STAWS5*DT(upper)
+*          Refer to "Parametrisation des Effets Physiques dans
+*          les Modeles de Prevision du Temps", R.Benoit,RPN,June80
+*
+*
+*IMPLICITES
+*
+#include "consphy.cdk"
+**
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (ZDSIG , REAL   , (N,NK-1))
+*
+************************************************************************
+*
+      INTEGER K, j, nkm1
+      real temp1
+*
+      nkm1=nk-1
+      do 10 j=1,n
+         DELWET(j,1) = ( S(j,2) - S(j,1) ) * 0.5
+          ZDSIG(j,1) = S(j,2)/S(j,1)
+ 10   continue
+      DO 20 K=2,nkm1
+         do 20 j=1,n
+            DELWET(j,K) = ( S(j,K+1) - S(j,K-1) ) * 0.5
+            ZDSIG(j,K) = S(j,K+1)/S(j,K)
+ 20   continue
+        call vslog(ZDSIG, ZDSIG, nkm1*n)
+*
+*     DEUX FACONS DE CALCULER DELWET(NK) SELON QUE DERNIER
+*     NIVEAU (NK) EST A SIGMA = 1 OU SIGMA < 1
+*           (LEVEZA=           .F.          .T.  )
+      IF (.NOT.LEVEZA) THEN
+         do 30 j=1,n
+            DELWET(j,NK) = ( 1.0 - S(j,NK-1) ) * 0.5
+ 30      continue
+      ELSE
+         do 40 j=1,n
+            DELWET(j,NK) = 1.0 - (S(j,NK-1) + S(j,NK)) * 0.5
+ 40      continue
+      ENDIF
+      DO 2 K = 1,nkm1
+         do 2 j=1,n
+         STAWS(j,K,1) = 0.5
+         STAWS(j,K,2) = 0.5
+         STAWS(j,K,3) = 1.0/( CAPPA * ZDSIG(j,K) )
+         STAWS(j,K,5) = -DELWET(j,K+1)/DELWET(j,K)
+         STAWS(j,K,6) = SQRT( S(j,K)/S(j,K+1) )
+ 2    continue
+*
+      DO 3 K=1,nkm1
+         do 3 j=1,n
+            STAWS(j,K,4) = 1.0/(STAWS(j,K,2) - STAWS(j,K,3) +
+     X                  STAWS(j,K,5) * (STAWS(j,K,1) + STAWS(j,K,3)) )
+ 3    continue
+*
+      RETURN
+      END

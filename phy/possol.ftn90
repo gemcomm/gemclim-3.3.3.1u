@@ -1,0 +1,155 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ######spl
+    SUBROUTINE POSSOL(PLAT,PLONG,PJULIEN,PHEURE,PMINUTE,PAZENIT)
+!   #####################################################################
+!
+!!****  *POSSOL*  
+!!
+!!    PURPOSE
+!!    -------
+!
+!     Calculates the solar zenith and azimuth angles for CO2 model
+!              
+!!**  METHOD
+!!    ------
+!
+!!    EXTERNAL
+!!    --------
+!!    none
+!!
+!!    IMPLICIT ARGUMENTS
+!!    ------------------
+!!    MODD_CST
+!!      
+!!    REFERENCE
+!!    ---------
+!!
+!!    Calvet et al. (1997)
+!!      
+!!    AUTHOR
+!!    ------
+!!
+!!	A. Boone           * Meteo-France *
+!!      (following Belair)
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    27/10/97 
+!!
+!-------------------------------------------------------------------------------
+!
+!
+!*       0.     DECLARATIONS
+!               ------------
+!
+USE MODD_CSTS
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:), INTENT(IN):: PLAT, PLONG, PJULIEN, PHEURE, PMINUTE 
+!                                      PLAT, PLONG = latitude/longitude of each grid 
+!                                      point used in computation of solar zenith and
+!                                      azimuth angles
+!                                      PJULIEN   = julien day needed (as above)
+!                                      PHEURE    = hour needed (as above)
+!                                      PMINUTE   = minute needed for determining
+!                                      the solar zenith and azimuth angles
+!
+REAL, DIMENSION(:),INTENT(OUT):: PAZENIT
+!	                               solar zenith angle
+!
+!
+!*      0.2    declarations of local variables
+!
+! Some preliminary constants:
+!
+REAL                                :: ZPI2, ZCDR
+!
+REAL, DIMENSION(SIZE(PLAT))         :: ZAZIMUT
+!                                      solar azimuth angle
+!
+REAL, DIMENSION(SIZE(PLAT))         :: ZXLON2
+REAL, DIMENSION(SIZE(PLAT))         :: ZXLON, ZET, ZAH, ZDELTA,               &
+                                       ZSINH, ZCOSH, ZSINA, ZCA
+!                                      working arrays needed in computation
+!                                      of zenith and azimuth angles
+!
+!-------------------------------------------------------------------------------
+!
+! Initialize some constants:
+!
+ZPI2 = 2*XPI
+ZCDR = ZPI2/360 
+!
+!
+! Position du soleil avec Heure = TU
+! Azenit,Azimut en radian
+!
+ZXLON(:)  = 0.
+ZXLON2(:)  = PLONG(:)
+WHERE(ZXLON < 0.0)
+   ZXLON(:) = 360. + ZXLON2(:)         ! adjust longitude for computations
+END WHERE
+!
+ZET(:)    = -7.67820*SIN((1.00554*PJULIEN(:) - ZPI2    )*ZCDR) -          &
+              10.09176*SIN((1.93946*PJULIEN(:) + 23.35089)*ZCDR)
+!
+ZAH(:)    = 15.*ZCDR*((PHEURE(:)+(PMINUTE(:)/60.)) + (ZXLON(:)/15.) +     &
+              (ZET(:)/60.) -12.)
+!
+ZDELTA(:) = 23.4856*ZCDR*SIN(ZCDR*(0.9683*PJULIEN(:) - 78.00878))
+!
+ZSINH(:)  = SIN(PLAT(:)*ZCDR)*SIN(ZDELTA(:)) + COS(PLAT(:)*ZCDR)*         &
+              COS(ZDELTA(:))*COS(ZAH(:))
+!
+ZCOSH(:)  = SQRT(1. - ZSINH(:)*ZSINH(:))
+!
+!
+!	                                     Compute zenith angle
+!
+!
+PAZENIT(:)= 0.5*XPI - ATAN(ZSINH(:)/ZCOSH(:))
+!
+ZSINA(:)  = COS(ZDELTA(:))*SIN(ZAH(:))/ZCOSH(:)
+!
+ZCA(:)    = ((-COS(PLAT(:)*ZCDR)*SIN(ZDELTA(:))) +                        &
+              SIN(PLAT(:)*ZCDR)*COS(ZDELTA(:))*COS(ZAH(:)))/ZCOSH(:)
+!
+!
+WHERE(ZSINA(:) == -1.0 .OR. ZSINA(:) == 1.0)
+   ZAZIMUT(:) = -XPI*0.5 
+ELSEWHERE
+   ZAZIMUT(:) = ATAN(ZSINA(:)/(SQRT(1. - ZSINA(:)*ZSINA(:))))
+END WHERE
+!
+!
+!	                                     Compute azimuth angle:
+!
+!
+WHERE(ZCA <= 0.0)                            &
+   ZAZIMUT(:) = XPI - ZAZIMUT(:)
+WHERE(ZCA > 0.0 .AND. ZAZIMUT < 0.0)         &
+   ZAZIMUT(:) = ZPI2 + ZAZIMUT(:)
+ZAZIMUT(:) = XPI + ZAZIMUT(:)
+WHERE(ZAZIMUT >= ZPI2)ZAZIMUT(:) = ZAZIMUT(:) - ZPI2
+!
+!
+!	
+END SUBROUTINE POSSOL
+

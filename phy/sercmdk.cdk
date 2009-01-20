@@ -1,0 +1,142 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*COMMON BLOCK /SERCAR/
+*          contain output variables demanded for output in time-
+*          series. They are initialized in SERALC2(FEMAIN) and
+*          SERIE(FESERI)
+*
+* SURFACE  names of surface variables demanded for output in time-
+*          series
+* PROFILS  names of profile variables demanded for output in time-
+*          series
+*
+#endif
+#if defined(DOC)
+*COMMON BLOCK /SERVAR/
+*          contains variables for time-series calculation
+*
+* MXSRF    maximum number of surface variables in time-series;
+*          initial value is set to 0 in SERDATA, re-initialized in
+*          SERALLC
+* MXPRF    maximum number of profile variables in time-series;
+*          initial value is set to 0 in SERDATA, re-initialized in
+*          SERALLC
+* MXSTT    maximum number of stations;  initial value is set to 0 in
+*          SERDATA, re-initialized in SERALLC
+* MXNVO    maximum number of levels;  initial value is set to 0 in
+*          SERDATA, re-initialized in SERALLC
+* INITOK   logical key indicating to call SERALLC;  initial value is
+*          set to .FALSE.  in SERDATA, re-initialized in SERALLC
+* NOUTSER  unit number attached to sequential file where time-series
+*          are written; initialized in SERSET
+* HEURE    hour relative to start of the forecast (central time);
+*          initialized in SERSET
+* KOUNT    the current time step.
+* SERINT   interval, in time steps, between output of time series.
+* NINJNK   NI,NJ,NK respectively; initialized in SERALC2
+* NSTAT    number of stations;  initial value is set to 0 in SERDATA
+* NSURF    number of surface variables requested;  initial value is
+*          set to 0 in SERDATA
+* NPROF    number of profile variables requested;  initial value is
+*          set to 0 in SERDATA
+* TSVER    TIME-SERIES VERSION
+* TSMOYHR  OUTPUT INTERVAL FOR MODEL OUTPUT
+* SRWRI    OUTPUT INTERVAL FOR TIME SERIES OUTPUT
+* P1       pointer to array JSTAT which contains J indices of the
+*          stations; initialized in SERALLC.
+* P2       pointer to array IJSTAT which contains IJ indices of the
+*          stations
+*          IJ = (I+(J-1)*NI); initialized in SERALLC.
+* P5       pointer to array SERS which contains surface variables
+*          initialized in SERALLC.
+* P6       pointer to array SERP which contains profile variables;
+*          initialized in SERALLC.
+* P8       pointer to array KAM which contains values of KA for
+*          each row of the domain; initialized in SERALLC.
+*
+#endif
+* VARIABLES DU SYSTEME D'EXTRACTION DE SERIES TEMPORELLES
+*
+* MXSRF   - NOMBRE MAXIMUM DE VARIABLES DE SURFACE
+* MXPRF   - NOMBRE MAXIMUM DE VARIABLES DE PROFILS
+* MXSTT   - NOMBRE MAXIMUM DE STATIONS
+* MXNVO   - NOMBRE MAXIMUM DE NIVEAUX
+#ifndef CALLED_BY_SERDATA
+* JSTAT   - INDICE J DES STATIONS
+* IJSTAT  - IJSTAT(*,1) INDICE I DES STATIONS
+*         - IJSTAT(*,2) INDICE IJ DES STATIONS ( I+(J-1)*NI )
+* SURFACE - SURFACE(*,1) VARIABLES DE SURFACE DEMANDEES
+*         - SURFACE(*,2) VARIABLES DE SURFACE SORTIES
+* PROFILS - PROFILS(*,1) VARIABLES DE PROFIL DEMANDEES
+*         - PROFILS(*,2) VARIABLES DE PROFIL SORTIES
+* SERS    - TAMPON OU S'ACCUMULENT LES VARIABLES DE SURFACE
+* SERP    - TAMPON OU S'ACCUMULENT LES VARIABLES DE PROFIL
+* NOUTSER - FICHIER SEQUENTIEL OU LES SERIES TEMPORELLES SONT ECRITES
+* HEURE   - HEURE RELATIVE AU DEBUT DE LA PREVISION ( TEMPS CENTRAL )
+* SERINT  - INTERVALLE EN PAS DE TEMPS DES SORTIES DES SERIES TEMPORELLES
+* KOUNT   - PAS DE TEMPS ACTUEL
+* NINJNK  - RESPECTIVEMENT NI,NJ,NK
+* KAM     - VECTEUR (NJ) CONTENANT UNE VALEUR DE KA POUR CHAQUE RANGEE
+*           (UTILE POUR LE MODE MULTITACHE)
+#endif
+* NSTAT   - NOMBRE DE STATIONS PEUT ETRE 0
+* NSURF   - NOMBRE DE VARIABLES DE SURFACE DEMANDEES PEUT ETRE 0
+* NPROF   - NOMBRE DE VARIABLES DE PROFIL DEMANDEES PEUT ETRE 0
+* TSVER   - TIME-SERIES VERSION
+* TSMOYHR - OUTPUT INTERVAL FOR MODEL OUTPUT
+* SRWRI   - OUTPUT INTERVAL FOR TIME SERIES OUTPUT
+* INITOK  - CLE LOGIQUE INDIQUANT LE PASSAGE DE LA ROUTINE SERALLC
+#ifndef CALLED_BY_SERDATA
+* NPHYS   - NOMBRE DE CHAMPS PHYSIQUES INVARIANTS ASSOCIES AUX POINTS
+*           DE SERIE (E.G. LAT,LON,MASQUE...)
+* NPHYSP  - NPHYS+1
+#endif
+*
+      LOGICAL INITOK
+      INTEGER MXSRF,MXPRF,MXSTT,MXNVO
+      INTEGER NSTAT,NSURF,NPROF,TSVER,TSMOYHR,SRWRI
+#ifndef CALLED_BY_SERDATA
+      INTEGER JSTAT,IJSTAT,istat_g,jstat_g,station
+      INTEGER NOUTSER,NINJNK(3),nstat_g
+      INTEGER SERINT, KOUNT
+      INTEGER NPHYS,NPHYSP
+      INTEGER NVAR
+      PARAMETER (NPHYS=12)
+      PARAMETER (NPHYSP=NPHYS+1)
+      PARAMETER (NVAR=256)
+      REAL SERS,SERP
+      REAL PHYS,KAM
+      REAL*8 HEURE
+      POINTER(P1,JSTAT(MXSTT))
+      POINTER(P2,IJSTAT(MXSTT,2))
+      POINTER(P11,JSTAT_g(MXSTT))
+      POINTER(P22,ISTAT_g(MXSTT))
+      POINTER(P3,station(MXSTT))
+      POINTER(P5,SERS(MXSTT,MXSRF))
+      POINTER(P6,SERP(MXNVO,MXSTT,MXPRF))
+      POINTER(P8,KAM(1))
+      CHARACTER *4 SURFACE(NVAR,2), PROFILS(NVAR,2)
+      COMMON /SERCAR/ SURFACE, PROFILS
+      COMMON /SERVAR/ NOUTSER,NINJNK,nstat_g
+      COMMON /SERVAR/ SERINT, KOUNT
+      COMMON /SERVAR8/ HEURE
+      COMMON /SERVARP/ P1, P2, p11, p22, p3, P5, P6, P8
+#endif
+      COMMON /SERVAR2/ INITOK
+      COMMON /SERVAR2/ MXSRF,MXPRF,MXSTT,MXNVO
+      COMMON /SERVAR2/ NSTAT,NSURF,NPROF
+      COMMON /SERVAR2/ TSVER,TSMOYHR,SRWRI

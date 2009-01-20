@@ -1,0 +1,131 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P HEATCOEF
+*
+#include "phy_macros_f.h"
+      SUBROUTINE HEATCOEF (RI,Z0,Z0H,Z0TOT,ZREF,ZVMOD,
+     1                     CH,RA,
+     1                     N                          )
+*
+*
+#include "impnone.cdk"
+*
+      INTEGER N
+      REAL RI(N), Z0(N), Z0H(N), Z0TOT(N), ZREF(N)
+      REAL ZVMOD(N), CH(N), RA(N)
+*
+*Author
+*          S. Belair (April 1998)
+*Revisions
+* 001      B. Bilodeau (January 2001) Automatic arrays
+*
+*Object
+*
+*     Calculates the transfer coefficient for heat CH and the
+*     aerodynamical resistance RA.
+*
+*
+*Arguments
+*
+*          - Input -
+* RI        Richardson's number
+* Z0        roughness length for momentum
+* Z0H       roughness length for heat
+* Z0TOT     roughness length including the effect of snow
+* ZREF      reference height
+* ZVMOD     module of the surface winds
+*
+*
+*           - Output -
+* CH        drag coefficient for heat
+* RA        aerodynamical resistance
+*
+*
+#include "consphy.cdk"
+*
+      INTEGER I
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( MU    , REAL , (N) ) 
+      AUTOMATIC ( FH    , REAL , (N) ) 
+      AUTOMATIC ( CDN   , REAL , (N) ) 
+      AUTOMATIC ( STA   , REAL , (N) ) 
+      AUTOMATIC ( DI    , REAL , (N) ) 
+      AUTOMATIC ( CHSTAR, REAL , (N) ) 
+      AUTOMATIC ( PH    , REAL , (N) ) 
+*
+************************************************************************
+*
+*
+**
+***       1.     PRELIMINARY CALCULATIONS FOR THE HEAT TRANSFERS
+**               -----------------------------------------------
+*
+*
+*
+      DO I=1,N
+        MU(I) = MAX( LOG( Z0(I)/Z0H(I) ), 0.0 )
+        FH(I) = LOG(1.+ZREF(I)/Z0(I) )/ LOG(1.+ ZREF(I)/ Z0H(I) )
+        CHSTAR(I) = 3.2165 + 4.3431*MU(I) + 0.5360*MU(I)*MU(I)
+     1        - 0.0781*MU(I)*MU(I)*MU(I)
+        PH(I) = 0.5802 - 0.1571*MU(I) + 0.0327*MU(I)*MU(I)
+     1        - 0.0026*MU(I)*MU(I)*MU(I)
+        CDN(I) = (KARMAN/LOG(1.+ZREF(I)/Z0TOT(I)))**2.
+        STA(I) = RI(I)*ZVMOD(I)*ZVMOD(I)
+      END DO
+*
+*
+      DO I=1,N
+        IF (RI(I).LT.0.0) THEN
+          DI(I)= 1. / (ZVMOD(I)+CHSTAR(I)*CDN(I)*15.
+     1     * (1.+ZREF(I)/Z0H(I))**PH(I)*FH(I)
+     1     * SQRT(-STA(I) ))
+          RA(I) = CDN(I)*(ZVMOD(I)-15.*STA(I)*DI(I))*FH(I)
+        ELSE
+          DI(I) = SQRT(ZVMOD(I) * ZVMOD(I) + 5. * STA(I) )
+          RA(I) = CDN(I)*ZVMOD(I)/(1.+15.*STA(I)*DI(I)
+     1      / ZVMOD(I) /ZVMOD(I) /ZVMOD(I) )*FH(I)
+        END IF
+      END DO
+*
+*
+**
+***       2.    AERODYNAMICAL RESISTANCE
+**              ------------------------
+*
+      DO I=1,N
+        RA(I) = 1. / RA(I)
+      END DO
+*
+*
+*
+**
+***       3.     DRAG COEFFICIENT FOR HEAT TRANSFERS
+**               -----------------------------------
+*
+*
+      DO I=1,N
+        CH(I) = 1. / ( RA(I)*ZVMOD(I) )
+      END DO
+*
+*
+*
+      RETURN
+      END

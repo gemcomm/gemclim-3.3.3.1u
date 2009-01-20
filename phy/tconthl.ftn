@@ -1,0 +1,265 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P TCONTHL - WATER VAPOR CONTINUUM
+*
+#include "phy_macros_f.h"
+      subroutine tconthl (taug, coef1, coef2, qq, dp, dip, dt, 
+     1                    inpt, mcont, il1, il2, ilg, lay)
+*
+#include "impnone.cdk"
+*
+      integer ilg, lay, il1, il2, k, i, j, m, mcont
+      real x1, y1, x2, y2, x11, x21, y21, y11, x12, x22, y12, y22 
+      real rrmco2, rr
+      real taug(ilg,lay), coef1(5,6), coef2(5,6)
+*
+      real qq(ilg,lay), dp(ilg,lay), dip(ilg,lay), dt(ilg,lay)
+      integer inpt(ilg,lay)
+*
+*Authors
+*
+*        J. Li, M. Lazare, CCCMA, rt code for gcm4
+*        (Ref: J. Li, H. W. Barker, 2005:
+*        JAS Vol. 62, no. 2, pp. 286\226309)
+*        P. Vaillancourt, D. Talbot, RPN/CMC;
+*        adapted for CMC/RPN physics (May 2006)
+*
+*Revisions
+*
+* 001
+*
+*Object
+*
+*        Water vapor continuum for 540-800 cm-1. different from tcontl,    
+*        variation of mass mixing ratio for h2o and co2 is consider.       
+*        lc = 4, but the inptut data are with 6 group, 2 of them are used  
+*        for mass mixing ratio changes                                     
+*
+*Arguments
+*
+* taug   gaseous optical depth                                      
+* qq     input h2o mixing ratio for each layer                      
+* dp     air mass path for a model layer (explained in raddriv)
+* dip    interpolation factor for pressure between two             
+*        neighboring standard input data pressure levels            
+* dt     layer temperature - 250 k                                  
+* inpt   number of the level for the standard input data pressures  
+* mcont  the highest level for water vapor continuum calculation    
+*
+*Implicites
+#include "tracegases.cdk"
+*
+**
+
+      rrmco2 =  1. / (rmco2 + 1.e-10)
+c
+      do 200 k = mcont, lay
+        if (inpt(1,k) .lt. 950)                                     then
+          do 100 i = il1, il2
+            m =  inpt(i,k) - 14 
+            if (m .eq. 1)                                           then
+              x1        =  coef1(1,1) + dt(i,k) * (coef1(2,1) + 
+     1                     dt(i,k) * (coef1(3,1) + dt(i,k) *
+     2                    (coef1(4,1) + dt(i,k) * coef1(5,1))))
+c
+              x2        =  coef1(1,2) + dt(i,k) * (coef1(2,2) +
+     1                     dt(i,k) * (coef1(3,2) + dt(i,k) *
+     2                    (coef1(4,2) + dt(i,k) * coef1(5,2))))
+c
+              y1        =  coef2(1,1) + dt(i,k) * (coef2(2,1) +
+     1                     dt(i,k) * (coef2(3,1) + dt(i,k) *
+     2                    (coef2(4,1) + dt(i,k) * coef2(5,1))))
+c
+              y2        =  coef2(1,2) + dt(i,k) * (coef2(2,2) +
+     1                     dt(i,k) * (coef2(3,2) + dt(i,k) *
+     2                    (coef2(4,2) + dt(i,k) * coef2(5,2))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 * qq(i,k))) - 0.5)/
+     1                     15.5
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            else if (m .eq. 2)                                      then
+              x1        =  coef1(1,2) + dt(i,k) * (coef1(2,2) +
+     1                     dt(i,k) * (coef1(3,2) + dt(i,k) *
+     2                    (coef1(4,2) + dt(i,k) * coef1(5,2))))
+c
+              x21       =  coef1(1,3) + dt(i,k) * (coef1(2,3) +
+     1                     dt(i,k) * (coef1(3,3) + dt(i,k) *
+     2                    (coef1(4,3) + dt(i,k) * coef1(5,3))))
+              x22       =  coef1(1,4) + dt(i,k) * (coef1(2,4) +
+     1                     dt(i,k) * (coef1(3,4) + dt(i,k) *
+     2                    (coef1(4,4) + dt(i,k) * coef1(5,4))))
+c
+              y1        =  coef2(1,2) + dt(i,k) * (coef2(2,2) +
+     1                     dt(i,k) * (coef2(3,2) + dt(i,k) *
+     2                    (coef2(4,2) + dt(i,k) * coef2(5,2))))
+c
+              y21       =  coef2(1,3) + dt(i,k) * (coef2(2,3) +
+     1                     dt(i,k) * (coef2(3,3) + dt(i,k) *
+     2                    (coef2(4,3) + dt(i,k) * coef2(5,3))))
+              y22       =  coef2(1,4) + dt(i,k) * (coef2(2,4) +
+     1                     dt(i,k) * (coef2(3,4) + dt(i,k) *
+     2                    (coef2(4,4) + dt(i,k) * coef2(5,4))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 *qq(i,k))) - 0.5) /
+     1                     15.5
+              x2        =  x21 + rr * (x22 - x21)
+              y2        =  y21 + rr * (y22 - y21)
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            else if (m .ge. 3)                                      then
+              x11       =  coef1(1,3) + dt(i,k) * (coef1(2,3) +
+     1                     dt(i,k) * (coef1(3,3) + dt(i,k) *
+     2                    (coef1(4,3) + dt(i,k) * coef1(5,3))))
+              x12       =  coef1(1,4) + dt(i,k) * (coef1(2,4) +
+     1                     dt(i,k) * (coef1(3,4) + dt(i,k) *
+     2                    (coef1(4,4) + dt(i,k) * coef1(5,4))))
+c
+              x21       =  coef1(1,5) + dt(i,k) * (coef1(2,5) +
+     1                     dt(i,k) * (coef1(3,5) + dt(i,k) *
+     2                    (coef1(4,5) + dt(i,k) * coef1(5,5))))
+              x22       =  coef1(1,6) + dt(i,k) * (coef1(2,6) +
+     1                     dt(i,k) * (coef1(3,6) + dt(i,k) *
+     2                    (coef1(4,6) + dt(i,k) * coef1(5,6))))
+c
+              y11       =  coef2(1,3) + dt(i,k) * (coef2(2,3) +
+     1                     dt(i,k) * (coef2(3,3) + dt(i,k) *
+     2                    (coef2(4,3) + dt(i,k) * coef2(5,3))))
+              y12       =  coef2(1,4) + dt(i,k) * (coef2(2,4) +
+     1                     dt(i,k) * (coef2(3,4) + dt(i,k) *
+     2                    (coef2(4,4) + dt(i,k) * coef2(5,4))))
+c
+              y21       =  coef2(1,5) + dt(i,k) * (coef2(2,5) +
+     1                     dt(i,k) * (coef2(3,5) + dt(i,k) *
+     2                    (coef2(4,5) + dt(i,k) * coef2(5,5))))
+              y22       =  coef2(1,6) + dt(i,k) * (coef2(2,6) +
+     1                     dt(i,k) * (coef2(3,6) + dt(i,k) *
+     2                    (coef2(4,6) + dt(i,k) * coef2(5,6))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 *qq(i,k))) - 0.5) /
+     1                     15.5
+              x1        =  x11 + rr * (x12 - x11)
+              y1        =  y11 + rr * (y12 - y11)
+              x2        =  x21 + rr * (x22 - x21)
+              y2        =  y21 + rr * (y22 - y21)
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            endif
+  100     continue
+        else
+          j =  inpt(1,k) - 1000
+          m =  j - 14
+          do 150 i = il1, il2
+            if (m .eq. 1)                                           then
+              x1        =  coef1(1,1) + dt(i,k) * (coef1(2,1) +
+     1                     dt(i,k) * (coef1(3,1) + dt(i,k) *
+     2                    (coef1(4,1) + dt(i,k) * coef1(5,1))))
+c
+              x2        =  coef1(1,2) + dt(i,k) * (coef1(2,2) +
+     1                     dt(i,k) * (coef1(3,2) + dt(i,k) *
+     2                    (coef1(4,2) + dt(i,k) * coef1(5,2))))
+c
+              y1        =  coef2(1,1) + dt(i,k) * (coef2(2,1) +
+     1                     dt(i,k) * (coef2(3,1) + dt(i,k) *
+     2                    (coef2(4,1) + dt(i,k) * coef2(5,1))))
+c
+              y2        =  coef2(1,2) + dt(i,k) * (coef2(2,2) +
+     1                     dt(i,k) * (coef2(3,2) + dt(i,k) *
+     2                    (coef2(4,2) + dt(i,k) * coef2(5,2))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 *qq(i,k))) - 0.5) /
+     1                     15.5
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            else if (m .eq. 2)                                      then
+              x1        =  coef1(1,2) + dt(i,k) * (coef1(2,2) +
+     1                     dt(i,k) * (coef1(3,2) + dt(i,k) *
+     2                    (coef1(4,2) + dt(i,k) * coef1(5,2))))
+c
+              x21       =  coef1(1,3) + dt(i,k) * (coef1(2,3) +
+     1                     dt(i,k) * (coef1(3,3) + dt(i,k) *
+     2                    (coef1(4,3) + dt(i,k) * coef1(5,3))))
+              x22       =  coef1(1,4) + dt(i,k) * (coef1(2,4) +
+     1                     dt(i,k) * (coef1(3,4) + dt(i,k) *
+     2                    (coef1(4,4) + dt(i,k) * coef1(5,4))))
+c
+              y1        =  coef2(1,2) + dt(i,k) * (coef2(2,2) +
+     1                     dt(i,k) * (coef2(3,2) + dt(i,k) *
+     2                    (coef2(4,2) + dt(i,k) * coef2(5,2))))
+c
+              y21       =  coef2(1,3) + dt(i,k) * (coef2(2,3) +
+     1                     dt(i,k) * (coef2(3,3) + dt(i,k) *
+     2                    (coef2(4,3) + dt(i,k) * coef2(5,3))))
+              y22       =  coef2(1,4) + dt(i,k) * (coef2(2,4) +
+     1                     dt(i,k) * (coef2(3,4) + dt(i,k) *
+     2                    (coef2(4,4) + dt(i,k) * coef2(5,4))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 *qq(i,k))) - 0.5) /
+     1                     15.5
+              x2        =  x21 + rr * (x22 - x21)
+              y2        =  y21 + rr * (y22 - y21)
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            else if (m .ge. 3)                                      then
+              x11       =  coef1(1,3) + dt(i,k) * (coef1(2,3) +
+     1                     dt(i,k) * (coef1(3,3) + dt(i,k) *
+     2                    (coef1(4,3) + dt(i,k) * coef1(5,3))))
+              x12       =  coef1(1,4) + dt(i,k) * (coef1(2,4) +
+     1                     dt(i,k) * (coef1(3,4) + dt(i,k) *
+     2                    (coef1(4,4) + dt(i,k) * coef1(5,4))))
+c
+              x21       =  coef1(1,5) + dt(i,k) * (coef1(2,5) +
+     1                     dt(i,k) * (coef1(3,5) + dt(i,k) *
+     2                    (coef1(4,5) + dt(i,k) * coef1(5,5))))
+              x22       =  coef1(1,6) + dt(i,k) * (coef1(2,6) +
+     1                     dt(i,k) * (coef1(3,6) + dt(i,k) *
+     2                    (coef1(4,6) + dt(i,k) * coef1(5,6))))
+c
+              y11       =  coef2(1,3) + dt(i,k) * (coef2(2,3) +
+     1                     dt(i,k) * (coef2(3,3) + dt(i,k) *
+     2                    (coef2(4,3) + dt(i,k) * coef2(5,3))))
+              y12       =  coef2(1,4) + dt(i,k) * (coef2(2,4) +
+     1                     dt(i,k) * (coef2(3,4) + dt(i,k) *
+     2                    (coef2(4,4) + dt(i,k) * coef2(5,4))))
+c
+              y21       =  coef2(1,5) + dt(i,k) * (coef2(2,5) +
+     1                     dt(i,k) * (coef2(3,5) + dt(i,k) *
+     2                    (coef2(4,5) + dt(i,k) * coef2(5,5))))
+              y22       =  coef2(1,6) + dt(i,k) * (coef2(2,6) +
+     1                     dt(i,k) * (coef2(3,6) + dt(i,k) *
+     2                    (coef2(4,6) + dt(i,k) * coef2(5,6))))
+c
+              rr        = (min(16.0, max(0.5, rrmco2 *qq(i,k))) - 0.5) /
+     1                     15.5
+              x1        =  x11 + rr * (x12 - x11)
+              y1        =  y11 + rr * (y12 - y11)
+              x2        =  x21 + rr * (x22 - x21)
+              y2        =  y21 + rr * (y22 - y21)
+              taug(i,k) =  taug(i,k) + ((x1 - y1 + (x2 - x1 - y2 + y1) *
+     1                     dip(i,k)) * 1.608 *qq(i,k) + y1 + (y2 - y1) *
+     2                     dip(i,k)) * qq(i,k) * dp(i,k)
+            endif
+  150     continue
+        endif
+  200 continue
+c
+      return
+      end

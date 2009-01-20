@@ -1,0 +1,27 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#endif
+*
+c data for optical properties defined in subroutine datcldop
+      real aws(4,nbs), bws(4,nbs), cws(4,nbs)
+      real awl(5,nbl), bwl(4,nbl), cwl(4,nbl)
+      real ais(2,nbs), bis(4,nbs), cis(4,nbs)
+      real ail(3,nbl), bil(4,nbl), cil(4,nbl)
+*
+      common / watop / aws, bws, cws,awl,bwl,cwl
+      common / iceop / ais, bis, cis, ail, bil, cil
+

@@ -1,0 +1,406 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+**s/r (save/restore)_options - Modifies certain of the CMC/RPN physics options
+*
+      SUBROUTINE save_options( options )
+*
+#include "impnone.cdk"
+*
+      integer options
+*
+*Author
+*          B. Dugas - June 2002
+*
+*Revision
+* 001      Dugas B.          - share small_sedimentation_dt and
+*                              cldopt_mode comdecks with PHYDEBU4
+* 002      L. Spacek (Aug 2004) - cloud clean-up
+*                                 elimination of ISTCOND=2,6,7,8 ICONVEC=4
+* 003      Dugas B. (Jun 05) - add support for KFCTRIGA and change
+*                              character*8 to character*16
+*
+*Object
+*          See above id.
+*	
+*Arguments
+*
+*          - Input -
+* options  configuration ordinal. Can only be 1 or 2
+*
+*Implicits
+*
+#include "consphy.cdk"
+#include "options.cdk"
+#include "sedipara.cdk"
+#include "dzsedi.cdk"
+*
+*Modules
+*
+      external qqexit
+*
+**
+*
+      real    dt0,dti0
+*
+      integer active
+      logical save1,save2
+      save    save1,save2,active
+*
+* The variables have to correspond to those in the
+* from GEM/DM p_cond2.cdk and p_pbl2.cdk comdecks
+*
+* Configuration #1 variables
+*
+      integer pbl1_bndlr    ,pbl1_schsl    ,pbl1_mix  
+      logical pbl1_drag_L   ,pbl1_ocean_L  ,pbl1_evap_L   ,
+     $        pbl1_snwmlt_L ,pbl1_stomat_L ,pbl1_typsol_L ,
+     $        pbl1_iceme_L  ,pbl1_agreg_L
+*
+      integer cond1_conv       ,cond1_stcon   ,cond1_shlct(2)
+      logical cond1_satu_L     ,cond1_ilwc_L  ,cond1_kfcmom_L
+      real    cond1_kfctrig4(4),cond1_kfctriga,cond1_kfcrad  ,
+     $        cond1_kfcdepth   ,cond1_kfcdlev ,cond1_kfcdet  ,
+     $        cond1_kfctimec   ,cond1_kfctimea
+*
+* Configuration #2 variables
+*
+      integer pbl2_bndlr    ,pbl2_schsl    ,pbl2_mix  
+      logical pbl2_drag_L   ,pbl2_ocean_L  ,pbl2_evap_L   ,
+     $        pbl2_snwmlt_L ,pbl2_stomat_L ,pbl2_typsol_L ,
+     $        pbl2_iceme_L  ,pbl2_agreg_L
+*
+      integer cond2_conv       ,cond2_stcon   ,cond2_shlct(2)  
+      logical cond2_satu_L     ,cond2_ilwc_L  ,cond2_kfcmom_L
+      real    cond2_kfctrig4(4),cond2_kfctriga,cond2_kfcrad  ,
+     $        cond2_kfcdepth   ,cond2_kfcdlev ,cond2_kfcdet  ,
+     $        cond2_kfctimec   ,cond2_kfctimea
+*
+* Declare everything to be permanent
+*
+       save   pbl1_bndlr    ,pbl1_schsl    ,pbl1_mix      ,
+     $        pbl2_bndlr    ,pbl2_schsl    ,pbl2_mix      ,
+     $        cond1_conv    ,cond1_stcon   ,cond1_shlct   ,
+     $        cond2_conv    ,cond2_stcon   ,cond2_shlct
+*
+       save   pbl1_drag_L   ,pbl1_ocean_L  ,pbl1_evap_L   ,
+     $        pbl1_snwmlt_L ,pbl1_stomat_L ,pbl1_typsol_L ,
+     $        pbl1_iceme_L  ,pbl1_agreg_L  ,
+     $        pbl2_drag_L   ,pbl2_ocean_L  ,pbl2_evap_L   ,
+     $        pbl2_snwmlt_L ,pbl2_stomat_L ,pbl2_typsol_L ,
+     $        pbl2_iceme_L  ,pbl2_agreg_L  ,
+     $        cond1_satu_L  ,cond1_ilwc_L  ,cond1_kfcmom_L,
+     $        cond2_satu_L  ,cond2_ilwc_L  ,cond2_kfcmom_L
+*
+      save    cond1_kfctrig4,cond1_kfctriga,cond1_kfcrad  ,
+     $        cond1_kfcdepth,cond1_kfcdlev ,cond1_kfcdet  ,
+     $        cond1_kfctimec,cond1_kfctimea,
+     $        cond2_kfctrig4,cond2_kfctriga,cond2_kfcrad  ,
+     $        cond2_kfcdepth,cond2_kfcdlev ,cond2_kfcdet  ,
+     $        cond2_kfctimec,cond2_kfctimea
+*
+* Take care of the character variables
+*
+      character*16 pbl1_bndlr_S  ,pbl1_schsl_S  ,pbl1_mix_S   ,
+     $             pbl2_bndlr_S  ,pbl2_schsl_S  ,pbl2_mix_S   ,
+     $             cond1_conv_S  ,cond1_stcon_S ,cond1_shlct_S(2),
+     $             cond2_conv_S  ,cond2_stcon_S ,cond2_shlct_S(2)
+*
+      save         pbl1_bndlr_S  ,pbl1_schsl_S  ,pbl1_mix_S   ,
+     $             pbl2_bndlr_S  ,pbl2_schsl_S  ,pbl2_mix_S   ,
+     $             cond1_conv_S  ,cond1_stcon_S ,cond1_shlct_S,
+     $             cond2_conv_S  ,cond2_stcon_S ,cond2_shlct_S
+*
+      data    active / -1 /
+      data    save1, save2 / .false.,.false. /
+*
+*-------------------------------------------------------------------
+*
+      if
+     $  (options.eq.1) then
+*
+         save1 = .true.
+*
+         cond1_conv     = ICONVEC
+         cond1_conv_S   =  CONVEC
+         cond1_stcon    = ISTCOND
+         cond1_stcon_S  =  STCOND
+         cond1_shlct(1) = ISHLCVT(1)
+         cond1_shlct_S(1)= SHLCVT(1)
+         cond1_shlct(2) = ISHLCVT(2)
+         cond1_shlct_S(2)= SHLCVT(2)
+*
+         cond1_satu_L   = SATUCO
+         cond1_ilwc_L   = INILWC
+*
+         cond1_kfcmom_L = KFCMOM
+         cond1_kfctrig4 = KFCTRIG4
+         cond1_kfctriga = KFCTRIGA
+         cond1_kfcrad   = KFCRAD
+         cond1_kfcdepth = KFCDEPTH
+         cond1_kfcdlev  = KFCDLEV
+         cond1_kfcdet   = KFCDET
+         cond1_kfctimec = KFCTIMEC
+         cond1_kfctimea = KFCTIMEA
+*
+         pbl1_bndlr     = IFLUVERT
+         pbl1_bndlr_S   =  FLUVERT
+         pbl1_schsl     = ISCHMSOL
+         pbl1_schsl_S   =  SCHMSOL
+         pbl1_mix       = ILONGMEL
+         pbl1_mix_S     =  LONGMEL
+*
+         pbl1_drag_L    = DRAG
+         pbl1_ocean_L   = CHAUF
+         pbl1_evap_L    = EVAP
+         pbl1_snwmlt_L  = SNOWMELT
+         pbl1_stomat_L  = STOMATE
+         pbl1_typsol_L  = TYPSOL
+         pbl1_iceme_L   = ICEMELT
+         pbl1_agreg_L   = AGREGAT
+*
+      elseif
+     $   (options.eq.2) then
+*
+         save2 = .true.
+*
+         cond2_conv     = ICONVEC
+         cond2_conv_S   =  CONVEC
+         cond2_stcon    = ISTCOND
+         cond2_stcon_S  =  STCOND
+         cond2_shlct(1) = ISHLCVT(1)
+         cond2_shlct_S(1)= SHLCVT(1)
+         cond2_shlct(2) = ISHLCVT(2)
+         cond2_shlct_S(2)= SHLCVT(2)
+*
+         cond2_satu_L   = SATUCO
+         cond2_ilwc_L   = INILWC
+*
+         cond2_kfcmom_L = KFCMOM
+         cond2_kfctrig4 = KFCTRIG4
+         cond2_kfctriga = KFCTRIGA
+         cond2_kfcrad   = KFCRAD
+         cond2_kfcdepth = KFCDEPTH
+         cond2_kfcdlev  = KFCDLEV
+         cond2_kfcdet   = KFCDET
+         cond2_kfctimec = KFCTIMEC
+         cond2_kfctimea = KFCTIMEA
+*
+         pbl2_bndlr     = IFLUVERT
+         pbl2_bndlr_S   =  FLUVERT
+         pbl2_schsl     = ISCHMSOL
+         pbl2_schsl_S   =  SCHMSOL
+         pbl2_mix       = ILONGMEL
+         pbl2_mix_S     =  LONGMEL
+*
+         pbl2_drag_L    = DRAG
+         pbl2_ocean_L   = CHAUF
+         pbl2_evap_L    = EVAP
+         pbl2_snwmlt_L  = SNOWMELT
+         pbl2_stomat_L  = STOMATE
+         pbl2_typsol_L  = TYPSOL
+         pbl2_iceme_L   = ICEMELT
+         pbl2_agreg_L   = AGREGAT
+*     
+*        >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+*        The following comdeck is shared with PHYDEBU4
+*
+         if (istcond.ge.9 .and. cond1_stcon.lt.6) then
+*
+#include "small_sedimentation_dt.cdk"
+*
+         endif
+*
+*         >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+*
+      else
+*
+         write(6,'(" save_options =",I2," unsupported...")') options
+         call qqexit( 2 )
+*
+      endif
+*
+      if (ICONVEC.eq.11 .or.
+     $    ICONVEC.eq.12) then
+         write(6,'(" FCPKUO and KFCKUO2 unsupported",
+     $             " when P_pset_second_L is true...")')
+         call qqexit(3)
+      endif
+*
+*     Note which set was saved last
+*
+      active = options
+*
+
+      return
+*
+*-------------------------------------------------------------------
+*
+      ENTRY restore_options( options )
+*
+      if
+     $   (options.eq.active) then
+         return
+*
+      elseif
+     $   (options.eq.1) then
+*
+*        Do we have anything to restore ?
+*
+         if (.not.save1) then
+            write(6,'("cannot restore the set of options #1")')
+            call qqexit( 2)
+         endif
+*
+*        Yes. Let's do it
+*
+         ICONVEC  = cond1_conv
+          CONVEC  = cond1_conv_S
+         ISTCOND  = cond1_stcon
+          STCOND  = cond1_stcon_S
+         ISHLCVT(1)= cond1_shlct(1)
+          SHLCVT(1)= cond1_shlct_S(1)
+         ISHLCVT(2)= cond1_shlct(2)
+          SHLCVT(2)= cond1_shlct_S(2)
+*
+         SATUCO   = cond1_satu_L
+         INILWC   = cond1_ilwc_L
+*
+         KFCMOM   = cond1_kfcmom_L
+         KFCTRIG4 = cond1_kfctrig4
+         KFCTRIGA = cond1_kfctriga
+         KFCRAD   = cond1_kfcrad
+         KFCDEPTH = cond1_kfcdepth
+         KFCDLEV  = cond1_kfcdlev
+         KFCDET   = cond1_kfcdet
+         KFCTIMEC = cond1_kfctimec
+         KFCTIMEA = cond1_kfctimea
+*
+         IFLUVERT = pbl1_bndlr
+          FLUVERT = pbl1_bndlr_S
+         ISCHMSOL = pbl1_schsl
+          SCHMSOL = pbl1_schsl_S
+         ILONGMEL = pbl1_mix
+          LONGMEL = pbl1_mix_S
+*
+         DRAG     = pbl1_drag_L
+         CHAUF    = pbl1_ocean_L
+         EVAP     = pbl1_evap_L
+         SNOWMELT = pbl1_snwmlt_L
+         STOMATE  = pbl1_stomat_L
+         TYPSOL   = pbl1_typsol_L
+         ICEMELT  = pbl1_iceme_L
+         AGREGAT  = pbl1_agreg_L
+*
+      elseif
+     $  (options.eq.2) then
+*
+*        Do we have anything to restore ?
+*
+         if (.not.save2) then
+            write(6,'("cannot restore the set of options #2")')
+            call qqexit( 3 )
+         endif
+*
+*        Yes. Let's do it
+*
+         ICONVEC  = cond2_conv
+          CONVEC  = cond2_conv_S
+         ISTCOND  = cond2_stcon
+          STCOND  = cond2_stcon_S
+         ISHLCVT(1)= cond2_shlct(1)
+          SHLCVT(1)= cond2_shlct_S(1)
+         ISHLCVT(2)= cond2_shlct(2)
+          SHLCVT(2)= cond2_shlct_S(2)
+*
+         SATUCO   = cond2_satu_L
+         INILWC   = cond2_ilwc_L
+*
+         KFCMOM   = cond2_kfcmom_L
+         KFCTRIG4 = cond2_kfctrig4
+         KFCTRIGA = cond2_kfctriga
+         KFCRAD   = cond2_kfcrad
+         KFCDEPTH = cond2_kfcdepth
+         KFCDLEV  = cond2_kfcdlev
+         KFCDET   = cond2_kfcdet
+         KFCTIMEC = cond2_kfctimec
+         KFCTIMEA = cond2_kfctimea
+*
+         IFLUVERT = pbl2_bndlr
+          FLUVERT = pbl2_bndlr_S
+         ISCHMSOL = pbl2_schsl
+          SCHMSOL = pbl2_schsl_S
+         ILONGMEL = pbl2_mix
+          LONGMEL = pbl2_mix_S
+*
+         DRAG     = pbl2_drag_L
+         CHAUF    = pbl2_ocean_L
+         EVAP     = pbl2_evap_L
+         SNOWMELT = pbl2_snwmlt_L
+         STOMATE  = pbl2_stomat_L
+         TYPSOL   = pbl2_typsol_L
+         ICEMELT  = pbl2_iceme_L
+         AGREGAT  = pbl2_agreg_L
+*
+      else
+*
+         write(6,'(" restore_options =",I2," unsupported...")') options
+         call qqexit( 4 )
+*
+      endif
+*
+*     >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+*     The following comdeck is shared with PHYDEBU4
+*
+#include "cldopt_mode.cdk"
+
+*     Note which set was restaured last
+*
+      active = options
+*
+*     >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+*
+      return
+*
+*-------------------------------------------------------------------
+*
+1150   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****',
+     +        / ' *                                       *',
+     +        / ' *  S/R save_options:                    *',
+     +        / ' *                                       *',
+     +        / ' *       DZSEDI IS TOO LARGE             *',
+     +        / ' *                                       *',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+*
+1152   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****', 
+     +        / ' *                                       *',
+     +        / ' *  S/R save_options:                    *',
+     +        / ' *                                       *',
+     +        / ' *     DZSEDI MUST BE DEFINED FOR        *',
+     +        / ' *     KONG-YAU CONDENSATION SCHEME      *',     
+     +        / ' *                                       *',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+*
+      end

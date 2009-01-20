@@ -1,0 +1,566 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!!!S/P INITOWN  
+!
+#include "phy_macros_f.h"
+!
+      SUBROUTINE INITOWN ( E, ESIZ, F, FSIZ, D, DSIZ, NI, NK)
+!
+      USE MODD_TOWN,      ONLY : NNI, XMASK, XINI_LAT, XINI_LON,        &
+                                 XINI_ZS, XINI_TSOIL, XINI_TS,          &
+                                 XINI_TA, XINI_QA,                      &
+                                 XTOWN
+      USE MODD_CSTS
+      USE MODD_PREP    ,  ONLY : XZS_LS,XLAT_OUT,XLON_OUT
+      USE MODD_TEB_GRID,  ONLY : XLAT, XLON
+      USE MODD_TEB,       ONLY : XZS, XBLD, XBLD_HEIGHT, XZ0_TOWN,      &
+                                 XWALL_O_HOR, XCAN_HW_RATIO,            &
+                                 XSVF_ROAD,XSVF_WALL,                   &
+                                 XALB_ROOF, XALB_ROAD, XALB_WALL,       &
+                                 XEMIS_ROOF, XEMIS_ROAD, XEMIS_WALL,    &
+                                 XHC_ROOF, XTC_ROOF, XD_ROOF,           &
+                                 XHC_ROAD, XTC_ROAD, XD_ROAD,           &
+                                 XHC_WALL, XTC_WALL, XD_WALL,           &
+                                 NROOF_LAYER, NROAD_LAYER, NWALL_LAYER, &
+                                 XH_TRAFFIC, XLE_TRAFFIC,               &
+                                 XH_INDUSTRY, XLE_INDUSTRY,             &
+                                 XT_ROOF, XT_ROAD, XT_WALL,             &
+                                 XWS_ROOF, XWS_ROAD,                    &
+                                 XT_CANYON, XQ_CANYON,                  &
+                                 XTI_ROAD, XTI_BLD,                     &
+                                 TSNOW_ROOF, TSNOW_ROAD
+      USE MODD_SURF_PAR,  ONLY : XUNDEF
+      USE MODD_TYPE_SNOW
+! 
+      USE MODI_ALLOCATE_GR_SNOW
+      USE MODI_INI_CSTS
+      USE MODI_PREP_TEB
+      USE MODI_INIT_TEB
+      USE MODI_SUNPOS
+      USE MODI_POSSOL
+! 
+#include "impnone.cdk"
+! 
+      INTEGER NI, NK
+      INTEGER ESIZ, FSIZ, DSIZ
+      REAL E(ESIZ), F(FSIZ), D(DSIZ)
+! 
+#include "phybus.cdk"
+#include "tebcst.cdk"
+#include "indx_sfc.cdk"
+#include "options.cdk"
+! 
+!Author
+!       Aude Lemonsu (March 2004)
+! 
+! 
+!Object
+!       Transfer and initialize initial fields for TEB
+! 
+!Revision
+! 001      A. Lemonsu (Dec 2005) Computation of zenithal angle
+! 
+!Arguments
+! 
+!       - Input/Ouput -
+! F        field for permanent physics variables
+! FSIZ     dimension of F
+! E        field for entry variables
+! ESIZ     dimension of E
+! D        field for dynamical variables
+! DSIZ     dimension of D
+! NI       horizontal dimension
+! NK       vertical dimension
+! 
+!
+!     Type of files
+!     -------------
+      CHARACTER(LEN=6)        :: HPROGRAM
+      CHARACTER(LEN=3)        :: HINIT
+      CHARACTER(LEN=28)       :: HATMFILE
+      CHARACTER(LEN=6)        :: HATMFILETYPE
+      PARAMETER(HPROGRAM    ='MC2GEM')
+      PARAMETER(HINIT       ='ALL')
+      PARAMETER(HATMFILE    ='                            ')
+      PARAMETER(HATMFILETYPE='MC2GEM')
+!
+!
+!     Local variables
+!     ---------------
+      REAL     JULIEN,JULIAND
+      EXTERNAL JULIAND
+!
+      INTEGER I, K
+
+      INTEGER, DIMENSION (60) :: ALLOC_STATUS
+!
+      CHARACTER(LEN=6), DIMENSION(NI)    :: HSV       !
+      REAL            , DIMENSION(NI)    :: PCO2      !
+      REAL            , DIMENSION(NI)    :: PRHOA     !
+      REAL            , DIMENSION(NI)    :: PZENITH   ! solar zenithal angle
+      REAL            , DIMENSION(NI)    :: PAZIM     ! solar azimuthal angle (from N, clock)
+      REAL            , DIMENSION(1)     :: PSW_BANDS ! middle wavelength of each band
+      REAL            , DIMENSION(NI,1)	 :: PDIR_ALB  ! direct albedo for each band
+      REAL            , DIMENSION(NI,1)	 :: PSCA_ALB  ! diffuse albedo for each band
+      REAL            , DIMENSION(NI)    :: PEMIS     ! emissivity
+      REAL            , DIMENSION(NI)    :: PTSRAD    ! radiative temperature
+      INTEGER                            :: KYEAR
+      INTEGER                            :: KMONTH
+      INTEGER                            :: KDAY
+      REAL                               :: PTIME
+!
+      REAL,    DIMENSION(NI)  :: ZDAY
+      REAL,    DIMENSION(NI)  :: ZHOUR
+      REAL,    DIMENSION(NI)  :: ZMIN
+      REAL,    DIMENSION(NI)  :: ZTSUN
+!
+      REAL,    DIMENSION(NI)  :: XU
+      REAL,    DIMENSION(NI)  :: XV
+!
+      NROOF_LAYER = ROOF_LAYER
+      NROAD_LAYER = ROAD_LAYER
+      NWALL_LAYER = WALL_LAYER
+!
+!
+!     Allocation
+!     ----------
+!     General parameters
+!     ------------------
+      ALLOCATE( XMASK        (NI)            , STAT=ALLOC_STATUS( 1) )
+      ALLOCATE( XINI_LAT     (NI)            , STAT=ALLOC_STATUS( 2)  )
+      ALLOCATE( XINI_LON     (NI)            , STAT=ALLOC_STATUS( 3)  )
+      ALLOCATE( XLAT         (NI)            , STAT=ALLOC_STATUS( 4)  )
+      ALLOCATE( XLON         (NI)            , STAT=ALLOC_STATUS( 5)  )
+      ALLOCATE( XINI_ZS      (NI)            , STAT=ALLOC_STATUS( 6)  )
+      ALLOCATE( XZS          (NI)            , STAT=ALLOC_STATUS( 7)  )
+      ALLOCATE( XTOWN        (NI)            , STAT=ALLOC_STATUS( 8)  )
+!     Analysis variables   
+!     ------------------
+      ALLOCATE( XINI_TSOIL   (NI)            , STAT=ALLOC_STATUS( 9)  )
+      ALLOCATE( XINI_TS      (NI)            , STAT=ALLOC_STATUS(10)  )
+      ALLOCATE( XINI_TA      (NI)            , STAT=ALLOC_STATUS(11)  )
+      ALLOCATE( XINI_QA      (NI)            , STAT=ALLOC_STATUS(12)  )
+!     Urban parameters
+!     ----------------
+!     1. Geometric parameters :
+      ALLOCATE( XBLD         (NI)            , STAT=ALLOC_STATUS(13)  )
+      ALLOCATE( XBLD_HEIGHT  (NI)            , STAT=ALLOC_STATUS(14)  )
+      ALLOCATE( XZ0_TOWN     (NI)            , STAT=ALLOC_STATUS(15)  )
+      ALLOCATE( XWALL_O_HOR  (NI)            , STAT=ALLOC_STATUS(16)  )
+      ALLOCATE( XCAN_HW_RATIO(NI)            , STAT=ALLOC_STATUS(17)  )
+      ALLOCATE( XSVF_ROAD    (NI)            , STAT=ALLOC_STATUS(18)  )
+      ALLOCATE( XSVF_WALL    (NI)            , STAT=ALLOC_STATUS(19)  )
+!     2. Radiative properties :
+      ALLOCATE( XALB_ROOF    (NI)            , STAT=ALLOC_STATUS(20)   )
+      ALLOCATE( XALB_ROAD    (NI)            , STAT=ALLOC_STATUS(21)   )
+      ALLOCATE( XALB_WALL    (NI)            , STAT=ALLOC_STATUS(22)   )
+      ALLOCATE( XEMIS_ROOF   (NI)            , STAT=ALLOC_STATUS(23)   )
+      ALLOCATE( XEMIS_ROAD   (NI)            , STAT=ALLOC_STATUS(24)   )
+      ALLOCATE( XEMIS_WALL   (NI)            , STAT=ALLOC_STATUS(25)   )
+!     3. Thermal properties :
+      ALLOCATE( XHC_ROOF     (NI,NROOF_LAYER), STAT=ALLOC_STATUS(26)   )
+      ALLOCATE( XTC_ROOF     (NI,NROOF_LAYER), STAT=ALLOC_STATUS(27)   )
+      ALLOCATE( XD_ROOF      (NI,NROOF_LAYER), STAT=ALLOC_STATUS(28)   )
+      ALLOCATE( XHC_ROAD     (NI,NROAD_LAYER), STAT=ALLOC_STATUS(29)   )
+      ALLOCATE( XTC_ROAD     (NI,NROAD_LAYER), STAT=ALLOC_STATUS(30)   )
+      ALLOCATE( XD_ROAD      (NI,NROAD_LAYER), STAT=ALLOC_STATUS(31)   )
+      ALLOCATE( XHC_WALL     (NI,NWALL_LAYER), STAT=ALLOC_STATUS(32)   )
+      ALLOCATE( XTC_WALL     (NI,NWALL_LAYER), STAT=ALLOC_STATUS(33)   )
+      ALLOCATE( XD_WALL      (NI,NWALL_LAYER), STAT=ALLOC_STATUS(34)   )
+!     4. Anthropogenic fluxes :
+      ALLOCATE( XH_TRAFFIC   (NI)            , STAT=ALLOC_STATUS(35)   )
+      ALLOCATE( XLE_TRAFFIC  (NI)            , STAT=ALLOC_STATUS(36)   )
+      ALLOCATE( XH_INDUSTRY  (NI)            , STAT=ALLOC_STATUS(37)   )
+      ALLOCATE( XLE_INDUSTRY (NI)            , STAT=ALLOC_STATUS(38)   )
+!     5. Initial pronostic variables :
+      ALLOCATE( XTI_ROAD     (NI)            , STAT=ALLOC_STATUS(39)   )
+      ALLOCATE( XTI_BLD      (NI)            , STAT=ALLOC_STATUS(40)   )
+      ALLOCATE( XZS_LS       (NI)            , STAT=ALLOC_STATUS(41)   )  
+      ALLOCATE( XLAT_OUT     (NI)            , STAT=ALLOC_STATUS(42)   )
+      ALLOCATE( XLON_OUT     (NI)            , STAT=ALLOC_STATUS(43)   )
+      ALLOCATE( XWS_ROOF     (NI)            , STAT=ALLOC_STATUS(44)   )
+      ALLOCATE( XWS_ROAD     (NI)            , STAT=ALLOC_STATUS(45)   )
+      ALLOCATE( XT_ROOF      (NI,NROOF_LAYER), STAT=ALLOC_STATUS(46)   )
+      ALLOCATE( XT_ROAD      (NI,NROAD_LAYER), STAT=ALLOC_STATUS(47)   )
+      ALLOCATE( XT_WALL      (NI,NWALL_LAYER), STAT=ALLOC_STATUS(48)   )
+      ALLOCATE( XT_CANYON    (NI)            , STAT=ALLOC_STATUS(49)   )
+      ALLOCATE( XQ_CANYON    (NI)            , STAT=ALLOC_STATUS(50)   )
+!     6. Snow variables :
+      TSNOW_ROOF%SCHEME = '1-L '
+      TSNOW_ROAD%SCHEME = '1-L '
+      CALL ALLOCATE_GR_SNOW(TSNOW_ROOF,NI,1)
+      CALL ALLOCATE_GR_SNOW(TSNOW_ROAD,NI,1)
+!
+!
+!     Initialisation
+!     --------------
+      XMASK        = XUNDEF          
+      XINI_LAT     = XUNDEF          
+      XINI_LON     = XUNDEF          
+      XLAT         = XUNDEF          
+      XLON         = XUNDEF          
+      XINI_ZS      = XUNDEF          
+      XZS          = XUNDEF          
+      XTOWN        = XUNDEF          
+      XINI_TSOIL   = XUNDEF          
+      XINI_TS      = XUNDEF          
+      XINI_TA      = XUNDEF          
+      XINI_QA      = XUNDEF          
+      XBLD         = XUNDEF          
+      XBLD_HEIGHT  = XUNDEF          
+      XZ0_TOWN     = XUNDEF          
+      XWALL_O_HOR  = XUNDEF          
+      XCAN_HW_RATIO= XUNDEF          
+      XSVF_ROAD    = XUNDEF          
+      XSVF_WALL    = XUNDEF          
+      XALB_ROOF    = XUNDEF          
+      XALB_ROAD    = XUNDEF          
+      XALB_WALL    = XUNDEF          
+      XEMIS_ROOF   = XUNDEF          
+      XEMIS_ROAD   = XUNDEF          
+      XEMIS_WALL   = XUNDEF          
+      XHC_ROOF     = XUNDEF          
+      XTC_ROOF     = XUNDEF          
+      XD_ROOF      = XUNDEF          
+      XHC_ROAD     = XUNDEF          
+      XTC_ROAD     = XUNDEF          
+      XD_ROAD      = XUNDEF          
+      XHC_WALL     = XUNDEF          
+      XTC_WALL     = XUNDEF          
+      XD_WALL      = XUNDEF          
+      XH_TRAFFIC   = XUNDEF          
+      XLE_TRAFFIC  = XUNDEF          
+      XH_INDUSTRY  = XUNDEF          
+      XLE_INDUSTRY = XUNDEF          
+      XTI_ROAD     = XUNDEF          
+      XTI_BLD      = XUNDEF  
+!
+!
+      do i=0,ni-1
+!      General variables
+!      -----------------
+       XMASK        (i+1) = e(mgen        +i          )
+       XINI_LAT     (i+1) = e(dlaten      +i          )
+       XINI_LON     (i+1) = e(dlonen      +i          )
+       XINI_ZS      (i+1) = e(mf          +i          )
+       XZS          (i+1) = e(mf          +i          )
+       XTOWN        (i+1) = f(urban       +i          )
+!      Analysis variables
+!      ------------------
+       XINI_TS      (i+1) = e(tsoilen     +i          )
+       XINI_TSOIL   (i+1) = e(tsoilen     +i+ni       )
+       XINI_TA      (i+1) = d(tmoins      +i+(nk-1)*ni)
+       XINI_QA      (i+1) = d(humoins     +i+(nk-1)*ni)
+       XU           (i+1) = d(umoins      +i+(nk-1)*ni) 
+       XV           (i+1) = d(vmoins      +i+(nk-1)*ni)
+!      Urban parameters 
+!      ----------------
+       IF (XTOWN(i+1)>0.) THEN
+        XBLD         (i+1) = f(bld         +i          )
+        XBLD_HEIGHT  (i+1) = f(bld_height  +i          )
+        XZ0_TOWN     (i+1) = f(z0_town     +i          )
+        XWALL_O_HOR  (i+1) = f(wall_o_hor  +i          )
+        XCAN_HW_RATIO(i+1) = f(can_hw_ratio+i          )
+        XALB_ROOF    (i+1) = f(alb_roof    +i          )
+        XEMIS_ROOF   (i+1) = f(emis_roof   +i          )
+        XALB_ROAD    (i+1) = f(alb_road    +i          )
+        XEMIS_ROAD   (i+1) = f(emis_road   +i          )
+        XALB_WALL    (i+1) = f(alb_wall    +i          )
+        XEMIS_WALL   (i+1) = f(emis_wall   +i          )
+        XH_TRAFFIC   (i+1) = f(h_traffic   +i          )
+        XLE_TRAFFIC  (i+1) = f(le_traffic  +i          )
+        XH_INDUSTRY  (i+1) = f(h_industry  +i          )
+        XLE_INDUSTRY (i+1) = f(le_industry +i          )
+        do k=0,NROOF_LAYER-1
+         XHC_ROOF (i+1,k+1) = f(hc_roof +i+ni*k)
+         XTC_ROOF (i+1,k+1) = f(tc_roof +i+ni*k)
+         XD_ROOF  (i+1,k+1) = f(d_roof  +i+ni*k) 
+        end do
+        do k=0,NROAD_LAYER-1
+         XHC_ROAD (i+1,k+1) = f(hc_road +i+ni*k)
+         XTC_ROAD (i+1,k+1) = f(tc_road +i+ni*k)
+         XD_ROAD  (i+1,k+1) = f(d_road  +i+ni*k) 
+        end do
+        do k=0,NWALL_LAYER-1
+         XHC_WALL (i+1,k+1) = f(hc_wall +i+ni*k)
+         XTC_WALL (i+1,k+1) = f(tc_wall +i+ni*k)
+         XD_WALL  (i+1,k+1) = f(d_wall  +i+ni*k) 
+        end do
+       ELSE
+        XBLD         (i+1) = XUNDEF 
+        XBLD_HEIGHT  (i+1) = XUNDEF 
+        XZ0_TOWN     (i+1) = XUNDEF 
+        XWALL_O_HOR  (i+1) = XUNDEF 
+        XCAN_HW_RATIO(i+1) = XUNDEF 
+        XALB_ROOF    (i+1) = XUNDEF 
+        XEMIS_ROOF   (i+1) = XUNDEF 
+        XALB_ROAD    (i+1) = XUNDEF 
+        XEMIS_ROAD   (i+1) = XUNDEF 
+        XALB_WALL    (i+1) = XUNDEF 
+        XEMIS_WALL   (i+1) = XUNDEF 
+        XH_TRAFFIC   (i+1) = XUNDEF 
+        XLE_TRAFFIC  (i+1) = XUNDEF 
+        XH_INDUSTRY  (i+1) = XUNDEF 
+        XLE_INDUSTRY (i+1) = XUNDEF 
+        XHC_ROOF   (i+1,:) = XUNDEF
+        XTC_ROOF   (i+1,:) = XUNDEF
+        XD_ROOF    (i+1,:) = XUNDEF
+        XHC_ROAD   (i+1,:) = XUNDEF
+        XTC_ROAD   (i+1,:) = XUNDEF
+        XD_ROAD    (i+1,:) = XUNDEF
+        XHC_WALL   (i+1,:) = XUNDEF
+        XTC_WALL   (i+1,:) = XUNDEF
+        XD_WALL    (i+1,:) = XUNDEF
+       ENDIF
+      end do
+! 
+      XLAT (:) = XINI_LAT(:)
+      XLON (:) = XINI_LON(:)
+!
+      NNI = NI
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Physical constants
+      CALL INI_CSTS
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Preparation of fields
+      CALL PREP_TEB(HPROGRAM,HATMFILE,HATMFILETYPE)
+!
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!     Time
+!     ----
+      JULIEN    = JULIAND(0,0,DATE)
+      PTIME     = date(5)*3600. + date(6)/100.
+      KDAY      = date(3) + INT(PTIME/86400.)
+      KMONTH    = date(2)
+      KYEAR     = date(4)
+      PTIME     = AMOD(PTIME,3600*24.)
+
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Radiative Calculations
+!     ----------------------
+      PSW_BANDS = 0.
+      ZDAY(:)   = JULIEN
+      ZHOUR(:)  = INT(PTIME/3600.)*1.
+      ZMIN(:)   = (PTIME/3600.-INT(PTIME/3600.))*60.
+!
+      CALL SUNPOS(KYEAR,KMONTH,KDAY,PTIME,XINI_LON*180./XPI,XINI_LAT*180./XPI,ZTSUN,PZENITH,PAZIM)
+!	
+      HSV   = '      '
+      PCO2  = 0.
+      PRHOA = 0.
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Initialisation
+       CALL INIT_TEB(HPROGRAM,HINIT,HSV,PCO2,PRHOA,              &
+                     PZENITH,PAZIM,PSW_BANDS,PDIR_ALB,PSCA_ALB,  &
+                     PEMIS,PTSRAD,                               &
+                     HATMFILE,HATMFILETYPE,KYEAR,KMONTH,KDAY,PTIME)
+
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Transfert to the bus
+      do i=0,ni-1
+       if (XTOWN(i+1) > 0.) then
+        f(svf_road     +i) = XSVF_ROAD(i+1)
+        f(svf_wall     +i) = XSVF_WALL(i+1)
+        f(ws_roof      +i) = XWS_ROOF (i+1)
+        f(ws_road      +i) = XWS_ROAD (i+1)
+        f(ti_bld       +i) = XTI_BLD  (i+1)
+        f(ti_road      +i) = XTI_ROAD (i+1)
+        f(t_canyon     +i) = XT_CANYON(i+1)
+        f(q_canyon     +i) = XQ_CANYON(i+1)
+        f(sroof_nlayer +i) = TSNOW_ROOF%NLAYER
+        f(sroof_wsnow  +i) = TSNOW_ROOF%WSNOW (i+1,1,1)
+        f(sroof_t      +i) = TSNOW_ROOF%T     (i+1,1,1)
+        f(sroof_rho    +i) = TSNOW_ROOF%RHO   (i+1,1,1)
+        f(sroof_alb    +i) = TSNOW_ROOF%ALB   (i+1,1)
+        f(sroof_emis   +i) = TSNOW_ROOF%EMIS  (i+1,1)  
+        f(sroof_ts     +i) = TSNOW_ROOF%TS    (i+1,1)  
+        f(sroad_nlayer +i) = TSNOW_ROAD%NLAYER
+        f(sroad_wsnow  +i) = TSNOW_ROAD%WSNOW (i+1,1,1)
+        f(sroad_t      +i) = TSNOW_ROAD%T     (i+1,1,1)
+        f(sroad_rho    +i) = TSNOW_ROAD%RHO   (i+1,1,1)
+        f(sroad_alb    +i) = TSNOW_ROAD%ALB   (i+1,1)
+        f(sroad_emis   +i) = TSNOW_ROAD%EMIS  (i+1,1)  
+        f(sroad_ts     +i) = TSNOW_ROAD%TS    (i+1,1)
+        do k=0,NROOF_LAYER-1
+          f(t_roof+i+ni*k)  = XT_ROOF(i+1,k+1)
+        end do
+        do k=0,NROAD_LAYER-1
+          f(t_road+i+ni*k)  = XT_ROAD(i+1,k+1)
+        end do
+        do k=0,NWALL_LAYER-1
+          f(t_wall+i+ni*k)  = XT_WALL(i+1,k+1)
+        end do
+!       Variables a agreger
+!       -------------------
+        f(z0    +ni*(indx_urb-1)+i) = XZ0_TOWN (i+1)
+        f(z0t   +ni*(indx_urb-1)+i) = 0.10 / 200.
+        f(tsurf                 +i) = PTSRAD   (i+1)
+        f(tsrad                 +i) = PTSRAD   (i+1)
+        f(qsurf +ni*(indx_urb-1)+i) = XQ_CANYON(i+1)
+        f(alvis +ni*(indx_urb-1)+i) = PDIR_ALB (i+1,1)
+        f(snodp +ni*(indx_urb-1)+i) = 0.
+        f(fc    +ni*(indx_urb-1)+i) = 0.
+        f(fv    +ni*(indx_urb-1)+i) = 0.
+       else
+        f(svf_road     +i) = XUNDEF
+        f(svf_wall     +i) = XUNDEF
+        f(ws_roof      +i) = XUNDEF
+        f(ws_road      +i) = XUNDEF
+        f(ti_bld       +i) = XUNDEF
+        f(ti_road      +i) = XUNDEF
+        f(t_canyon     +i) = XUNDEF
+        f(q_canyon     +i) = XUNDEF
+        f(sroof_nlayer +i) = XUNDEF
+        f(sroof_wsnow  +i) = XUNDEF
+        f(sroof_t      +i) = XUNDEF
+        f(sroof_rho    +i) = XUNDEF
+        f(sroof_alb    +i) = XUNDEF
+        f(sroof_emis   +i) = XUNDEF
+        f(sroof_ts     +i) = XUNDEF
+        f(sroad_nlayer +i) = XUNDEF
+        f(sroad_wsnow  +i) = XUNDEF
+        f(sroad_t      +i) = XUNDEF
+        f(sroad_rho    +i) = XUNDEF
+        f(sroad_alb    +i) = XUNDEF
+        f(sroad_emis   +i) = XUNDEF
+        f(sroad_ts     +i) = XUNDEF
+        do k=0,NROOF_LAYER-1
+          f(t_roof+i+ni*k) = XUNDEF
+        end do
+        do k=0,NROAD_LAYER-1
+          f(t_road+i+ni*k) = XUNDEF
+        end do
+        do k=0,NWALL_LAYER-1
+          f(t_wall+i+ni*k) = XUNDEF
+        end do
+!       Variables a agreger
+!       -------------------
+        f(z0    +ni*(indx_urb-1)+i) = XUNDEF
+        f(z0t   +ni*(indx_urb-1)+i) = XUNDEF
+        f(qsurf +ni*(indx_urb-1)+i) = XUNDEF
+        f(alvis +ni*(indx_urb-1)+i) = XUNDEF
+        f(snodp +ni*(indx_urb-1)+i) = XUNDEF
+        f(fc    +ni*(indx_urb-1)+i) = XUNDEF
+        f(fv    +ni*(indx_urb-1)+i) = XUNDEF
+       endif
+      end do
+! 
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+!
+!     Deallocation
+!     ------------
+!     General parameters
+!     ------------------
+      DEALLOCATE( XMASK           , STAT=ALLOC_STATUS( 1)  )
+      DEALLOCATE( XINI_LAT        , STAT=ALLOC_STATUS( 2)  )
+      DEALLOCATE( XINI_LON        , STAT=ALLOC_STATUS( 3)  )
+      DEALLOCATE( XLAT            , STAT=ALLOC_STATUS( 4)  )
+      DEALLOCATE( XLON            , STAT=ALLOC_STATUS( 5)  )
+      DEALLOCATE( XINI_ZS         , STAT=ALLOC_STATUS( 6)  )
+      DEALLOCATE( XZS             , STAT=ALLOC_STATUS( 7)  )
+      DEALLOCATE( XTOWN           , STAT=ALLOC_STATUS( 8)  )
+!     Prognostic variables
+!     --------------------
+      DEALLOCATE( XINI_TSOIL      , STAT=ALLOC_STATUS( 9)  )
+      DEALLOCATE( XINI_TS         , STAT=ALLOC_STATUS(10)  )
+      DEALLOCATE( XINI_TA         , STAT=ALLOC_STATUS(11)  )
+      DEALLOCATE( XINI_QA         , STAT=ALLOC_STATUS(12)  )
+!     Urban parameters
+!     ----------------
+!     1.Geometric parameter :
+      DEALLOCATE( XBLD            , STAT=ALLOC_STATUS(13)  )
+      DEALLOCATE( XBLD_HEIGHT     , STAT=ALLOC_STATUS(14)  )
+      DEALLOCATE( XZ0_TOWN        , STAT=ALLOC_STATUS(15)  )
+      DEALLOCATE( XWALL_O_HOR     , STAT=ALLOC_STATUS(16)  )
+      DEALLOCATE( XCAN_HW_RATIO   , STAT=ALLOC_STATUS(17)  )
+      DEALLOCATE( XSVF_ROAD       , STAT=ALLOC_STATUS(18)  )
+      DEALLOCATE( XSVF_WALL       , STAT=ALLOC_STATUS(19)  )
+!     2.Radiative properties :
+      DEALLOCATE( XALB_ROOF       , STAT=ALLOC_STATUS(20)  )
+      DEALLOCATE( XALB_ROAD       , STAT=ALLOC_STATUS(21)  )
+      DEALLOCATE( XALB_WALL       , STAT=ALLOC_STATUS(22)  )
+      DEALLOCATE( XEMIS_ROOF      , STAT=ALLOC_STATUS(23)  )
+      DEALLOCATE( XEMIS_ROAD      , STAT=ALLOC_STATUS(24)  )
+      DEALLOCATE( XEMIS_WALL      , STAT=ALLOC_STATUS(25)  )
+!     3. Thermal properties :
+      DEALLOCATE( XHC_ROOF        , STAT=ALLOC_STATUS(26)  )
+      DEALLOCATE( XTC_ROOF        , STAT=ALLOC_STATUS(27)  )
+      DEALLOCATE( XD_ROOF         , STAT=ALLOC_STATUS(28)  )
+      DEALLOCATE( XHC_ROAD        , STAT=ALLOC_STATUS(29)  )
+      DEALLOCATE( XTC_ROAD        , STAT=ALLOC_STATUS(30)  )
+      DEALLOCATE( XD_ROAD         , STAT=ALLOC_STATUS(31)  )
+      DEALLOCATE( XHC_WALL        , STAT=ALLOC_STATUS(32)  )
+      DEALLOCATE( XTC_WALL        , STAT=ALLOC_STATUS(33)  )
+      DEALLOCATE( XD_WALL         , STAT=ALLOC_STATUS(34)  )
+!     4. Anthropogenic fluxes :
+      DEALLOCATE( XH_TRAFFIC      , STAT=ALLOC_STATUS(35)  )
+      DEALLOCATE( XLE_TRAFFIC     , STAT=ALLOC_STATUS(36)  )
+      DEALLOCATE( XH_INDUSTRY     , STAT=ALLOC_STATUS(37)  )
+      DEALLOCATE( XLE_INDUSTRY    , STAT=ALLOC_STATUS(38)  )
+!     5. Initial pronostic variables :
+      DEALLOCATE( XTI_ROAD        , STAT=ALLOC_STATUS(39)  )
+      DEALLOCATE( XTI_BLD         , STAT=ALLOC_STATUS(40)  )
+      DEALLOCATE( XZS_LS          , STAT=ALLOC_STATUS(41)  )
+      DEALLOCATE( XLAT_OUT        , STAT=ALLOC_STATUS(42)  )
+      DEALLOCATE( XLON_OUT        , STAT=ALLOC_STATUS(43)  )
+      DEALLOCATE( XWS_ROOF        , STAT=ALLOC_STATUS(44)  )
+      DEALLOCATE( XWS_ROAD        , STAT=ALLOC_STATUS(45)  )
+      DEALLOCATE( XT_ROOF         , STAT=ALLOC_STATUS(46)  )
+      DEALLOCATE( XT_ROAD         , STAT=ALLOC_STATUS(47)  )
+      DEALLOCATE( XT_WALL         , STAT=ALLOC_STATUS(48)  ) 
+      DEALLOCATE( XT_CANYON       , STAT=ALLOC_STATUS(49)  )
+      DEALLOCATE( XQ_CANYON       , STAT=ALLOC_STATUS(50)  )
+      DEALLOCATE( TSNOW_ROOF%WSNOW, STAT=ALLOC_STATUS( 1)  )
+      DEALLOCATE( TSNOW_ROOF%T    , STAT=ALLOC_STATUS( 2)  )
+      DEALLOCATE( TSNOW_ROOF%RHO  , STAT=ALLOC_STATUS( 3)  )
+      DEALLOCATE( TSNOW_ROOF%HEAT , STAT=ALLOC_STATUS( 4)  )
+      DEALLOCATE( TSNOW_ROOF%ALB  , STAT=ALLOC_STATUS( 5)  )
+      DEALLOCATE( TSNOW_ROOF%EMIS , STAT=ALLOC_STATUS( 6)  )
+      DEALLOCATE( TSNOW_ROOF%TS   , STAT=ALLOC_STATUS( 7)  )
+      DEALLOCATE( TSNOW_ROAD%WSNOW, STAT=ALLOC_STATUS( 1)  )
+      DEALLOCATE( TSNOW_ROAD%T    , STAT=ALLOC_STATUS( 2)  )
+      DEALLOCATE( TSNOW_ROAD%RHO  , STAT=ALLOC_STATUS( 3)  )
+      DEALLOCATE( TSNOW_ROAD%HEAT , STAT=ALLOC_STATUS( 4)  )
+      DEALLOCATE( TSNOW_ROAD%ALB  , STAT=ALLOC_STATUS( 5)  )
+      DEALLOCATE( TSNOW_ROAD%EMIS , STAT=ALLOC_STATUS( 6)  )
+      DEALLOCATE( TSNOW_ROAD%TS   , STAT=ALLOC_STATUS( 7)  )
+! 
+! 
+      RETURN
+      END

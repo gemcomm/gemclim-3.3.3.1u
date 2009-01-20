@@ -1,0 +1,274 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P CLSGS3
+*
+#include "phy_macros_f.h"
+      SUBROUTINE CLSGS3 (THL, TVE, QW, QC, FRAC, FNN, C1, 
+     1                  ZN, ZE, S, PS, A, B, C, AT2T, AT2M, AT2E, N, NK)
+*
+#include "impnone.cdk"
+*
+*
+      INTEGER N, NK
+      REAL THL(N,NK), TVE(N,NK), QW(N,NK), QC(N,NK)
+      REAL FRAC(N,NK), FNN(N,NK)
+      REAL C1(N,NK), ZN(N,NK), ZE(N,NK), S(N,NK)
+      REAL A(N,NK), B(N,NK), C(N,NK)
+      REAL AT2T(N,NK), AT2M(N,NK), AT2E(N,NK)
+      REAL PS(N)
+*
+*Author
+*          J. Mailhot (Jun 2002)
+*
+*Revision
+* 001      J. Mailhot (Feb 2003) Clipping at upper levels
+* 002      S. Belair  (Apr 2003) Minimum values of 50 m for ZE and ZN
+*                                in calculation of sigmase.
+* 003      A-M. Leduc (Jun 2003) Pass ps to blweight ---> blweight2
+* 004      J. P. Toviessi ( Oct. 2003) - IBM conversion
+*               - calls to vslog routine (from massvp4 library)
+*               - unnecessary calculations removed
+*               - etc.
+* 005      L. Spacek (Dec 2007) - add "vertical staggering" option
+*                                 change the name to clsgs3
+*
+*Object
+*          Calculate the boundary layer sub-grid-scale cloud properties 
+*
+*Arguments
+*
+*          - Input -
+* THL      cloud water potential temperature
+* TVE      virtual temperature on 'E' levels
+* QW       total water content
+*
+*          - Output -
+* QC       cloud water content
+* FRAC     cloud fraction
+* FNN      flux enhancement factor (fn) times cloud fraction (N)
+*
+*          - Input -
+* C1       constant C1 in second-order moment closure
+* ZN       length scale for turbulent mixing (on 'E' levels)
+* ZE       length scale for turbulent dissipationa (on 'E' levels)
+* S        sigma levels
+* PS       surface pressure (in Pa)
+* A        thermodynamic coefficient
+* B        thermodynamic coefficient
+* C        thermodynamic coefficient
+* AT2T     coefficients for interpolation of T,Q to thermo levels
+* AT2M     coefficients for interpolation of T,Q to momentum levels
+* AT2E     coefficients for interpolation of T,Q to energy levels
+* N        horizontal dimension
+* NK       vertical dimension
+*
+*
+*Notes
+*          Implicit (i.e. subgrid-scale) cloudiness scheme for unified
+*             description of stratiform and shallow, nonprecipitating
+*             cumulus convection appropriate for a low-order turbulence
+*             model based on Bechtold et al.:
+*            - Bechtold and Siebesma 1998, JAS 55, 888-895
+*            - Cuijpers and Bechtold 1995, JAS 52, 2486-2490
+*            - Bechtold et al. 1995, JAS 52, 455-463
+*            - Bechtold et al. 1992, JAS 49, 1723-1744
+*
+*
+*IMPLICITS
+*
+#include "consphy.cdk"
+*
+**
+*
+      INTEGER J, K, ITOTAL
+*
+* 
+      REAL EPSILON
+      REAL QCMIN, QCMAX
+*
+      REAL*8 GRAVINV
+*
+*
+*
+***********************************************************
+*     AUTOMATIC ARRAYS
+**********************************************************
+*
+      AUTOMATIC ( DZ       , REAL    , (N,NK)  )
+      AUTOMATIC ( DQWDZ    , REAL    , (N,NK)  )
+      AUTOMATIC ( DTHLDZ   , REAL    , (N,NK)  )
+      AUTOMATIC ( SIGMAS   , REAL    , (N,NK)  )
+      AUTOMATIC ( SIGMASE  , REAL    , (N,NK)  )
+      AUTOMATIC ( Q1       , REAL    , (N,NK)  )
+      AUTOMATIC ( WEIGHT   , REAL    , (N,NK)  )
+      AUTOMATIC ( WORK     , REAL    , (N,NK)  )
+*
+***********************************************************
+*
+*
+*MODULES
+*
+      EXTERNAL DVRTDF, BLWEIGHT
+*
+*------------------------------------------------------------------------
+*
+      EPSILON = 1.0E-10
+      QCMIN   = 1.0E-6
+      QCMAX   = 1.0E-3
+*
+      GRAVINV = 1.0/DBLE(GRAV)
+*
+*
+*       1.     Vertical derivative of THL and QW
+*       ----------------------------------------
+*
+      CALL TOTHERMO(THL, THL, AT2M,AT2M,N,NK+1,NK,.false.)
+      CALL TOTHERMO(QW,  QW,  AT2M,AT2M,N,NK+1,NK,.false.)
+      DO K=1,NK-1
+      DO J=1,N
+        WORK (J,K) = S(J,K+1)/S(J,K) 
+      END DO
+      END DO
+      CALL VSLOG(WORK ,WORK ,N*(NK-1))
+      DO K=1,NK-1
+      DO J=1,N
+        DZ(J,K) = -RGASD*TVE(J,K)*WORK (J,K)*GRAVINV
+      END DO
+      END DO
+*
+      DO J=1,N
+        DZ(J,NK) = 0.0
+      END DO
+*
+      CALL DVRTDF ( DTHLDZ, THL, DZ, N, N, N, NK)
+      CALL DVRTDF ( DQWDZ, QW, DZ, N, N, N, NK)
+*
+*
+*       2.     Standard deviation of s and normalized saturation deficit Q1
+*       -------------------------------------------------------------------
+*
+      DO K=1,NK-1
+      DO J=1,N
+        WORK (J,K) = C1(J,K)*MAX(ZN(J,K),50.)*MAX(ZE(J,K),50.)
+      END DO
+      END DO
+      CALL VSSQRT(WORK ,WORK ,N*(NK-1))
+*
+      CALL TOTHERMO(A,  A,  AT2T,AT2T,N,NK+1,NK,.true.)
+      CALL TOTHERMO(B,  B,  AT2T,AT2T,N,NK+1,NK,.true.)
+*
+      DO K=1,NK-1
+      DO J=1,N
+*                                              sigmas (cf. BCMT 1995 eq. 10)
+*                                        (computation on 'E' levels stored in SIGMASE)
+        SIGMASE(J,K) = WORK (J,K) *  
+     1              ABS(A(J,K)*DQWDZ(J,K) - B(J,K)*DTHLDZ(J,K) )
+      END DO
+      END DO
+*
+      CALL TOTHERMO(SIGMAS,SIGMASE,  AT2E,AT2E,N,NK+1,NK,.false.)
+*
+      DO K=2,NK-1
+      DO J=1,N
+*                                              (back to full levels)
+*                                              normalized saturation deficit
+        Q1(J,K) = C(J,K) / ( SIGMAS(J,K) + EPSILON )
+        Q1(J,K) = MAX ( -6. , MIN ( 4. , Q1(J,K) ) )
+      END DO
+      END DO
+*
+      DO J=1,N
+        SIGMAS(J,1) = 0.0  
+        SIGMAS(J,NK) = 0.0  
+        Q1(J,1) = 0.0
+        Q1(J,NK) = 0.0
+      END DO
+*
+*
+*       3.     Cloud properties
+*       -----------------------
+*                                              cloud fraction, cloud water content
+*                                              and flux enhancement factor
+*                                              (cf. BS 1998 Appendix B)
+      DO K=2,NK-1
+      DO J=1,N
+*
+        IF( Q1(J,K) .GT. -1.2 ) THEN
+          FRAC(J,K) = MAX ( 0. , MIN ( 1. ,
+     1                      0.5 + 0.36*ATAN(1.55*Q1(J,K)) ) )
+        ELSEIF( Q1(J,K) .GE. -6.0 ) THEN
+          FRAC(J,K) = EXP ( Q1(J,K)-1.0 )
+        ELSE
+          FRAC(J,K) = 0.0
+        ENDIF
+*
+        IF( Q1(J,K) .GE. 0.0 ) THEN
+          QC(J,K) = EXP( -1.0 ) + 0.66*Q1(J,K) + 0.086*Q1(J,K)**2
+        ELSEIF( Q1(J,K) .GE. -6.0 ) THEN
+          QC(J,K) = EXP( 1.2*Q1(J,K)-1.0 )
+        ELSE
+          QC(J,K) = 0.0
+        ENDIF
+*
+        QC(J,K) = MIN ( QC(J,K)*( SIGMAS(J,K) + EPSILON )
+     1                  , QCMAX )
+*
+        FNN(J,K) = 1.0
+        IF( Q1(J,K).LT.1.0 .AND. Q1(J,K).GE.-1.68 ) THEN
+          FNN(J,K) = EXP( -0.3*(Q1(J,K)-1.0) )
+        ELSEIF( Q1(J,K).LT.-1.68 .AND. Q1(J,K).GE.-2.5 ) THEN
+          FNN(J,K) = EXP( -2.9*(Q1(J,K)+1.4) )
+        ELSEIF( Q1(J,K).LT.-2.5 ) THEN
+          FNN(J,K) = 23.9 + EXP( -1.6*(Q1(J,K)+2.5) )
+        ENDIF
+*                                              flux enhancement factor * cloud fraction
+*                                              (parameterization formulation)
+        FNN(J,K) = FNN(J,K)*FRAC(J,K)
+        IF( Q1(J,K).LE.-2.39 .AND. Q1(J,K).GE.-4.0 ) THEN
+          FNN(J,K) = 0.60
+        ELSEIF( Q1(J,K).LT.-4.0 .AND. Q1(J,K).GE.-6.0 ) THEN
+          FNN(J,K) = 0.30*( Q1(J,K)+6.0 )
+        ELSEIF( Q1(J,K).LT.-6.0 ) THEN
+          FNN(J,K) = 0.0
+        ENDIF
+*
+*
+      END DO
+      END DO
+*
+      DO J=1,N
+        FRAC(J,1) = 0.
+        FRAC(J,NK) = 0.
+        FNN(J,1) = 0.
+        FNN(J,NK) = 0.
+        QC(J,1) = 0.
+        QC(J,NK) = 0.
+      END DO
+*
+*
+      CALL BLWEIGHT2 ( WEIGHT, S, PS, N, NK)
+*
+      DO K=1,NK
+      DO J=1,N
+        FRAC(J,K) = FRAC(J,K)*WEIGHT(J,K)
+        FNN(J,K) = FNN(J,K)*WEIGHT(J,K)
+        QC(J,K) = QC(J,K)*WEIGHT(J,K)
+      END DO
+      END DO
+*
+*
+      RETURN
+      END

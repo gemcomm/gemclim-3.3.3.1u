@@ -1,0 +1,90 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***FONCTION SHUAES  -  PASSAGE DE HU A ES
+*
+      FUNCTION SHUAES(HU,TX,PX,LNPS,MODP,SWTT,SWPH)
+#include "impnone.cdk"
+      REAL SHUAES, HU, TX, PX, LNPS
+      INTEGER MODP
+      LOGICAL SWTT, SWPH
+*
+*Author
+*          N. Brunet  (Jan91)
+*
+*Object
+*          to return dew point depression (Celsius) calculated from
+*          specific humidity, temperature and pressure
+*
+*Arguments
+*
+*          - Input -
+* HU       specific humidity in kg/kg
+* TX       temperature or virtual temperature in Kelvins
+* PX       see MODP
+* LNPS     see MODP
+* MODP     pressure mode(SI units only):
+*          =0; pressure level in PX
+*          =1; sigma level in PX and PS(surface pressure) in LNPS
+*          =2; sigma level in PX and logarithm of sigma level in
+*          LNPS
+*          =3; all points of pressure in LNPS(NI,*) in Pascals
+*          =4; sigma level in PX and logarithm of sigma level in
+*          LNPS(in millibars unless using SI units)
+*          =5; logarithm of pressure level in PX(in millibars unless
+*          using SI units)
+* SWTT     .TRUE. to pass TT for argument
+*          .FALSE. to pass TV for argument
+* SWPH     .TRUE. to consider water and ice phase
+*          .FALSE. to consider water phase only
+*
+*Notes
+*     If HU <=0, we don't change the value of HU, but we take
+*     the maximum value of: MAX(HU,0.0000000001).
+*     to avoid the occurence of taking the log of a negative
+*     number
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY
+*
+*
+**
+*--------------------------------------------------------------------
+      REAL E, CTE, TD, PETIT, TP, PN
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*--------------------------------------------------------------------
+#include "initcph.cdk"
+*
+      PETIT = 0.0000000001
+*
+#include "modpr1.cdk"
+#include "modtp1.cdk"
+      E = FOEFQ(MAX(PETIT,HU),PN)
+      CTE = ALOG(E/610.78)
+      TD = (35.86*CTE - 17.269*TRPL)/(CTE - 17.269)
+      IF(TD.LT.TRPL.AND.SWPH)THEN
+         TD = (7.66*CTE - 21.875*TRPL)/(CTE - 21.875)
+      END IF
+*
+      SHUAES = TP-TD
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

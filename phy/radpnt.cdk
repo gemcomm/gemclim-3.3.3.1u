@@ -1,0 +1,40 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*COMMON BLOCK /RADPNT/
+*          contains pointers to radiation fields. They are all
+*          initialized in PNTG123 routine
+*
+* G1       value of 5+1
+* G2       value of G1+MXX*NT
+* G3       value of G2+MXX*NT
+* TH2O     value of G3+MXX*NT
+* TRO3     value of TH2O+MXX*NCO2
+* YG3      value of TRO3+MXX
+* BCN      value of YG3+NCO2*MXX*NCX
+* DBCN     value of BCN+NCO2*NT
+* BO3      value of DBCN+NT*NCO2
+* DBO3     value of BO3+NT
+* TO3      value of DBO3+NT
+* UU       value of TO3+NO3
+* TT       value of UU+MXX
+*
+#endif
+*     POINTEURS DES CHAMPS DE RADIATION
+      INTEGER G1,G2,G3,TH2O,TRO3,YG3,BCN,DBCN,BO3,DBO3
+      INTEGER TO3,UU,TT
+      COMMON /RADPNT/ G1,G2,G3,TH2O,TRO3,YG3,BCN,DBCN,BO3,DBO3,
+     +                TO3,UU,TT

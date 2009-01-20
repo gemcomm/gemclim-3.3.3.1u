@@ -1,0 +1,117 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #################################################################################
+SUBROUTINE PREP_TEB(HPROGRAM,HATMFILE,HATMFILETYPE)
+!     #################################################################################
+!
+!!****  *PREP_TEB* - prepares TEB fields
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     V. Masson 
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2004
+!!------------------------------------------------------------------
+!
+
+!
+USE MODD_TEB, ONLY : TSNOW_ROOF,TSNOW_ROAD
+!
+USE MODI_DEFAULT_PREP_TEB
+USE MODI_PREP_HOR_TEB_FIELD
+!USE MODI_PREP_VER_TEB
+!
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=28),  INTENT(IN)  :: HATMFILE    ! name of the Atmospheric file
+CHARACTER(LEN=6),   INTENT(IN)  :: HATMFILETYPE! type of the Atmospheric file
+!
+!
+!*      0.2    declarations of local variables
+!
+!-------------------------------------------------------------------------------------
+!
+!*      1.     Default of configuration
+!
+!
+CALL DEFAULT_PREP_TEB
+!
+!-------------------------------------------------------------------------------------
+!
+!*      2.     Reading and horizontal interpolations
+!
+!
+!*      2.0    Large scale orography
+!
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'ZS     ',HATMFILE,HATMFILETYPE)
+!
+!*      2.1    Water reservoirs
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'WS_ROOF',HATMFILE,HATMFILETYPE)
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'WS_ROAD',HATMFILE,HATMFILETYPE)
+!
+!*      2.2    Building temperature
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'TI_BLD ',HATMFILE,HATMFILETYPE)
+!
+!*      2.3    Road deep temperature
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'TI_ROAD',HATMFILE,HATMFILETYPE)
+!
+!*      2.4    Temperature profiles
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'T_ROAD ',HATMFILE,HATMFILETYPE)
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'T_WALL ',HATMFILE,HATMFILETYPE)
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'T_ROOF ',HATMFILE,HATMFILETYPE)
+!
+!*      2.5    Snow variables
+!
+TSNOW_ROOF%SCHEME='1-L '
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'SN_ROOF',HATMFILE,HATMFILETYPE)
+TSNOW_ROAD%SCHEME='1-L '
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'SN_ROAD',HATMFILE,HATMFILETYPE)
+!
+!*      2.6    Canyon air variables
+!
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'T_CAN  ',HATMFILE,HATMFILETYPE)
+CALL PREP_HOR_TEB_FIELD(HPROGRAM,'Q_CAN  ',HATMFILE,HATMFILETYPE)
+!
+!-------------------------------------------------------------------------------------
+!
+!*      3.     Vertical interpolations of all variables
+!
+!IF (HPROGRAM /= 'MC2GEM') CALL PREP_VER_TEB
+!
+!-------------------------------------------------------------------------------------
+!
+END SUBROUTINE PREP_TEB

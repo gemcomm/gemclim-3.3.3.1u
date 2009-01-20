@@ -1,0 +1,146 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***   S/P DIAGNO_CW_RAD
+#include "phy_macros_f.h"
+      Subroutine diagno_cw_rad (f, fsiz, d,dsiz, v, vsiz,
+     +     liqwcin, icewcin, liqwp, icewp, cloud, heurser,
+     +     kount, trnch, task, ni, nk)
+*     
+#include "impnone.cdk"
+*     
+      Integer fsiz, dsiz, vsiz, ni, nk
+      Integer kount, trnch, task
+      Real heurser
+      Real f(fsiz), d(dsiz), v(vsiz)
+      Real liqwcin(ni,nk), icewcin(ni,nk)
+      Real liqwp(ni,nk-1), icewp(ni,nk-1)
+      Real cloud(ni,nk)
+*     
+*     
+*     Author
+*     L. Spacek (Apr 2005)
+*     
+*     Revisions
+*     000      The code was extracted from cldoptx4
+*     001      P. Vaillancourt (june 2006) - allow output of lwcr,iwcr,cldr as timeseries
+*     
+*     Object
+*     Calculate diagnostic for the radiation package
+*     
+*     Arguments
+*     
+*     - input -
+*     dsiz     Dimension of d
+*     fsiz     Dimension of f
+*     vsiz     Dimension of v
+*     liqwcin  in-cloud liquid water content
+*     icewcin  in-cloud ice    water content
+*     liqwp    in-cloud liquid water path
+*     icewp    in-cloud ice    water path
+*     cloud    cloudiness passed to radiation
+*     kount    index of timestep
+*     trnch    number of the slice
+*     task     task number
+*     n        horizontal Dimension
+*     nk       number of layers
+*     
+*     - output -
+*     tlwp     total integrated liquid water path
+*     tiwp     total integrated ice    water path 
+*     tlwpin   total integrated in-cloud liquid water path
+*     tiwpin   total integrated in-cloud ice    water path 
+*     lwcrad   liquid water content passed to radiation
+*     iwcrad   ice    water content passed to radiation
+*     cldrad  cloudiness passed to radiation
+*     - input/output
+*     
+*     
+*     Implicites
+*     
+#include "phybus.cdk"
+*     
+*     Modules
+*     
+
+*     
+*     *    -------------------------------
+*     
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*     
+*     
+************************************************************************
+*     
+      Integer i, j, k, ik, it
+*     
+      ik = (nk-1)*ni
+      Do i=0,ni-1
+         f(tlwp+i) = 0.0
+         f(tiwp+i) = 0.0
+         f(tlwpin+i) = 0.0
+         f(tiwpin+i) = 0.0
+         v(lwcrad+ik+i) = 0.0
+         v(iwcrad+ik+i) = 0.0
+         v(cldrad+ik+i) = 0.0
+      Enddo
+*
+      Do k=1,nk-1
+         Do i=1,ni 
+            f(tlwp+i-1) = f(tlwp+i-1) + liqwp(i,k)*cloud(i,k)
+            f(tiwp+i-1) = f(tiwp+i-1) + icewp(i,k)*cloud(i,k)
+            f(tlwpin+i-1) = f(tlwpin+i-1) + liqwp(i,k)
+            f(tiwpin+i-1) = f(tiwpin+i-1) + icewp(i,k)
+         Enddo
+      Enddo
+*     
+*     conversion d'unites : tlwp et tiwp en kg/m2
+*     
+      Do i=1,ni
+         f(tlwp+i-1) = f(tlwp+i-1) * 0.001
+         f(tiwp+i-1) = f(tiwp+i-1) * 0.001
+         f(tlwpin+i-1) = f(tlwpin+i-1) * 0.001
+         f(tiwpin+i-1) = f(tiwpin+i-1) * 0.001
+      Enddo
+*
+      Do k=1,nk-1
+         Do i=1,ni
+            ik = (k-1)*ni + i - 1
+            v(lwcrad+ik)=liqwcin(i,k)*cloud(i,k)
+            v(iwcrad+ik)=icewcin(i,k)*cloud(i,k)
+            v(cldrad+ik)=cloud(i,k)
+         Enddo
+      Enddo
+*     
+*     extraction pour diagnostics
+      Call serxst (f(tlwp)  ,'icr',trnch,ni,0.0    ,1.0,-1   )
+      Call mzonxst(f(tlwp)  ,'icr',trnch,ni,heurser,1.0,-1,task)
+      Call serxst (f(tiwp)  ,'iir',trnch,ni,0.0    ,1.0,-1   )
+      Call mzonxst(f(tiwp)  ,'iir',trnch,ni,heurser,1.0,-1,task)
+      Call serxst (f(tlwpin)  ,'w1',trnch,ni,0.0    ,1.0,-1   )
+      Call mzonxst(f(tlwpin)  ,'w1',trnch,ni,heurser,1.0,-1,task)
+      Call serxst (f(tiwpin)  ,'w2',trnch,ni,0.0    ,1.0,-1   )
+      Call mzonxst(f(tiwpin)  ,'w2',trnch,ni,heurser,1.0,-1,task)
+
+      Call serxst ( v(iwcrad), 'iwcr', trnch, ni , 0.0,   1.0      , -1        )
+      Call mzonxst( v(iwcrad), 'iwcr', trnch, ni , heurser, D(PPLUS) , -2, task )
+      Call serxst ( v(lwcrad), 'lwcr', trnch, ni , 0.0,   1.0      , -1        )
+      Call mzonxst( v(lwcrad), 'lwcr', trnch, ni , heurser, D(PPLUS) , -2, task )
+      Call serxst ( v(cldrad), 'cldr', trnch, ni , 0.0,   1.0      , -1        )
+      Call mzonxst( v(cldrad), 'cldr', trnch, ni , heurser, D(PPLUS) , -2, task )
+
+*     
+      End Subroutine diagno_cw_rad

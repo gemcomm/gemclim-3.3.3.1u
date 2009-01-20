@@ -1,0 +1,420 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  LIN_SGO2_AD
+#include "phy_macros_f.h"
+      SUBROUTINE LIN_SGO2_AD ( F, SIZEF, VB, SIZEV, DB, SIZED,
+     $                         U, V, T, U5, V5, T5, P, S,
+     $                         RUG, RVG, TAU, KOUNT, TRNCH, N, M, NK, 
+     $                         ITASK, SGOKIND)
+*
+#include "impnone.cdk"
+      INTEGER ITASK, SIZEF, SIZEV, SIZED, TRNCH, N, M, NK, KOUNT, SGOKIND
+      REAL F(SIZEF),VB(SIZEV),DB(SIZED)
+      REAL U(M,NK),V(M,NK),T(M,NK),P(M),S(N,NK)
+      REAL U5(M,NK),V5(M,NK),T5(M,NK)
+      REAL RUG(N,NK),RVG(N,NK)
+      REAL TAU
+*
+*Author
+*          A. Zadra RPN (May 2002)
+*
+*Revision
+* 001      L. Spacek (Oct 2008) - add "vertical staggering" option and
+*                                 correct extrapolation of TE(NK)
+*                                 becomes lin_sgo2_ad.ftn
+*
+*Object
+*          Adjoint of LIN_SGO2
+*
+*IMPLICITES
+*
+#include "options.cdk"
+#include "phybus.cdk"
+#include "consphy.cdk"
+*
+*MODULES
+*
+*     ROUTINES D'EXTRACTION DE SERIES TEMPORELLES
+*
+c      EXTERNAL SERXST
+c      EXTERNAL MVZNXST
+*
+*     ROUTINES DU "SGO DRAG"
+*
+      EXTERNAL LIN_SGOFLX1_AD,TOTHERMO,TOTHERMO_AD
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( LAND     , REAL*8   , (N   ) )
+      AUTOMATIC ( LAUNCH   , REAL*8   , (N   ) )
+      AUTOMATIC ( SLOPE8   , REAL*8   , (N   ) )
+      AUTOMATIC ( XCENT8   , REAL*8   , (N   ) )
+      AUTOMATIC ( MTDIR8   , REAL*8   , (N   ) )
+      AUTOMATIC ( TT       , REAL*8   , (N,NK) )
+      AUTOMATIC ( TE       , REAL*8   , (N,NK) )
+      AUTOMATIC ( UU       , REAL*8   , (N,NK) )
+      AUTOMATIC ( VV       , REAL*8   , (N,NK) )
+      AUTOMATIC ( TT5      , REAL*8   , (N,NK) )
+      AUTOMATIC ( TE5      , REAL*8   , (N,NK) )
+      AUTOMATIC ( UU5      , REAL*8   , (N,NK) )
+      AUTOMATIC ( VV5      , REAL*8   , (N,NK) )
+      AUTOMATIC ( PP       , REAL*8   , (N   ) )
+      AUTOMATIC ( FCORIO   , REAL*8   , (N   ) )
+      AUTOMATIC ( SS       , REAL*8   , (N,NK) )
+      AUTOMATIC ( SE       , REAL*8   , (N,NK) )
+      AUTOMATIC ( UTENDSGO , REAL*8   , (N,NK) )
+      AUTOMATIC ( VTENDSGO , REAL*8   , (N,NK) )
+      AUTOMATIC ( WORK     , REAL     , (N,NK) )
+      AUTOMATIC ( STAG     , REAL     , (N   ) )
+*
+************************************************************************
+*
+      INTEGER I,J,K,IS,NIK
+      REAL*8 AA1,AA2
+*
+      LOGICAL GWDRG, BLOCKING, OROLIFT, LEEWAVE, APPLYTEND
+*
+*--------------------------------------------------------------------
+*
+      if (sgokind.eq.100) then
+        gwdrg     = .true.
+        blocking  = .true.
+	orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 1.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.110) then
+        gwdrg     = .true.
+        blocking  = .true.
+	orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 0.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.120) then
+        gwdrg     = .true.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 1.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.130) then
+        gwdrg     = .true.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.101) then
+        gwdrg     = .true.
+        blocking  = .true.
+	orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 1.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.111) then
+        gwdrg     = .true.
+        blocking  = .true.
+	orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 0.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.121) then
+        gwdrg     = .true.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 1.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.131) then
+        gwdrg     = .true.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.200) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 1.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.210) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 0.
+        aa2 = 1.
+      endif
+ 
+      if (sgokind.eq.220) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 1.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.230) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.201) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 1.
+        aa2 = 1.
+      endif
+
+      if (sgokind.eq.211) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 0.
+        aa2 = 1.
+      endif
+ 
+      if (sgokind.eq.221) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 1.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.231) then
+        gwdrg     = .false.
+        blocking  = .true.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.300) then
+        gwdrg     = .true.
+        blocking  = .false.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .false.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      if (sgokind.eq.301) then
+        gwdrg     = .true.
+        blocking  = .false.
+        orolift   = .false.
+        leewave   = .false.
+        applytend = .true.
+        aa1 = 0.
+        aa2 = 0.
+      endif
+
+      NIK=N*NK-1
+*
+*--------------------------------------------------------------------
+*     TRAJECTORY
+*
+      CALL TOTHERMO(WORK,  T5, VB(AT2T),VB(AT2M),N,NK+1,NK,.false.)
+*
+      DO K=1,NK
+*VDIR NODEP
+         DO J=1,N
+            TT5(J,K) = WORK(J,K)
+            UU5(J,K) = U5(J,K)
+            VV5(J,K) = V5(J,K)
+         ENDDO
+      ENDDO
+*
+         DO J=1,N
+            PP(J)     = P(J)
+            FCORIO(J) = F(FCOR+J-1)
+         ENDDO
+*
+      DO J=1,N
+         LAND(J) = - ABS( NINT( f(MG+J-1) ) )
+         STAG(J) = 0.0
+         IF(DB(SIGT)>0.)STAG(J) = 1.0
+      ENDDO
+*
+      DO K=1,NK
+         DO J=1,N
+            SS(J,K) = S(J,K)
+         ENDDO
+      ENDDO
+*
+      DO K=1,NK-1
+*VDIR NODEP
+         DO J=1,N
+            SE(J,K) = VB(AT2E+J-1)*( S(J,K) + S(J,K+1) )+
+     $                STAG(J)*DB(SIGT+(K-1)*N+J-1)
+         ENDDO
+      ENDDO
+*
+*VDIR NODEP
+         DO J=1,N
+            SE(J,NK) = VB(AT2E+J-1)*( S(J,NK) + 1. )+
+     $                 STAG(J)*DB(SIGT+(NK-1)*N+J-1)
+         ENDDO
+*
+      CALL TOTHERMO(T5,WORK, VB(AT2T),VB(AT2M),N,NK+1,NK,.true.)
+*
+      DO  K=1,NK-1
+*VDIR NODEP
+         DO J=1,N
+            TE5(J,K)  = WORK(J,K)
+         ENDDO
+      ENDDO
+*
+*VDIR NODEP
+         DO J=1,N
+            TE5(J,NK) = WORK(J,NK)+VB(AT2T+NIK+J)*(T5(J,NK)-T5(J,NK-1))
+         ENDDO
+*
+      DO I=1,N
+         LAUNCH(I) = F(LHTG+I-1)
+         SLOPE8(I) = F(SLOPE+I-1)
+         XCENT8(I) = F(XCENT+I-1)
+         MTDIR8(I) = F(MTDIR+I-1)
+      ENDDO
+*
+*------------------------------------------------------------------
+*     ADJOINT
+*
+*     Initialize arrays
+*
+      DO K=1,NK
+*VDIR NODEP
+         DO J=1,N
+            TT(J,K)       = 0.
+            TE(J,K)       = 0.
+            UU(J,K)       = 0.
+            VV(J,K)       = 0.
+            UTENDSGO(J,K) = 0.
+            VTENDSGO(J,K) = 0.
+            WORK(J,K)     = 0.           
+         ENDDO
+      ENDDO
+*
+      DO K=NK,1,-1
+*VDIR NODEP
+         DO J=N,1,-1
+            VV(J,K)       = VV(J,K) + V(J,K)
+            V(J,K)        = 0.
+            UU(J,K)       = UU(J,K) + U(J,K)
+            U(J,K)        = 0.
+            VTENDSGO(J,K) = VTENDSGO(J,K) + RVG(J,K)
+            RVG(J,K)      = 0.
+            UTENDSGO(J,K) = UTENDSGO(J,K) + RUG(J,K)
+            RUG(J,K)      = 0.
+         ENDDO
+      ENDDO
+*
+       CALL LIN_SGOFLX1_AD (UU, VV, UTENDSGO, VTENDSGO,
+     $                   TE, TT, SS, SE,
+     $                   UU5, VV5, TE5, TT5,
+     $                   NK, NK, N, 1, N,
+     $                   GRAV, RGASD, CAPPA, TAU, TAUFAC,
+     $                   LAND, LAUNCH, SLOPE8, XCENT8, MTDIR8,
+     $                   PP, FCORIO,
+     $                   GWDRG, BLOCKING, OROLIFT, LEEWAVE,
+     $                   AA1,AA2,APPLYTEND)  
+*
+*VDIR NODEP
+         DO J=N,1,-1
+            WORK(J,NK) = TE(J,NK) + WORK(J,NK)
+            T(J,NK-1) = -VB(AT2T+NIK+J)*TE(J,NK)+T(J,NK-1)
+            T(J,NK)   = VB(AT2T+NIK+J)*TE(J,NK) +T(J,NK)
+            TE(J,NK)   = 0.0
+         ENDDO
+*
+      DO  K=NK-1,1,-1
+*VDIR NODEP
+         DO J=N,1,-1
+            WORK(J,K)  = TE(J,K) + WORK(J,K)
+            TE(J,K)    = 0.0
+         ENDDO
+      ENDDO
+*
+      CALL TOTHERMO_AD(T, WORK, VB(AT2T),VB(AT2M),N,NK+1,NK,.true.)
+*
+      DO K=NK,1,-1
+*VDIR NODEP
+         DO J=N,1,-1
+            VTENDSGO(J,K) = 0.
+            UTENDSGO(J,K) = 0.
+            V(J,K)  = V(J,K) + VV(J,K)
+            VV(J,K) = 0.
+            U(J,K)  = U(J,K) + UU(J,K)
+            UU(J,K) = 0.
+            WORK(J,K)  = WORK(J,K) + TT(J,K)
+            TT(J,K) = 0.
+         ENDDO
+      ENDDO
+*
+      CALL TOTHERMO_AD(WORK, T, VB(AT2T),VB(AT2M),N,NK+1,NK,.false.)
+*
+      RETURN
+      END

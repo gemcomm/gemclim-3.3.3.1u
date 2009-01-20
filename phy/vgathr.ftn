@@ -1,0 +1,81 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P VGATHR  -  PERFORM MULTIPLE GATHERS
+*
+      SUBROUTINE VGATHR(VP,NVP,V,NV,NK,LISTE)
+#include "impnone.cdk"
+      INTEGER NVP,NV,NK
+      INTEGER LISTE(NVP)
+      REAL VP(NVP,NK), V(NV,NK)
+*
+*Author
+*          M. Lepine  (October 1987)
+*
+*Object
+*          to perform multiple gathers
+*
+*Arguments
+*
+*          - Output -
+* VP       partial field
+*
+*          - Input -
+* NVP      1st dimension of partial field
+* V        field
+* NV       1st dimension of field
+* NK       2nd dimension of partial and complete fields
+* LISTE    address index for field
+*
+**
+      INTEGER I,K
+*
+      DO 20 K = 1,NK
+        DO 10 I = 1,NVP
+          VP(I,K) = V(LISTE(I),K)
+  10    CONTINUE
+  20  CONTINUE
+      RETURN
+***S/P VSCATR  -  PERFORM MULTIPLE SCATTERS
+      ENTRY VSCATR(VP,NVP,V,NV,NK,LISTE)
+*
+*Author
+*          M. Lepine  (October 1987)
+*
+*Object
+*     ENTRY VSCATR of VGATHR
+*          to perform multiple gathers
+*
+*Arguments
+*
+*          - Output -
+* VP       partial field
+*
+*          - Input -
+* NVP      1st dimension of partial field
+* V        field
+* NV       1st dimension of field
+* NK       2nd dimension of partial and complete fields
+* LISTE    address index for field
+*
+**
+*
+      DO 40 K = 1,NK
+        DO 30 I = 1,NVP
+          V(LISTE(I),K) = VP(I,K)
+  30    CONTINUE
+  40  CONTINUE
+      RETURN
+      END

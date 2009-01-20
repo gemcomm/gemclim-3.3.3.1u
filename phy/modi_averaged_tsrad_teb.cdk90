@@ -1,0 +1,48 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #####################################
+      MODULE MODI_AVERAGED_TSRAD_TEB
+!     #####################################
+INTERFACE
+      SUBROUTINE AVERAGED_TSRAD_TEB(PEMIS_ROOF,PTS_ROOF,     &
+                                    PEMIS_ROAD,PTS_ROAD,     &
+                                    PEMIS_WALL,PTS_WALL,     &
+                                    TSNOW_ROOF,TSNOW_ROAD,   &
+                                    PBLD,PWALL_O_HOR,        &
+                                    PSVF_ROAD,PSVF_WALL,     &
+                                    PEMIS,PTSRAD             )
+!
+USE MODD_TYPE_SNOW
+
+REAL, DIMENSION(:), INTENT(IN) :: PEMIS_ROOF ! roof emissivity
+REAL, DIMENSION(:), INTENT(IN) :: PTS_ROOF   ! roof surface temperature
+REAL, DIMENSION(:), INTENT(IN) :: PEMIS_ROAD ! road emissivity
+REAL, DIMENSION(:), INTENT(IN) :: PTS_ROAD   ! road surface temperature
+REAL, DIMENSION(:), INTENT(IN) :: PEMIS_WALL ! wall emissivity
+REAL, DIMENSION(:), INTENT(IN) :: PTS_WALL   ! wall surface temperature
+TYPE(SURF_SNOW),    INTENT(IN) :: TSNOW_ROOF ! snow on roofs
+TYPE(SURF_SNOW),    INTENT(IN) :: TSNOW_ROAD ! snow on roads
+REAL, DIMENSION(:), INTENT(IN) :: PBLD       ! building fraction
+REAL, DIMENSION(:), INTENT(IN) :: PWALL_O_HOR! vertical surf. / horizontal surf.
+REAL, DIMENSION(:), INTENT(IN) :: PSVF_ROAD  ! sky-view-factor from roads
+REAL, DIMENSION(:), INTENT(IN) :: PSVF_WALL  ! sky-view-factor from walls
+REAL, DIMENSION(:), INTENT(OUT):: PEMIS      ! averaged emissivity (all tiles)
+REAL, DIMENSION(:), INTENT(OUT):: PTSRAD     ! averaged radiaitve temp. (all tiles)
+!
+!
+END SUBROUTINE AVERAGED_TSRAD_TEB
+END INTERFACE
+END MODULE MODI_AVERAGED_TSRAD_TEB

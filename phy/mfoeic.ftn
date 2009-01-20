@@ -1,0 +1,79 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/R MFOEIC  -  CALCULE TENSION DE VAPEUR SATURANTE EI.
+*              -  (GLACE SEULEMENT)
+*
+#include "phy_macros_f.h"
+      SUBROUTINE MFOEIC(EI,TT,NI,NK,N)
+*
+#include "impnone.cdk"
+      INTEGER NI, NK, N
+      REAL EI(NI,NK), TT(NI,NK)
+*
+*Author
+*          A. Plante (June 2003) - based on MFOEWA from N. Brunet  (Jan91)
+*
+*Revision     
+*
+*Object
+*          to calculate the saturation vapour pressure. (Ice phase
+*          considered only for all temperatures)
+*
+*Arguments
+*
+*          - Output -
+* EI       saturated vapour pressure in pascals
+*
+*          - Input -
+* TT       temperature in Kelvins
+* NI       horizontal dimension
+* NK       vertical dimension
+* N        number of points to process
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY
+*
+*--------------------------------------------------------------------
+      INTEGER I, K
+*--------------------------------------------------------------------
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (WORK,REAL*8  , (NI,NK))
+*
+************************************************************************
+*
+#include "initcph.cdk"
+*
+      DO K=1,NK
+         DO I=1,N
+            WORK(I,K)=21.875D0*(DBLE(TT(I,K))-DBLE(TRPL))/
+     $                         (DBLE(TT(I,K))-7.66D0    )
+         ENDDO
+      ENDDO
+      CALL VEXP(WORK,WORK,N*NK)
+      DO K=1,NK
+         DO I=1,N
+            EI(I,K)=610.78D0*WORK(I,K)
+         ENDDO
+      ENDDO
+*
+      RETURN
+      END

@@ -1,0 +1,201 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  INTODIF
+*
+      SUBROUTINE INTODIF(Y,R,CON,ALPHA,S,A,B,C,N,MY,MR,NK,INTEG,BASE)
+*
+#include "impnone.cdk"
+      INTEGER N,MY,MR,NK
+      REAL Y(MY,NK),R(MR,NK),CON,ALPHA,S(NK),A(NK),B(NK),C(NK)
+      LOGICAL INTEG,BASE
+*
+*Author
+*          J. Cote (RPN 1984)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      M. Lepine  -  RFE model code revision project (Feb 87)
+*
+*Object
+*          to resolve differential equation of the 1st order
+*          if INTEG=.TRUE.: (integrate)
+*          D Y / D S = CON * S**ALPHA*R with boundary condition at
+*          S(NK) if BASE=.TRUE. or at S(1) if BASE=.FALSE.
+*          If INTEG=.FALSE.: (differentiate)
+*          Y = CON * S**-ALPHA * D R / D S
+*
+*Arguments
+*
+*          - Output -
+* Y        result
+*
+*          - Input -
+* R        right-hand-side (MR,NK)
+* CON      constant muliplier
+* ALPHA    exponent of pre-factor of the differential equation
+* S        sigma levels
+* A        work space (NK)
+* B        work space (NK)
+* C        work space (NK)
+* N        horizontal dimension
+* MY       1st dimension of Y
+* MR       1st dimension of R
+* NK       vertical dimension
+* INTEG    .TRUE. to integrate
+*          .FALSE. to differentiate
+* BASE     .TRUE. for boundary condition at S(NK)
+*          .FALSE. for boundary condition at S(1)
+*
+*Notes
+*          If INTEG=.TRUE. Y(*,1) or Y(*,NK) must be initialized
+*          based accordingly as Y and R cannot share the same space.
+*
+**
+*
+      REAL Q(3),XP,XO,XM,EX,AA,BB,CC,DD,DET,AK,BK,CK,CO2
+      INTEGER J,K,L
+*
+*     CALCUL DES A,B,C
+*
+      DO 20 K=1,NK
+         IF (K.GT.1.AND.K.LT.NK) THEN
+            XP=S(K+1)
+            XO=S(K)
+            XM=S(K-1)
+         ELSE IF (K.EQ.1) THEN
+            XP=S(2)
+            XM=S(1)
+            XO=(XP+XM)/2.0
+         ELSE IF (K.EQ.NK) THEN
+            XP=S(NK)
+            XM=S(NK-1)
+            XO=(XP+XM)/2.0
+         ENDIF
+         DO 1 L=1,3
+            EX=ALPHA+FLOAT(L)
+            IF (EX.NE.0.0) THEN
+               Q(L)=(XP**EX-XM**EX)/EX
+            ELSE
+               Q(L)=ALOG(XP/XM)
+            ENDIF
+    1    CONTINUE
+         Q(3)=Q(3)-XO*(2.0*Q(2)-XO*Q(1))
+         Q(2)=Q(2)-XO*Q(1)
+         AA=XM-XO
+         BB=XP-XO
+         CC=AA**2
+         DD=BB**2
+         DET=AA*DD-BB*CC
+         A(K)=(DD*Q(2)-BB*Q(3))/DET/2.0
+         C(K)=(AA*Q(3)-CC*Q(2))/DET/2.0
+         B(K)=Q(1)/2.0-A(K)-C(K)
+         IF (K.EQ.1) THEN
+            AA=A(1)
+            BB=B(1)/4.0
+            CC=C(1)
+            B(1)=AA+BB*(1.0+(S(3)-S(2))/(S(3)-S(1)))
+            C(1)=CC+BB*(1.0+(S(3)-S(1))/(S(3)-S(2)))
+            A(1)=-BB*(S(2)-S(1))**2/((S(3)-S(2))*(S(3)-S(1)))
+         ELSE IF (K.EQ.NK) THEN
+            AA=A(NK)
+            BB=B(NK)/4.0
+            CC=C(NK)
+            B(NK)=CC+BB*(1.0+(S(NK-1)-S(NK-2))/(S(NK)-S(NK-2)))
+            A(NK)=AA+BB*(1.0+(S(NK)-S(NK-2))/(S(NK-1)-S(NK-2)))
+            C(NK)=-BB*(S(NK)-S(NK-1))**2/((S(NK-1)-S(NK-2))
+     X            *(S(NK)-S(NK-2)))
+         ENDIF
+   20 CONTINUE
+*
+      IF (INTEG) THEN
+*
+*     INTEGRATION
+*
+        IF (BASE) THEN
+*
+*       Y(NK) EST INITIALISE
+*
+           AK=-2.0*CON*A(NK)
+           BK=-2.0*CON*B(NK)
+           CK=-2.0*CON*C(NK)
+           DO 2 J=1,N
+    2         Y(J,NK-1)=AK*R(J,NK-1)+BK*R(J,NK)+CK*R(J,NK-2)+Y(J,NK)
+           DO 3 K=NK-2,1,-1
+              AK=-2.0*CON*A(K+1)
+              BK=-2.0*CON*B(K+1)
+              CK=-2.0*CON*C(K+1)
+              DO 3 J=1,N
+    3            Y(J,K)=AK*R(J,K)+BK*R(J,K+1)+CK*R(J,K+2)+Y(J,K+2)
+        ELSE
+*
+*     Y(1) EST INITIALISE
+*
+           AK=2.0*CON*A(1)
+           BK=2.0*CON*B(1)
+           CK=2.0*CON*C(1)
+           DO 4 J=1,N
+    4         Y(J,2)=BK*R(J,1)+CK*R(J,2)+AK*R(J,3)+Y(J,1)
+           DO 5 K=3,NK,1
+              AK=2.0*CON*A(K-1)
+              BK=2.0*CON*B(K-1)
+              CK=2.0*CON*C(K-1)
+              DO 5 J=1,N
+    5            Y(J,K)=AK*R(J,K-2)+BK*R(J,K-1)+CK*R(J,K)+Y(J,K-2)
+        ENDIF
+*
+      ELSE
+*
+*     DIFFERENTIATION
+*
+*     POINTS INTERIEURS
+*
+         CO2=CON/2.0
+         DO 6 K=2,NK-1
+            DO 6 J=1,N
+    6          Y(J,K)=CO2*(R(J,K+1)-R(J,K-1))
+*
+*     POINTS LIMITES
+*
+         AK=A(1)/C(2)
+         B(1)=B(1)-AK*A(2)
+         C(1)=C(1)-AK*B(2)
+         CK=C(NK)/A(NK-1)
+         A(NK)=A(NK)-CK*B(NK-1)
+         B(NK)=B(NK)-CK*C(NK-1)
+         A(1)=0.0
+         C(NK)=0.0
+         DO 7 J=1,N
+            Y(J,1)=CO2*(R(J,2)-R(J,1))-AK*Y(J,2)
+    7       Y(J,NK)=CO2*(R(J,NK)-R(J,NK-1))-CK*Y(J,NK-1)
+*
+*     PROJECTION INVERSE
+*
+         B(1)=1.0/B(1)
+         DO 8 K=2,NK
+            C(K-1)=C(K-1)*B(K-1)
+    8       B(K)=1.0/(B(K)-A(K)*C(K-1))
+         DO 9 J=1,N
+    9       Y(J,1)=Y(J,1)*B(1)
+         DO 10 K=2,NK
+            DO 10 J=1,N
+   10          Y(J,K)=(Y(J,K)-A(K)*Y(J,K-1))*B(K)
+         DO 11 K=NK-1,1,-1
+            DO 11 J=1,N
+   11          Y(J,K)=Y(J,K)-C(K)*Y(J,K+1)
+      ENDIF
+*
+      RETURN
+      END

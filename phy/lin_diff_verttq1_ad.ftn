@@ -1,0 +1,291 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_DIFF_VERT1_AD ADJ of LIN_DIFF_VERT1
+*
+#include "phy_macros_f.h"
+      SUBROUTINE LIN_DIFF_VERTTQ1_AD(TU, U, KU, GU, ALFA, BETA, S, SK,
+     %                            TAU, F, A, B, C, D, N, NK,
+     %                            U5,KU5,A5,B5,C5,D5,W1,W2,W3,W4,BETA5)
+*
+#include "impnone.cdk"
+      INTEGER N, NK
+      REAL TU(N, NK), U(N, NK),  KU(N, NK), GU(N, NK)
+      REAL ALFA(N),   BETA(N),   S(N,NK),   SK(N,NK), TAU, F
+      REAL A(N, NK),  B(N, NK),  C(N, NK),  D(N, NK)
+      REAL U5(N, NK), KU5(N, NK)
+      REAL A5(N, NK), B5(N, NK), C5(N, NK), D5(N, NK)
+      REAL W1(N, NK), W2(N, NK), W3(N, NK), W4(N, NK)
+      REAL BETA5(N)
+*
+*Author
+*          L. Spacek (Jun 2008)
+*
+*Object
+*          to solve a TLM vertical diffusion equation by finite
+*          differences on thermo levels
+*
+*Arguments
+*
+**
+*
+**
+*
+      INTEGER I, K
+      REAL SC, SCTU, ST, SB, HM, HP, HD, KUM, KUP, SCK1
+      EXTERNAL LIN_DIFUVD1_AD, LIN_DIFUVD2_AD
+*
+      REAL A5_1(N, NK), B5_1(N, NK), C5_1(N, NK)
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (VHM  ,REAL   ,(N,NK) )
+      AUTOMATIC (VHP  ,REAL   ,(N,NK) )
+      AUTOMATIC (RHD  ,REAL*8 ,(N,NK) )
+      AUTOMATIC (RHMD ,REAL*8 ,(N,NK) )
+      AUTOMATIC (RHPD ,REAL*8 ,(N,NK) )
+
+******START TRAJECTORY **********************************************
+*
+      ST(i)=S(i,1)-0.5*(S(i,2)-S(i,1))
+      SB(i)=1.
+*
+      SC   = 1.0
+      SCTU = 0
+      SCK1 = 1
+*
+*
+*     K=1
+*
+         HM=0
+         DO I=1,N
+
+            HM=SK(i,1)-ST(i)
+            HP=SK(i,2)-SK(i,1)
+            HD=S(i,2)-S(i,1)
+            KUM=0
+            KUP=0.5*(KU5(I,1)+KU5(I,2))
+            A5(I,1)=KUM/(HM*HD)
+            C5(I,1)=KUP/(HP*HD)
+            B5(I,1)=-A5(I,1)-C5(I,1)
+            D5(I,1)=(KUP*(GU(I,1)+GU(I,2))-KUM*GU(I,1))/(2*HD)
+         ENDDO
+*
+*     K=2...NK-1
+*
+         DO K=2,NK-1,1
+            DO I=1,N
+               VHM(I,K)=SK(I,K)-SK(I,K-1)
+               VHP(I,K)=SK(I,K+1)-SK(I,K)
+               HD=S(I,K+1)-S(I,K)
+C	       THE FOLLOWING LHS ARE IN REAL*8
+               RHD(I,K)=HD
+               RHMD(I,K)=VHM(I,K)*HD
+               RHPD(I,K)=VHP(I,K)*HD
+            ENDDO
+         ENDDO
+         CALL VREC( RHD(1,2), RHD(1,2),N*(NK-2))      
+         CALL VREC(RHMD(1,2),RHMD(1,2),N*(NK-2))
+         CALL VREC(RHPD(1,2),RHPD(1,2),N*(NK-2))
+         DO K=2,NK-1,1
+            DO I=1,N
+               KUM=0.5*(KU5(I,K-1)+KU5(I,K))
+               KUP=0.5*(KU5(I,K+1)+KU5(I,K))
+               A5(I,K)=KUM*RHMD(I,K)
+               C5(I,K)=KUP*RHPD(I,K)
+               B5(I,K)=-A5(I,K)-C5(I,K)
+               D5(I,K)=.5*(KUP*(GU(I,K)+GU(I,K+1))
+     %                -KUM*(GU(I,K-1)+GU(I,K)))*RHD(I,K)
+            ENDDO
+         ENDDO
+*
+*     K=NK
+*
+         HP=0
+         DO I=1,N
+              HM=SK(i,NK)-SK(i,NK-1)
+              HD=SB(i)-S(i,NK)
+              KUM=0.5*(KU5(I,NK)+KU5(I,NK-1))
+              KUP=0
+              A5(I,NK)=KUM/(HM*HD)
+              C5(I,NK)=0
+              B5(I,NK)=-A5(I,NK)-C5(I,NK)
+              D5(I,NK)=(0-KUM*(GU(I,NK)+GU(I,NK-1)))/(2*HD)
+         ENDDO
+*
+      DO K=1,NK
+         DO I=1,N
+            A5_1(I,K) = A5(I,K)
+            B5_1(I,K) = B5(I,K)
+            C5_1(I,K) = C5(I,K)
+         ENDDO
+      ENDDO
+*
+*
+* (2) CALCULER LE COTE DROIT D=TAU*(SC*N(U)+D/DS(KU*GU))
+*
+      CALL LIN_DIFUVD1 (D5, SC, A5, B5, C5, U5, D5, N, NK)
+
+      DO K=1,NK
+         DO I=1,N
+           D5(I,K)  = TAU*D5(I,K)
+         ENDDO
+      ENDDO
+
+      DO K=1,NK
+         DO I=1,N
+            A5(I,K) =     - TAU*A5(I,K)
+            B5(I,K) = 1.0 - TAU*B5(I,K)
+            C5(I,K) =     - TAU*C5(I,K)
+         ENDDO
+      ENDDO
+
+      DO I=1,N
+        HD=SB(I)-S(I,NK)
+        B5(I,NK) = B5(I,NK) - SC*TAU*BETA5(I)/HD
+      ENDDO
+*
+*     zeroing some adjoint variables
+*
+      DO K=1,NK
+         DO I=1,N
+            A(I,K) = 0.0
+            B(I,K) = 0.0
+            C(I,K) = 0.0
+            D(I,K) = 0.0
+           W1(I,K) = 0.0
+           W2(I,K) = 0.0
+           W3(I,K) = 0.0
+           W4(I,K) = 0.0
+         ENDDO
+      ENDDO
+*
+******END TRAJECTORY ************************************************
+*
+*
+* (6) OBTENIR TENDANCE
+*
+      DO K=1,NK
+         DO I=1,N
+         TU(I,K)=TU(I,K)/TAU
+        ENDDO
+      ENDDO
+
+*
+* (5) RESOUDRE SYSTEME TRIDIAGONAL [A,B,C] X = D. METTRE X DANS TU.
+*
+      CALL LIN_DIFUVD2_AD (TU, A, B, C, D, W4, N, NK,
+     &                     A5, B5, C5, D5, W1, W2, W3)
+
+*
+* (3) CALCULER OPERATEUR DU COTE GAUCHE
+*
+      DO I=1,N
+         HD=SB(I)-S(I,NK)
+         ALFA(I)  =   D(I,NK)*TAU/HD           + ALFA(I)
+         BETA(I)  =   D(I,NK)*U5(I,NK)*TAU/HD  + BETA(I)
+         U(I,NK) =    D(I,NK)*BETA5(I)*TAU/HD  + U(I,NK)
+         BETA(I)  = - SC*TAU*B(I,NK)/HD        + BETA(I)
+      ENDDO
+*
+      DO K=1,NK
+         DO I=1,N
+            A(I,K)  =  - TAU*A(I,K)
+            B(I,K)  =  - TAU*B(I,K)
+            C(I,K)  =  - TAU*C(I,K)
+         ENDDO
+      ENDDO
+*
+*
+* (2) CALCULER LE COTE DROIT D=TAU*(SC*N(U)+R+D/DS(KU*GU))
+*
+      DO I=1,N
+        HD=SB(I)-S(I,NK)
+cstl        HD=SB(I)-0.5*(S(I,NK-1)+S(I,NK))
+        B5(I,NK) = B5(I,NK) + SC*TAU*BETA5(I)/HD
+      ENDDO
+*
+      DO K=1,NK
+         DO I=1,N
+            A5(I,K) =       - A5(I,K)/TAU
+            B5(I,K) = (1.0 - B5(I,K))/TAU
+            C5(I,K) =       - C5(I,K)/TAU
+            D5(I,K) = TAU*D(I,K)
+             D(I,K) = 0.0
+         ENDDO
+      ENDDO
+*
+      CALL LIN_DIFUVD1_AD (D5, SC, A, B, C, U, D, N, NK,
+     &                     A5_1, B5_1, C5_1, U5)
+
+
+*
+* (1) CONSTRUIRE L'OPERATEUR TRIDIAGONAL DE DIFFUSION N=(A,B,C)
+*                ET LE TERME CONTRE-GRADIENT (DANS D)
+*
+         HP=0
+         DO I=1,N
+            HM=SK(i,NK)-SK(i,NK-1)
+            HD=SB(i)-S(i,NK)
+            KUM=0.5*(KU(I,NK)+KU(I,NK-1))
+            KUP=0
+            KU(I,NK)   =  D(I,NK)*(GU(I,NK)+GU(I,NK-1))/(4*HD) + KU(I,NK)
+            KU(I,NK-1) =  D(I,NK)*(GU(I,NK)+GU(I,NK-1))/(4*HD) + KU(I,NK-1)
+            KU(I,NK-1) = -B(I,NK)/(2*HM*HD)       + KU(I,NK-1)
+            KU(I,NK-1) =  A(I,NK)/(2*HM*HD)       + KU(I,NK-1)
+         ENDDO
+*
+*     K=2...NK-1
+*
+         DO K=NK-1,2,-1
+            DO I=1,N
+               HM=SK(I,K)-SK(I,K-1)
+               HP=SK(I,K+1)-SK(I,K)
+               HD=S(I,K+1)-S(I,K)
+               KU(I,K+1) =  D(I,K)*(GU(I,K)+GU(I,K+1))/(4*HD)  + KU(I,K+1)
+               KU(I,K)   =  D(I,K)*(GU(I,K-1)+2*GU(I,K)+GU(I,K+1))/(2*HD)
+     &                                                         + KU(I,K)
+               KU(I,K-1) =  D(I,K)*(GU(I,K-1)+GU(I,K))/(4*HD)  + KU(I,K)
+               KU(I,K+1) = -B(I,K)/(2*HP*HD)                   + KU(I,K+1)
+               KU(I,K)   = -B(I,K)/(0.5*(HM*HD+HP*HD))         + KU(I,K)
+               KU(I,K-1) = -B(I,K)/(2*HM*HD)                   + KU(I,K-1)
+               KU(I,K+1) =  C(I,K)/(2*HM*HD)                   + KU(I,K+1)
+               KU(I,K)   =  C(I,K)/(2*HM*HD)                   + KU(I,K)
+               KU(I,K)   =  A(I,K)/(2*HM*HD)                   + KU(I,K)
+               KU(I,K-1) =  A(I,K)/(2*HM*HD)                   + KU(I,K-1)
+
+            ENDDO
+         ENDDO
+*
+*     K=1
+*
+         HM=0
+         DO I=1,N
+            HM=SK(I,1)-ST(I)
+            HP=SK(I,2)-SK(I,1)
+            HD=S(I,2)-S(I,1)
+            KU(I,2) = D(I,K)*(GU(I,K)+GU(I,K+1))/(4*HD)  + KU(I,2)
+            KU(I,1) = D(I,K)*(GU(I,K)+GU(I,K+1))/(4*HD)  + KU(I,1)
+            KU(I,2) =-B(I,K)/(2*HD*HP)  + KU(I,2)
+            KU(I,1) =-B(I,K)/(2*HD*HP)  + KU(I,1)
+            KU(I,2) = A(I,K)/(2*HD*HP)  + KU(I,2)
+            KU(I,1) = A(I,K)/(2*HD*HP)  + KU(I,1)
+         ENDDO
+*
+*
+      RETURN
+      END

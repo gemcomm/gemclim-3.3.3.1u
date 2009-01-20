@@ -1,0 +1,91 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+      SUBROUTINE SIGMALEV (SE, S, ST, VBUS, VSIZ, N, NK)
+#include "impnone.cdk"
+      INTEGER N, NK, KA, VSIZ, TRNCH
+      REAL SE(N,NK), S(N,NK), ST(N,NK)
+      REAL VBUS(VSIZ)
+*
+      INTEGER K, I
+*
+*Author
+*          L. Spacek (Dec 2007)
+*
+*Revision
+* 001      L. Spacek (Sep 2008) - add coefficients for extrapolation in gwd5
+*
+*Object
+*          The subroutine determines whether the model is staggered.
+*          Based on that information defines the pointer sigw,
+*          calculates sigma coordinates of energy levels and
+*          linear interpolation coefficients  for temperature/humidity
+*          interpolation to momentum, thermo and energy levels.
+*
+*Arguments
+*
+*          - Output -
+* SE       sigma levels for ('E')
+*
+*          - Input -
+* S        sigma momentum levels
+* ST       sigma thermo levels
+* V        volatile bus
+* N        1st horizontal dimension
+* NK       vertical dimension
+*
+**
+*
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+*
+      IF (ST(1,1)<0) THEN       ! Model is unstaggered
+*
+         DO K=1,NK-2
+            DO I=1,N
+              SE(I,K)=0.5*(S(I,K)+S(I,K+1))
+            ENDDO
+         ENDDO
+*
+         DO K=NK-1,NK
+            DO I=1,N
+              SE(I,K)=1.
+            ENDDO
+         ENDDO
+         CALL SWEIGHTS(VBUS(AT2E),S,ST,N,NK,NK-1,.false.)
+         CALL SWEIGHTS(VBUS(AT2T),S,ST,N,NK,NK-1,.false.)
+         CALL MWEIGHTS(VBUS(AT2M),S,ST,N,NK,NK-1,.false.)
+         SIGW=SIGM
+      ELSE
+*
+         DO K=1,NK-2            ! Model is staggered
+            DO I=1,N
+              SE(I,K)=ST(I,K)
+            ENDDO
+         ENDDO
+*
+         DO K=NK-1,NK
+            DO I=1,N
+              SE(I,K)=1.
+            ENDDO
+         ENDDO
+         CALL SWEIGHTS(VBUS(AT2E),S,ST,N,NK,NK-1,.true.)
+         CALL TWEIGHTS(VBUS(AT2T),S,ST,N,NK,NK-1,.true.)
+         CALL MWEIGHTS(VBUS(AT2M),S,ST,N,NK,NK-1,.true.)
+         SIGW=SIGT
+      ENDIF
+*
+      RETURN
+      END

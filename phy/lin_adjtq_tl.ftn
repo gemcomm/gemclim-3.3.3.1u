@@ -1,0 +1,241 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_ADJTQ_TL
+*
+#include "phy_macros_f.h"
+      SUBROUTINE LIN_ADJTQ_TL  ( T5, Q5, P5, T, Q, P, NI )
+#include "impnone.cdk"
+*
+C
+      INTEGER NI
+      REAL T5(NI), Q5(NI), P5 (NI), T(NI), Q(NI), P(NI)
+*
+*Author
+*          J.-F. Mahfouf (Sept 2002) 
+*
+*Revision
+*
+*Object
+*          To calculate wet bulb temperature 
+*          and associated specific humidity at saturation 
+*          for an air parcel characterized by T and Q at pressure P
+*          Newton method with two iterations
+*
+*          For an unsaturated parcel : final values = initial values
+*
+*          ======================          
+*          Tangent-linear version 
+*          ======================
+*
+*
+*Arguments
+*
+*            - Outputs/inputs -
+* T        Temperature (K)
+* Q        Specific Humidity  (kg/kg)
+* T5       Temperature (K)              [trajectory]
+* Q5       Specific Humidity  (kg/kg)   [trajectory]
+*
+*            - Inputs -
+* P        Pressure  (Pa)
+* P5       Pressure  (Pa)               [trajectory]
+* NI       Horizontal Dimension
+*
+C
+      LOGICAL LO
+      INTEGER jl
+      REAL ZA1, CHLS, DELTA2
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( LO1    , LOGICAL , (NI   ))
+*
+      AUTOMATIC ( ZA3    , REAL    , (NI   ))
+      AUTOMATIC ( ZA4    , REAL    , (NI   ))
+C
+      AUTOMATIC ( ZLDCP  , REAL    , (NI   ))
+      AUTOMATIC ( ZT_0   , REAL    , (NI   ))
+      AUTOMATIC ( ZT_1   , REAL    , (NI   ))
+      AUTOMATIC ( ZQ_0   , REAL    , (NI   ))
+      AUTOMATIC ( ZQ_1   , REAL    , (NI   ))
+      AUTOMATIC ( ZESC_0 , REAL    , (NI   ))
+      AUTOMATIC ( ZESC_1 , REAL    , (NI   ))    
+      AUTOMATIC ( ZQSC_0 , REAL    , (NI   ))
+      AUTOMATIC ( ZQSC_1 , REAL    , (NI   ))
+      AUTOMATIC ( ZDESC_0, REAL    , (NI   ))
+      AUTOMATIC ( ZDESC_1, REAL    , (NI   ))
+      AUTOMATIC ( ZCOR_0 , REAL    , (NI   ))
+      AUTOMATIC ( ZCOR_1 , REAL    , (NI   ))
+      AUTOMATIC ( ZQCD_0 , REAL    , (NI   ))
+      AUTOMATIC ( ZQCD_1 , REAL    , (NI   ))
+C
+      AUTOMATIC ( ZLDCP5  , REAL    , (NI   ))
+      AUTOMATIC ( ZT_05   , REAL    , (NI   ))
+      AUTOMATIC ( ZT_15   , REAL    , (NI   ))
+      AUTOMATIC ( ZQ_05   , REAL    , (NI   ))
+      AUTOMATIC ( ZQ_15   , REAL    , (NI   ))
+      AUTOMATIC ( ZESC_05 , REAL    , (NI   ))
+      AUTOMATIC ( ZESC_15 , REAL    , (NI   ))    
+      AUTOMATIC ( ZQSC_05 , REAL    , (NI   ))
+      AUTOMATIC ( ZQSC_15 , REAL    , (NI   ))
+      AUTOMATIC ( ZDESC_05, REAL    , (NI   ))
+      AUTOMATIC ( ZDESC_15, REAL    , (NI   ))
+      AUTOMATIC ( ZCOR_05 , REAL    , (NI   ))
+      AUTOMATIC ( ZCOR_15 , REAL    , (NI   ))
+      AUTOMATIC ( ZQCD_05 , REAL    , (NI   ))
+      AUTOMATIC ( ZQCD_15 , REAL    , (NI   ))
+*
+************************************************************************
+
+C
+C*    PHYSICAL CONSTANTS.
+C     -------- ----------
+C
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+C
+      DELTA2 = CPV/CPD - 1.
+      CHLS   = CHLC + CHLF
+      ZA1 = 610.78
+C
+      DO jl=1,NI
+         IF ( T5(jl) > TRPL ) THEN
+            ZA3(jl)=17.269
+            ZA4(jl)=35.860           
+            ZLDCP (jl) = -CHLC * DELTA2 * Q (jl) /
+     *                   (CPD*(1.+DELTA2* Q5(jl))**2)
+            ZLDCP5(jl) =  CHLC / (CPD*(1.+DELTA2*Q5(jl)))
+         ELSE
+            ZA3(jl)=21.875
+            ZA4(jl)= 7.660
+            ZLDCP (jl) = -CHLS * DELTA2 * Q (jl) /
+     *                   (CPD*(1.+DELTA2* Q5(jl))**2)
+            ZLDCP5(jl) =  CHLS / (CPD*(1.+DELTA2*Q5(jl)))
+         ENDIF
+      END DO
+C
+C*    Set-up initial values for Newton iterations
+C
+      DO jl=1,NI
+         ZT_0 (jl) = T (jl) 
+         ZT_05(jl) = T5(jl)
+         ZQ_0 (jl) = Q (jl)    
+         ZQ_05(jl) = Q5(jl)
+      END DO
+C
+C*    First iteration
+C
+      DO jl=1,NI
+         ZESC_0 (jl) = ZA1*ZA3(jl)*(TRPL-ZA4(jl))/
+     *                 ((ZT_05(jl)-ZA4(jl))**2)*
+     *                 EXP(ZA3(jl)*(ZT_05(jl)-TRPL)/
+     *                 (ZT_05(jl)-ZA4(jl)))*ZT_0 (jl)  
+         ZESC_05(jl) = ZA1*EXP(ZA3(jl)*(ZT_05(jl)-TRPL)/
+     *                 (ZT_05(jl)-ZA4(jl)))
+         ZQSC_0 (jl) = EPS1*(P5(jl)*ZESC_0 (jl)-P (jl)*ZESC_05(jl))/
+     *                 ((P5(jl)-EPS2*ZESC_05(jl))**2)
+         ZQSC_05(jl) = EPS1*ZESC_05(jl)/(P5(jl)-EPS2*ZESC_05(jl))
+         ZDESC_0 (jl) = ZA3(jl)*(TRPL-ZA4(jl))*ZESC_0 (jl)/
+     *                  ((ZT_05(jl)-ZA4(jl))**2) -
+     *                  2.0*ZA3(jl)*(TRPL-ZA4(jl))*ZESC_05(jl)*
+     *                  ZT_0 (jl)/((ZT_05(jl)-ZA4(jl))**3)
+         ZDESC_05(jl)= ZA3(jl)*(TRPL-ZA4(jl))*ZESC_05(jl)/
+     *                 ((ZT_05(jl)-ZA4(jl))**2)
+         ZCOR_0 (jl) = ZLDCP (jl)*EPS1*P5(jl)*ZDESC_05(jl)/
+     *                 ((P5(jl)-EPS2*ZESC_05(jl))**2) +
+     *                 ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_0 (jl)/
+     *                 ((P5(jl)-EPS2*ZESC_05(jl))**2) +
+     *                 ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_05(jl)*2.0*EPS2*
+     *                 ZESC_0 (jl)/((P5(jl)-EPS2*ZESC_05(jl))**3) -
+     *                 ZLDCP5(jl)*EPS1*P (jl)*ZDESC_05(jl)*
+     *                 (P5(jl)**2-(EPS2*ZESC_05(jl))**2)/
+     *                 ((P5(jl)-EPS2*ZESC_05(jl))**4)
+         ZCOR_05(jl) = ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_05(jl)/
+     *                 ((P5(jl)-EPS2*ZESC_05(jl))**2)
+         ZQCD_0 (jl)  = (ZQ_0 (jl)-ZQSC_0 (jl))/(1.0+ZCOR_05(jl)) -
+     *                  ZCOR_0 (jl)*(ZQ_05(jl)-ZQSC_05(jl))/
+     *                  ((1.0+ZCOR_05(jl))**2)
+         ZQCD_05(jl) = (ZQ_05(jl)-ZQSC_05(jl))/(1.0+ZCOR_05(jl))
+         IF ( ZQ_05(jl) < ZQSC_05(jl) ) THEN
+            ZQCD_0 (jl) = 0.0   
+            ZQCD_05(jl) = 0.0
+         ENDIF
+         ZQ_1 (jl) = ZQ_0 (jl) - ZQCD_0 (jl)       
+         ZQ_15(jl) = ZQ_05(jl) - ZQCD_05(jl)
+         ZT_1 (jl) = ZT_0 (jl) + ZQCD_0 (jl)*ZLDCP5(jl) + 
+     *                           ZQCD_05(jl)*ZLDCP (jl)
+         ZT_15(jl) = ZT_05(jl) + ZQCD_05(jl)*ZLDCP5(jl)
+         LO1(jl) = ZQCD_05(jl) /= 0.0
+      END DO
+C
+      LO=.FALSE.
+      DO jl=1,NI
+         LO=LO.OR.LO1(jl)
+      END DO
+C
+      IF (.NOT.LO) RETURN
+C
+C*    Second iteration
+C
+      DO jl=1,NI
+         ZESC_1 (jl) = ZA1*ZA3(jl)*(TRPL-ZA4(jl))/
+     *                 ((ZT_15(jl)-ZA4(jl))**2)*
+     *                 EXP(ZA3(jl)*(ZT_15(jl)-TRPL)/
+     *                 (ZT_15(jl)-ZA4(jl)))*ZT_1 (jl)  
+         ZESC_15(jl) = ZA1*EXP(ZA3(jl)*(ZT_15(jl)-TRPL)/
+     *                 (ZT_15(jl)-ZA4(jl)))
+         ZQSC_1 (jl) = EPS1*(P5(jl)*ZESC_1 (jl)-P (jl)*ZESC_15(jl))/
+     *                 ((P5(jl)-EPS2*ZESC_15(jl))**2)
+         ZQSC_15(jl)  = EPS1*ZESC_15(jl)/(P5(jl)-EPS2*ZESC_15(jl))
+         ZDESC_1 (jl) = ZA3(jl)*(TRPL-ZA4(jl))*ZESC_1 (jl)/
+     *                  ((ZT_15(jl)-ZA4(jl))**2) -
+     *                  2.0*ZA3(jl)*(TRPL-ZA4(jl))*ZESC_15(jl)*
+     *                  ZT_1 (jl)/((ZT_15(jl)-ZA4(jl))**3)
+         ZDESC_15(jl)= ZA3(jl)*(TRPL-ZA4(jl))*ZESC_15(jl)/
+     *                 ((ZT_15(jl)-ZA4(jl))**2)
+         ZCOR_1 (jl) = ZLDCP (jl)*EPS1*P5(jl)*ZDESC_15(jl)/
+     *                 ((P5(jl)-EPS2*ZESC_15(jl))**2) +
+     *                 ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_1 (jl)/
+     *                 ((P5(jl)-EPS2*ZESC_15(jl))**2) +
+     *                 ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_15(jl)*2.0*EPS2*
+     *                 ZESC_1(jl)/((P5(jl)-EPS2*ZESC_15(jl))**3) -
+     *                 ZLDCP5(jl)*EPS1*P (jl)*ZDESC_15(jl)*
+     *                 (P5(jl)**2-(EPS2*ZESC_15(jl))**2)/
+     *                 ((P5(jl)-EPS2*ZESC_15(jl))**4)
+         ZCOR_15(jl) = ZLDCP5(jl)*EPS1*P5(jl)*ZDESC_15(jl)/
+     *                 ((P5(jl)-EPS2*ZESC_15(jl))**2)
+         ZQCD_1 (jl)  = (ZQ_1 (jl)-ZQSC_1 (jl))/(1.0+ZCOR_15(jl)) -
+     *                  ZCOR_1 (jl)*(ZQ_15(jl)-ZQSC_15(jl))/
+     *                  ((1.0+ZCOR_15(jl))**2)
+         ZQCD_15(jl) = (ZQ_15(jl)-ZQSC_15(jl))/(1.0+ZCOR_15(jl))
+         IF ( ZQ_05(jl) < ZQSC_05(jl) ) THEN
+            ZQCD_1 (jl) = 0.0   
+            ZQCD_15(jl) = 0.0
+         ENDIF        
+         Q (jl) = ZQ_1 (jl) - ZQCD_1 (jl)       
+         Q5(jl) = ZQ_15(jl) - ZQCD_15(jl)
+         T (jl) = ZT_1 (jl) + ZQCD_1 (jl)*ZLDCP5(jl) + 
+     *                        ZQCD_15(jl)*ZLDCP (jl)
+         T5(jl) = ZT_15(jl) + ZQCD_15(jl)*ZLDCP5(jl)
+      END DO
+C      
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END SUBROUTINE LIN_ADJTQ_TL
