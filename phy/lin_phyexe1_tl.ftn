@@ -1,0 +1,450 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P LIN_PHYEXE1_TL
+      subroutine LIN_PHYEXE1_TL (e,   d,   f,   v,
+     $                           esiz,dsiz,fsiz,vsiz,
+     $                           dt,trnch,kount,task,ni,nk)
+*
+#include "impnone.cdk"
+*
+      integer esiz,dsiz,fsiz,vsiz,trnch,kount,task,ni,nk
+      real e(esiz), d(dsiz), f(fsiz), v(vsiz)
+      real dt
+*
+*
+*Author
+*     Stephane Laroche - Janvier 2001
+*
+*Revisions
+* 001   S. Laroche   - phyexe1 for the simplified physics
+*                      from version 3.6.8
+* 002   A. Zadra (May 2002) Add subgrid orography component
+*
+* 003   J.-F. Mahfouf (September 2002) 
+*       Driver for moist processes (lin_precip1_tl) 
+*       [deep convection + large scale condensation]
+* 004   M. Tanguay   - adapt to new tendencies
+* 005   L. Spacek (Jun 2008)     - Staggered version
+* 
+*Object
+*          this is the main interface subroutine for the
+*          CMC/RPN unified physics
+*
+*Arguments
+*
+*          - Input -
+* E        entry    input field
+* D        dynamics input field
+*
+*          - Input/Output -
+* F        historic variables for the physics
+*
+*          - Output -
+* V        physics tendencies and other output fields from the physics
+*
+*          - Input -
+* ESIZ     dimension of e
+* DSIZ     dimension of d
+* FSIZ     dimension of f
+* VSIZ     dimension of v
+* DT       timestep (sec.)
+* TRNCH    slice number
+* KOUNT    timestep number
+* ICPU     cpu number executing slice "trnch"
+* N        horizontal running length
+* NK       vertical dimension
+*
+*Notes
+*          LIN_PHYEXE1_TL is called by the GEM model for the simplified physics.
+*          It returns tendencies to the dynamics.
+*
+*IMPLICITES
+*
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "workspc.cdk"
+#include "options.cdk"
+#include "consphy.cdk"
+*
+*MODULES
+*
+**
+*
+      integer i,j,k,icpu,nik
+      real cdt1, rcdt1
+      logical tvecst
+*
+*-----------------------------------------------------------------------
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( HUPLUS0  , REAL , (NI,NK  ) )
+      AUTOMATIC (  TPLUS0  , REAL , (NI,NK  ) )
+      AUTOMATIC (  UPLUS0  , REAL , (NI,NK  ) )
+      AUTOMATIC (  VPLUS0  , REAL , (NI,NK  ) )
+      AUTOMATIC ( GZMOINS5 , REAL , (NI,NK  ) )
+      AUTOMATIC ( TVIRT5   , REAL , (NI,NK  ) )
+      AUTOMATIC ( UTEND0   , REAL , (NI,NK  ) )
+      AUTOMATIC ( VTEND0   , REAL , (NI,NK  ) )
+*
+      AUTOMATIC ( GZMOINS , REAL , (NI,NK  ) ) 
+      AUTOMATIC ( QE      , REAL , (NI,NK  ) ) 
+      AUTOMATIC ( SELOC   , REAL , (NI,NK  ) )
+      AUTOMATIC ( TRAV1D  , REAL , (NI     ) )
+      AUTOMATIC ( TRAV2D  , REAL , (NI,NK,4) )
+      AUTOMATIC ( TVIRT   , REAL , (NI,NK  ) )
+      AUTOMATIC ( WORK    , REAL , (ESPWORK) )
+*
+************************************************************************
+*
+*
+      external sigmalev,inichamp1,mfotvt,integ2,tothermo
+      external lin_kdif_simp1_tr
+      external lin_kdif_simp1_tl,lin_difver1_tl
+      external lin_sgo2_tl,mfotvt_tl
+*
+*
+      integer ik
+      ik(i,k) = (k-1)*ni + i - 1
+*
+************************************************************************
+*     preliminary calculations                                         *
+*     ------------------------                                         *
+************************************************************************
+*
+      icpu = task
+*
+************************************************************************
+*     save fieds at time t*                                            *
+*     ---------------------                                            *
+************************************************************************
+*
+      do k=1,nk
+         do i = 1,ni
+           huplus0(i,k) = d(huplus+ik(i,k))
+            tplus0(i,k) = d( tplus+ik(i,k))
+            uplus0(i,k) = d( uplus+ik(i,k))
+            vplus0(i,k) = d( vplus+ik(i,k))
+            utend0(i,k) = 0.
+            vtend0(i,k) = 0.
+         enddo
+      enddo
+*
+************************************************************************
+*     constant related to time step                                    *
+*     -----------------------------                                    *
+************************************************************************
+*
+      cdt1  = factdt * dt
+      rcdt1 = 1./cdt1
+*
+************************************************************************
+*     initialisations                                                  *
+*     ---------------                                                  *
+************************************************************************
+*
+*     calcul des niveaux intermediaires
+      call sigmalev(seloc,d(sigm),d(sigt),v,vsiz,ni,nk)
+*
+      call lin_inichamp1_tl (e, esiz, f, fsiz, 
+     $                       v, vsiz, d, dsiz,
+     $                       trav2d, seloc, kount, trnch,
+     $                       dt, cdt1, ni, nk)
+*
+*
+************************************************************************
+*     extraction des tendances de la dynamique                         *
+*     ----------------------------------------                         *
+************************************************************************
+*
+*
+CSTL  Missing section
+*
+*
+************************************************************************
+*     calculs radiatifs                                                *
+*     -----------------                                                *
+************************************************************************
+*
+*
+CSTL  Missing section
+*
+*
+************************************************************************
+*     certains preparatifs                                             *
+*     --------------------                                             *
+************************************************************************
+*     calcul de la temperature virtuelle (tve),
+*     de l'humidite specifique (qe) et des hauteurs
+*     geopotentielles (ze) aux niveaux decales
+*     [plus facteur de coriolis et za (Stephane Laroche)]
+*
+      call tothermo(d(ttrajm), v(tve), v(at2t),v(at2m),ni,nk,nk-1,.true.)
+      call tothermo(d(hutrajm),qe,     v(at2t),v(at2m),ni,nk,nk-1,.true.)
+*
+      do i=1,ni
+        v(tve+ik(i,nk-1)) = d( ttrajm+ik(i,nk-1))
+       qe(       i,nk-1)  = d(hutrajm+ik(i,nk-1))
+        v(fcor+i-1)       = 1.45441e-4*sin(f(dlat+i-1))
+        v(za  +i-1)       = -rgasd/grav* v(tve+ik(i,nk-1)) *
+     $                       alog(d(sigm+ik(i,nk-1)))
+      enddo
+*
+      call mfotvt(v(tve),v(tve),qe,ni,nk-1,ni)
+*
+************************************************************************
+*    champ de temparature invariante si tvecst.eq.true pour
+*    definir les chamgements de variable de z a sigma
+*
+      tvecst=.false.
+      if(tvecst) then
+
+        do k=1,nk-1
+           do i=1,ni
+             v(tve+ik(i,k)) = 288.15*d(sigm+ik(i,nk-1))**0.19
+           end do
+        end do
+        do i=1,ni
+          v(za+i-1)         = -rgasd/grav* v(tve+ik(i,nk-1)) *
+     $                        alog(d(sigm+ik(i,nk-1)))
+        enddo
+
+      endif
+*
+*
+************************************************************************
+*
+      do i=1,ni
+         v(ze+ik(i,nk-1)) = 0.
+      end do
+*
+      call integ2  ( v(ze), v(tve), -rgasd/grav, seloc,
+     $               trav2d(1,1,1),trav2d(1,1,2),trav2d(1,1,3),
+     $               ni, ni, ni, nk-1, .true. )
+*
+*
+*
+************************************************************************
+*     processus de surface                                             *
+*     --------------------                                             *
+************************************************************************
+*
+*
+CSTL  Missing section
+*
+*
+***********************************************************************
+*     flux de surface et coefficients de diffusion                    *
+*     simplifies et lineaires                                         *
+*     --------------------------------------------                    *
+***********************************************************************
+*
+      if(lin_pbl.eq.1.or.lin_pbl.eq.2) then
+
+        call lin_kdif_simp1_tr ( d, dsiz, f, fsiz, v, vsiz, ni, nk-1 ,lin_pbl)
+        call lin_kdif_simp1_tl ( d, dsiz, f, fsiz, v, vsiz, ni, nk-1)
+
+      endif
+
+*
+* 
+************************************************************************
+*     sub-grid scale orography                                         *
+*     ------------------------                                         *
+************************************************************************
+*
+      if (lin_sgo.ne.0) then
+*
+        call mfotvt (tvirt5,d(ttrajp),d(hutrajp),ni,nk,ni)
+*
+        call mfotvt_tl (tvirt,d(tplus),d(huplus),d(ttrajp),d(hutrajp),
+     +                  ni,nk,ni)       
+*
+        call lin_sgo2_tl ( f, fsiz, v, vsiz, d, dsiz,
+     +                     d(uplus), d(vplus), tvirt,
+     +                     d(utrajp), d(vtrajp), tvirt5,
+     +                     d(pplus), d(sigm), v(ugwd),  v(vgwd), 
+     +                     cdt1,     kount,   trnch,    ni, 
+     +                     ni,       nk-1,    icpu,     lin_sgo )
+*
+        do i=1,ni
+           v(ugwd+ik(i,nk))  = 0.
+           v(vgwd+ik(i,nk))  = 0.
+        end do
+*
+        if (lin_sgo.eq.101 .or. lin_sgo.eq.111 .or. lin_sgo.eq.121
+     +     .or. lin_sgo.eq.131 .or. 
+     +      lin_sgo.eq.201 .or. lin_sgo.eq.211 .or. lin_sgo.eq.221
+     +     .or. lin_sgo.eq.231 .or. lin_sgo.eq.301 ) then
+*
+          call lin_sgo2 ( f, fsiz, v, vsiz, d, dsiz,
+     +                    d(utrajp), d(vtrajp), tvirt5, 
+     +                    d(pplus), d(sigm), utend0,  vtend0, 
+     +                    cdt1,     kount,   trnch,    ni, 
+     +                    ni,       nk-1,    icpu,     lin_sgo )
+*
+        endif
+*
+      endif
+*
+*
+************************************************************************
+*     diffusion verticale                                              *
+*     -------------------                                              *
+************************************************************************
+*
+      if(lin_pbl.ge.1) then
+
+        call lin_difver1_tl (d, dsiz, f, fsiz, v, vsiz, 
+     $                       work, espwork, seloc,
+     $                       cdt1, kount, trnch, ni, nk-1, icpu )
+*
+*
+*
+*      calcul des tendances de la diffusion au niveau diagnostique
+*
+        do i=1,ni
+          v( qdifv+ik(i,nk)) = (f(qdiag+i-1)-d(huplus+ik(i,nk)))*rcdt1
+          v( tdifv+ik(i,nk)) = (f(tdiag+i-1)-d( tplus+ik(i,nk)))*rcdt1
+          v( udifv+ik(i,nk)) = (f(udiag+i-1)-d( uplus+ik(i,nk)))*rcdt1
+          v( vdifv+ik(i,nk)) = (f(vdiag+i-1)-d( vplus+ik(i,nk)))*rcdt1
+        end do
+
+       endif
+*
+*
+************************************************************************
+*     convection/condensation processes                                *
+*     ---------------------------------                                *
+************************************************************************
+*
+*
+      if(lin_lsc.ge.1) then
+*
+*     calcul de la temperature virtuelle au temps moins
+        call mfotvt(tvirt5,d(ttrajm),d(hutrajm),ni,nk,ni)
+*
+*     calcul du geopotentiel au temps moins
+        do  i=1,ni
+           gzmoins5(i,nk) = 0.
+        end do
+*
+        call integ2 (gzmoins5, tvirt5, -rgasd, d(sigw),
+     $               trav2d(1,1,1), trav2d(1,1,2), trav2d(1,1,3),
+     $               ni, ni, ni, nk, .true. )
+*
+        gzmoins (:,:) = 0. ! set perturbation of geopotential to zero (so far)
+*
+        call lin_precip1_tl (d, dsiz, f, fsiz, v, vsiz, 
+     $                       work, espwork, gzmoins5, gzmoins,
+     $                       dt, ni, ni, nk-1, 
+     $                       kount, trnch, icpu)
+
+      endif
+*
+*
+************************************************************************
+*     Accumulation des flux                                            *
+*     ---------------------                                            *
+************************************************************************
+*
+*
+      if (kount.gt.0) then
+*
+*VDIR NODEP
+         do i=0,ni-1
+*
+*           taux des precipitations convectives
+            v(rc+i) = (f(tsc+i) + f(tlc+i)) * 1.0E-3
+*
+*           taux des precipitations stratiformes
+            v(rr+i) = (f(tss+i) + f(tls+i)) * 1.0E-3
+*
+*           taux total
+            v(rt+i) = v(rc+i) + v(rr+i)
+*
+*           asc : accumulation des precipitations solides convectives
+            f(asc+i) = f(asc+i) + f(tsc+i) * dt * 1.0E-3
+*
+*           ass : accumulation des precipitations solides stratiformes
+            f(ass+i) = f(ass+i) + f(tss+i) * dt * 1.0E-3
+*
+*           alc : accumulation des precipitations liquides convectives
+            f(alc+i) = f(alc+i) + f(tlc+i) * dt * 1.0E-3
+*
+*           als : accumulation des precipitations liquides stratiformes
+            f(als+i) = f(als+i) + f(tls+i) * dt * 1.0E-3
+*
+*           pc : accumulation des precipitations convectives
+            f(pc+i)  = f(pc+i)  + v(rc+i)  * dt
+*
+*           ae : accumulation des precipitations stratiformes
+            f(ae+i)  = f(ae+i)  + v(rr+i)  * dt
+*
+*           pr : accumulation des precipitations totales
+            f(pr+i)  = f(pr+i)  + v(rt+i)  * dt
+*
+         end do
+*
+      endif
+*      
+*
+*
+************************************************************************
+*     Tendances moyennees                                              *
+*     -------------------                                              *
+************************************************************************
+*
+*
+CSTL  Missing section
+*
+*
+************************************************************************
+*     extraction des variables dynamiques du temps plus                *
+*     -------------------------------------------------                *
+************************************************************************
+*
+*
+CSTL  Missing section
+*
+*
+************************************************************************
+*     Bring back the fields at time t*                                 *
+*     --------------------------------                                 *
+************************************************************************
+*
+      do k=1,nk
+         do i = 1,ni
+           d(huplus+ik(i,k)) = huplus0(i,k)
+           d( tplus+ik(i,k)) =  tplus0(i,k)
+           d( uplus+ik(i,k)) =  uplus0(i,k)
+           d( vplus+ik(i,k)) =  vplus0(i,k)
+         enddo
+      enddo
+*
+      nik=ni*nk-1
+      do i=0,nik
+      v(uphytd +i)=v(ugwd +i) + v(udifv +i)
+      v(vphytd +i)=v(vgwd +i) + v(vdifv +i)
+      v(tphytd +i)=v(trad +i) + v(tdifv +i) + v(tcond+i)
+      v(huphytd+i)=v(qdifv+i) + v(hucond+i)
+      enddo
+*
+      return
+      end
