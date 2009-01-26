@@ -1,0 +1,391 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r out_dq - calculate and output divergence and vorticity fields
+*
+#include "model_macros_f.h"
+*
+      subroutine out_dq (F_ut1,F_vt1,F_wlnph,F_wlao,minx,maxx,miny,maxy,
+     %                   F_nk, F_levtyp_S,F_rf,F_indo,F_nko,F_set)
+*
+      implicit none
+*
+      character*1 F_levtyp_S
+      integer F_nk,minx,maxx,miny,maxy,F_nko,F_indo(*),F_set
+
+      real F_ut1 (minx:maxx,miny:maxy,F_nk), F_vt1(minx:maxx,miny:maxy,F_nk),
+     %     F_wlnph(minx:maxx,miny:maxy,F_nk), F_rf(F_nko),
+     %     F_wlao (minx:maxx,miny:maxy)
+*
+*author
+*     james caveen/andre methot - rpn july/nov 1995
+*
+*revision
+* v2_00 - Lee V.            - initial MPI version (from out_dq v1_03)
+* v2_21 - J. P. Toviessi    - set dieze (#) slab output and rename 
+* v2_21                       truncate model output names to 4 characters
+* v2_30 - Lee V.            - reorganize slab output to be more efficient
+* v2_32 - Lee V.            - reduce dynamic allocation size
+* v3_00 - Desgagne & Lee    - Lam configuration
+* v3_21 - Lee V.            - Output optimization
+* v3_30 - Lee V.            - Bug correction for LAM
+* v3_30 - Dugas B.          - Add 'VORT','DIV' (same as QR,DD)
+* v3_31 - Tanguay M.        - Remove lastdt .ne. Lctl_step when 4D-Var
+*
+*object
+*     output all the fields related to horizontal vorticity
+*     and horizontal divergence.
+*	
+*arguments
+*  Name        I/O                 Description
+*----------------------------------------------------------------
+* F_ut1        I    - U wind at T1
+* F_vt1        I    - V wind at T1
+* F_wlnph      I    - log of      
+*
+*
+*implicits
+#include "glb_ld.cdk"
+#include "lun.cdk"
+#include "out3.cdk"
+#include "out.cdk"
+#include "outd.cdk"
+#include "dcst.cdk"
+#include "geomg.cdk"
+#include "level.cdk"
+#include "lctl.cdk"
+#include "v4dg.cdk"
+*
+*
+**
+      integer i,j,k, ii,j00
+      integer levset,i0,in,j0,jn
+* ___________________________________________________________________
+*
+*     1.0     initialization of data
+*_______________________________________________________________________
+*
+      integer pnds, pnq3, pnqs, pndd, pnqq, pnqr, pndiv, pnvort, psum
+      integer nbit(0:Outd_var_max(F_set)+1),filt(0:Outd_var_max(F_set)+1)
+      real    coef(0:Outd_var_max(F_set)+1)
+      integer :: lastdt = -1
+      real, dimension(:,:,:),pointer :: t1,t2,t3,t4,t5,t6,t7,t8
+      real, dimension(:,:),pointer :: w31
+      save lastdt,t1,t2,t3,t4,t5,t6,t7,t8,w31
+*
+      real prprlvl(F_nko)
+      real w11(minx:maxx,miny:maxy,F_nk)
+      real w1(minx:maxx,miny:maxy,F_nko),w2(minx:maxx,miny:maxy,F_nko)
+      real t9(minx:maxx,miny:maxy,F_nk)
+*
+*_______________________________________________________________________
+*
+      pnds=0
+      pnq3=0
+      pnqs=0
+      pndd=0
+      pnqq=0
+      pnqr=0
+
+      pndiv =0
+      pnvort=0
+
+      do ii=0,Outd_var_max(F_set)
+         coef(ii)=0.0
+         filt(ii)=0
+         nbit(ii)=0
+      enddo
+
+      do ii=1,Outd_var_max(F_set)
+        if (Outd_var_S(ii,F_set).eq.'DS') pnds=ii
+        if (Outd_var_S(ii,F_set).eq.'Q3') pnq3=ii
+        if (Outd_var_S(ii,F_set).eq.'QS') pnqs=ii
+        if (Outd_var_S(ii,F_set).eq.'DD') pndd=ii
+        if (Outd_var_S(ii,F_set).eq.'QQ') pnqq=ii
+        if (Outd_var_S(ii,F_set).eq.'QR') pnqr=ii
+
+        if (Outd_var_S(ii,F_set).eq.'DIV ') pndiv =ii
+        if (Outd_var_S(ii,F_set).eq.'VORT') pnvort=ii
+
+        nbit(ii)=Outd_nbit(ii,F_set)
+        filt(ii)=Outd_filtpass(ii,F_set)
+        coef(ii)=Outd_filtcoef(ii,F_set)
+      enddo
+      psum=pnds+pnq3+pnqs+pndd+pnqq+pnqr+pndiv+pnvort
+      if (psum.eq.0)return
+*_______________________________________________________________________
+
+      i0 = 1
+      in = l_ni
+      j0 = 1
+      jn = l_nj
+
+*_______________________________________________________________________
+*
+*     2.0     Calculation  DS, Q3
+*_______________________________________________________________________
+*
+      If (lastdt .eq. -1) then
+          allocate ( w31(minx:maxx,miny:maxy) ) 
+          allocate (  t1(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t2(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t3(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t4(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t5(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t6(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t7(minx:maxx,miny:maxy,F_nk) )
+          allocate (  t8(minx:maxx,miny:maxy,F_nk) )
+      endif
+
+      if ((lastdt .ne. Lctl_step).or.V4dg_conf .ne. 0) then
+
+          call rpn_comm_xch_halo (F_ut1,LDIST_DIM,l_niu,l_nj,G_nk,
+     $         G_halox,G_haloy,G_periodx,G_periody,l_ni,0)
+          call rpn_comm_xch_halo (F_vt1,LDIST_DIM,l_ni,l_njv,G_nk,
+     $         G_halox,G_haloy,G_periodx,G_periody,l_ni,0)
+
+*  Calculate horizontal divergence (DS)  in pi* vertical coordinate
+          call caldiv_2 (t1, F_ut1, F_vt1, LDIST_DIM, G_nk)
+
+*  Calculate horizontal relative vorticity (Q3) in pi* vertical coordinate
+          call calvor (t2, F_ut1, F_vt1 ,t3, LDIST_DIM, G_nk)
+
+          j00=1
+          if (l_south)j00=2
+          if (G_lam) then
+          if (l_west) then
+            do k=1,G_nk
+             do j=j00,l_njv
+                t1(1,j,k)=t1(2,j,k)
+                t2(1,j,k)=t2(2,j,k)
+             enddo
+            enddo
+          endif
+          if (l_east) then
+            do k=1,G_nk
+             do j=j00,l_njv
+                t1(l_ni,j,k)=t1(l_niu,j,k)
+                t2(l_ni,j,k)=t2(l_niu,j,k)
+             enddo
+            enddo
+          endif
+          if (l_south) then
+            do k=1,G_nk
+             do i=1,l_ni
+                t1(i,1,k)=t1(i,2,k)
+                t2(i,1,k)=t2(i,2,k)
+             enddo
+            enddo
+          endif
+          if (l_north) then
+            do k=1,G_nk
+             do i=1,l_ni
+                t1(i,l_nj,k)=t1(i,l_njv,k)
+                t2(i,l_nj,k)=t2(i,l_njv,k)
+             enddo
+            enddo
+          endif
+          endif
+*_______________________________________________________________________
+*
+*     3.0     Calculation  DD, QR and vertical derivatives
+*_______________________________________________________________________
+*
+          do k=1,l_nk
+          do j= j0, jn
+          do i= i0, in
+             t5(i,j,k) = t1(i,j,k)
+             t6(i,j,k) = t2(i,j,k)
+          enddo
+          enddo
+          enddo
+* Calculate horizontal divergence (DD) and relative vorticity (QR) 
+*     in pressure vertical coordinate
+          call calddqr( t5, t6, F_wlnph, F_ut1, F_vt1,
+     $                t3, t4, t7, t8, t9, LDIST_DIM, G_nk)
+
+*_______________________________________________________________________
+*
+*     4.0     Calculation of the Coriolis parameter 
+*_______________________________________________________________________
+*
+*  Calculate coriolis parameter
+          do j= j0, jn
+          do i= i0, in
+             w31(i,j) = 2.0 * Dcst_omega_8 * sin(F_wlao(i,j))
+          enddo
+          enddo
+* Calculate vertical derivative of DD(t5) with respect to F_wlnph
+          call verder (t7,t5,F_wlnph,2.0,2.0,LDIST_DIM,G_nk,i0,in,j0,jn)
+* Calculate vertical derivative of QR(t6) with respect to F_wlnph
+          call verder (t8,t6,F_wlnph,2.0,2.0,LDIST_DIM,G_nk,i0,in,j0,jn)
+* Calculate vertical derivative of DS(t1) with respect to F_wlnph
+          call verder (t3,t1,F_wlnph,2.0,2.0,LDIST_DIM,G_nk,i0,in,j0,jn)
+*       get vertical derivative of Q3(wijk2) with respect to F_wlnph
+          call verder (t4,t2,F_wlnph,2.0,2.0,LDIST_DIM,G_nk,i0,in,j0,jn)
+      endif
+      lastdt = Lctl_step
+*
+      if (F_levtyp_S .eq. 'M') then
+*_______________________________________________________________________
+*
+*     5.0A   Output of DS, Q3, QS, DD, QR, and QQ on ETA levels
+*_______________________________________________________________________
+*
+         if (pnds.ne.0)
+     $       call ecris_fst2(t1,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'DS  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pnds) )
+         if (pnqs.ne.0) then
+             do k=1,l_nk
+             do j= j0, jn
+                do i= i0, in
+                   w11(i,j,k) = t2(i,j,k) + w31(i,j)
+                enddo
+             enddo
+             enddo
+             call ecris_fst2(w11,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'QS  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pnqs) )
+         endif
+         if (pnqq.ne.0) then
+             do k=1,l_nk
+             do j= j0, jn 
+                do i= i0, in
+                   w11(i,j,k) = t6(i,j,k) + w31(i,j)
+                enddo
+             enddo
+             enddo
+             call ecris_fst2(w11,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'QQ  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pnqq) )
+         endif
+         if (pnq3.ne.0)
+     $       call ecris_fst2(t2,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'Q3  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pnq3) )
+         if (pndd.ne.0)
+     $       call ecris_fst2(t5,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'DD  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pndd) )
+         if (pnqr.ne.0)
+     $       call ecris_fst2(t6,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'QR  ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pnqr) )
+         if (pndiv.ne.0)
+     $       call ecris_fst2(t5,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'DIV ',1.0,0.0,Out_kind,F_nk, F_indo, F_nko, nbit(pndiv) )
+         if (pnvort.ne.0)
+     $       call ecris_fst2(t6,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $        'VORT',1.0,0.0,Out_kind,F_nk, F_indo, F_nko,nbit(pnvort) )
+
+      else
+*_______________________________________________________________________
+*
+*     5.0B   Output of DS, Q3, QS, DD, QR, and QQ on PRESSURE levels
+*_______________________________________________________________________
+*
+*
+         do i = 1, F_nko
+            prprlvl(i) = F_rf(i) * 100.0
+         enddo
+
+         if ( pnds.ne.0 ) then
+              call prgen( w1, t1, t3, F_wlnph, prprlvl,F_nko,
+     %                      Out3_cubds_L, l_minx,l_maxx,l_miny,l_maxy, G_nk)
+             if (filt(pnds).gt.0)
+     $         call filter(w1,filt(pnds),coef(pnds),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w1,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'DS  ',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnds) )
+         endif
+         if ( pnq3.ne.0 .or. pnqs.ne.0 ) then
+              call prgen( w1, t2, t4, F_wlnph, prprlvl,F_nko,
+     %                      Out3_cubqs_L, l_minx,l_maxx,l_miny,l_maxy, G_nk)
+         endif
+         if ( pnqs.ne.0 ) then
+             do k=1, F_nko
+             do j= j0, jn 
+             do i= i0, in
+                w2(i,j,k) = w1(i,j,k) + w31(i,j)
+             enddo
+             enddo
+             enddo
+             if (filt(pnqs).gt.0)
+     $         call filter(w2,filt(pnqs),coef(pnqs),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w2,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'QS  ',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnqs) )
+         endif
+         if ( pnq3.ne.0 ) then
+             if (filt(pnq3).gt.0)
+     $         call filter(w1,filt(pnq3),coef(pnq3),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w1,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'Q3  ',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnq3) )
+         endif
+         if ( pndd.ne.0 .or. pndiv.ne.0 ) then
+             call prgen( w1, t5, t7, F_wlnph, prprlvl,F_nko,
+     %                     Out3_cubdd_L, l_minx,l_maxx,l_miny,l_maxy, G_nk)
+             if (pndiv.ne.0) w2 = w1
+             if (pndd.ne.0) then
+                 if (filt(pndd).gt.0)
+     $           call filter(w1,filt(pndd),coef(pndd),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+                 call ecris_fst2( w1,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $           'DD  ',1.0,0.0,Out_kind,F_nko,F_indo,F_nko,nbit(pndd) )
+             endif
+             if (pndiv.ne.0) then
+                 if (filt(pndiv).gt.0)
+     $           call filter(w2,filt(pndiv),coef(pndiv),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+                 call ecris_fst2( w2,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $                           'DIV ',1.0,0.0, Out_kind,F_nko, F_indo,
+     $                            F_nko, nbit(pndiv) )
+             endif
+         endif
+         if ( pnqr.ne.0 .or. pnqq.ne.0 .or. pnvort.ne.0 ) then
+             call prgen( w1, t6, t8, F_wlnph, prprlvl,F_nko,
+     %                     Out3_cubqq_L, l_minx,l_maxx,l_miny,l_maxy, G_nk)
+         endif
+         if ( pnqq.ne.0 ) then
+             do k=1,F_nko
+             do j= j0, jn 
+             do i= i0, in
+                w2(i,j,k) = w1(i,j,k) + w31(i,j)
+             enddo
+             enddo
+             enddo
+             if (filt(pnqq).gt.0)
+     $         call filter(w2,filt(pnqq),coef(pnqq),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w2,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'QQ  ',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnqq) )
+         endif
+         if (pnvort.ne.0) w2 = w1
+         if ( pnqr.ne.0 ) then
+             if (filt(pnqr).gt.0)
+     $         call filter(w1,filt(pnqr),coef(pnqr),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w1,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'QR  ',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnqr) )
+         endif
+         if ( pnvort.ne.0 ) then
+             if (filt(pnvort).gt.0)
+     $         call filter(w2,filt(pnvort),coef(pnvort),'G', .false.,
+     $                  l_minx,l_maxx,l_miny,l_maxy, F_nko)
+               call ecris_fst2(w2,l_minx,l_maxx,l_miny,l_maxy,F_rf,
+     $        'VORT',1.0,0.0, Out_kind,F_nko, F_indo, F_nko, nbit(pnvort) )
+         endif
+      endif
+* ___________________________________________________________________
+*
+
+      return
+      end

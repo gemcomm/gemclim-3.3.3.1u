@@ -1,0 +1,198 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r hzd_tr3d - 3D tracer horizontal diffusion
+*
+#include "model_macros_f.h"
+*
+      subroutine hzd_tr3d( )
+*
+      implicit none
+*
+*author
+*     Bernard Dugas - RPN - august 2008
+*
+*revision
+* v3_35 - Dugas B.          - initial version
+*
+*object
+*       Apply horizontal diffusion on 3D tracers whose
+*       names appear in Hzd_tr3dname_S. Only high order
+*       diffusion mode is supported
+*
+*arguments
+*  Name        I/O                 Description
+*----------------------------------------------------------------
+*
+*implicits
+#include "ptopo.cdk"
+#include "glb_ld.cdk"
+#include "glb_pil.cdk"
+#include "fft.cdk"
+#include "eigv.cdk"
+#include "lam.cdk"
+#include "vt1.cdk"
+#include "trp.cdk"
+#include "hzd.cdk"
+#include "opr.cdk"
+#include "tr3d.cdk"
+*
+*modules
+      integer  vmmlod,vmmget
+      external vmmlod,vmmget
+*
+      integer NSTOR,nev, Gni,dpwr
+      integer*8 pnt_trp(Tr3d_ntr)
+      integer i, j, k, n, ntr, err, keyp(Tr3d_ntr), keyp_
+      real    wk2(LDIST_SHAPE,G_nk), trp
+      pointer (patrp, trp(LDIST_SHAPE,*))
+*
+      real*8 wk1_8(LDIST_SHAPE,G_nk)
+      real*8, dimension(:)  , allocatable :: wkh_evec_8,wk_evec_8
+*
+      integer nn, mm
+      real*8 pt25,nu_dif,epsilon,khdim,lnr,visco
+      parameter (epsilon = 1.0d-12, pt25=0.25d0)
+**
+*     __________________________________________________________________
+* 
+      if (Tr3d_ntr <= 0) return
+
+      Gni = G_ni-Lam_pil_w-Lam_pil_e
+      dpwr = Hzd_tr3d_pwr / 2
+
+      nev= (G_ni+2)/2
+      NSTOR = nev + ( 1 - mod(nev,2) )
+
+      if ( Hzd_tr3d_cdiff <= 0.0 ) return
+
+      if ( .not. ( Hzd_type_S == 'EXPLICIT'
+     %      .or.   Fft_fast_L
+     %      .or.   Eigv_parity_L ) ) then
+
+         allocate ( wkh_evec_8(Gni*Gni), wk_evec_8(Gni*Gni) )
+
+         do j=1,Gni
+         do i=1,Gni
+            wkh_evec_8((j-1)*Gni+i)=Hzd_xevec_8((j+Lam_pil_w-1)*G_ni+i+Lam_pil_w)
+            wk_evec_8((j-1)*Gni+i)=Opr_xevec_8((j+Lam_pil_w-1)*G_ni+i+Lam_pil_w)
+         enddo
+         enddo
+
+      else if ( Hzd_type_S == 'EXPLICIT' ) then
+
+         nu_dif = 0.d0
+         lnr    = 1.0d0 - exp(Hzd_tr3d_lnr)
+
+         if (Hzd_tr3d_pwr.gt.0) nu_dif = pt25*lnr**(2.d0/Hzd_tr3d_pwr)
+
+         nu_dif = min( nu_dif,pt25-epsilon )
+         if (nu_dif.lt.1.0e-10) return
+
+         visco = min ( nu_dif, pt25 )
+         nn    = Hzd_tr3d_pwr/2
+
+      endif
+
+      keyp_ = VMM_KEY (trt1)
+      do n=1,Tr3d_ntr
+         keyp(n) = keyp_ + n
+      end do
+
+      err   = vmmlod(keyp,Tr3d_ntr)
+
+      do n=1,Tr3d_ntr
+         err = vmmget(keyp(n),patrp,trp)
+         pnt_trp(n) = patrp
+      end do
+
+      ntr = 1
+      MAIN_LOOP : do while (Hzd_tr3dname_S(ntr).ne. ' ' .and. ntr <= MAXHZDTR)
+
+      do n=1,Tr3d_ntr
+         if (Tr3d_name_S(n) == Hzd_tr3dname_S(ntr)) then
+            patrp = pnt_trp(n)
+
+            if (Hzd_type_S == 'EXPLICIT') then
+*           use EXPLICIT diffusion mode (LAM only)
+
+               call rpn_comm_xch_halo ( trp , LDIST_DIM, l_ni,l_nj,G_nk,
+     $                      G_halox,G_haloy,G_periodx,G_periody,l_ni,0 )
+
+!$omp parallel shared( visco,nn )
+               do mm=1,nn
+                  call hzd_nudeln( trp ,wk2 ,LDIST_DIM,G_nk,visco,0,0,mm,nn )
+                  if(mm.ne.nn) then
+!$omp single
+                     call rpn_comm_xch_halo( wk2 , LDIST_DIM, l_ni,l_nj,G_nk,
+     $                    G_halox,G_haloy,G_periodx,G_periody,l_ni,0 )
+!$omp end single
+                  endif
+               end do
+!$omp end parallel
+
+            else
+     %      if (Fft_fast_L) then
+*           use FFT in diffusion-solver
+               if (G_lam) then
+                  call hzd_solfft_lam(trp, wk1_8, Fft_pri_8 ,
+     %                   Hzd_tr3d_as_8,Hzd_tr3d_cs_8,Hzd_tr3d_deltas_8,
+     %                   trp_12dmin,trp_12dmax,trp_22min,trp_22max,
+     %                   trp_12dn,trp_22n,G_nj, dpwr,l_minx,
+     %                   l_maxx, l_miny, l_maxy,G_nk,G_ni,l_ni,l_nj,
+     %                   trp_12dn,Opr_opsxp0_8,Opr_opsyp0_8, Hzd_tr3d_cdiff,
+     %                   Ptopo_npex,Ptopo_npey)
+               else
+                  call hzd_solfft(trp, wk1_8, Fft_pri_8 ,
+     %                   Hzd_tr3d_as_8,Hzd_tr3d_cs_8,Hzd_tr3d_deltas_8,
+     %                   trp_12dmin,trp_12dmax,trp_22min,trp_22max,
+     %                   trp_12dn,trp_22n,G_nj, dpwr,l_minx,
+     %                   l_maxx, l_miny, l_maxy,G_nk,G_ni,l_ni,l_nj,
+     %                   trp_12dn,Opr_opsxp0_8,Opr_opsyp0_8, Hzd_tr3d_cdiff,
+     %                   Ptopo_npex,Ptopo_npey)
+               endif
+            else
+*           use MXMA in diffusion-solver
+               if ( .not. Eigv_parity_L) then
+                  call hzd_solmxma(trp, wk1_8, wk_evec_8 ,
+     %                    Hzd_tr3d_as_8,Hzd_tr3d_cs_8,Hzd_tr3d_deltas_8,
+     %                    trp_12dmin,trp_12dmax,trp_22min,trp_22max,
+     %                    trp_12dn,trp_22n,G_nj, dpwr,l_minx,
+     %                    l_maxx, l_miny, l_maxy,G_nk,G_ni,l_ni,l_nj,
+     %                    trp_12dn,Opr_opsxp0_8,Opr_opsyp0_8, Hzd_tr3d_cdiff,
+     %                    Ptopo_npex,Ptopo_npey)
+               else
+                  call hzd_solparite_2(trp, wk1_8, Opr_evvec_8 ,Opr_odvec_8,
+     %                    Hzd_tr3d_as_8,Hzd_tr3d_cs_8,Hzd_tr3d_deltas_8,
+     %                    trp_12dmin,trp_12dmax,trp_22min,trp_22max,
+     %                    trp_12dn,trp_22n,G_nj, dpwr,l_minx,
+     %                    l_maxx, l_miny, l_maxy,G_nk,G_ni,l_ni,l_nj,
+     %                    trp_12dn,Opr_opsxp0_8,Opr_opsyp0_8, Hzd_tr3d_cdiff,
+     %                    Ptopo_npex,Ptopo_npey,NSTOR,nev)
+               endif
+            endif
+
+         endif
+      enddo
+
+      ntr = ntr+1
+      enddo MAIN_LOOP
+
+      if ( .not. ( Hzd_type_S == 'EXPLICIT'
+     %      .or.   Fft_fast_L
+     %      .or.   Eigv_parity_L ) )  deallocate( wkh_evec_8,wk_evec_8 )
+
+      return
+      end

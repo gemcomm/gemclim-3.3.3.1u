@@ -1,0 +1,67 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r e_topomask
+*
+#include "model_macros_f.h"
+*
+      subroutine e_topomask
+      implicit none
+*
+*author B. Dugas
+*
+*revision
+* v3_40 - Dugas B.             - initial version
+*
+*object
+* Force consistency between the physics land-sea mask and
+* the montain fields used by the dynamics when a mask name
+* is supplied in Topo_mskname_S
+*
+* Note that the MT (original un-filtered mountains) and
+* MF (filtered mountains prior to the call to this routine)
+* geobus variables are kept as is.
+*
+#include "e_grids.cdk"
+#include "e_topo.cdk"
+#include "itf_phy_buses.cdk"
+#include "geobus.cdk"
+*
+      integer ivar,ij,msk
+*
+      if (Topo_mskname_S.eq.' ') return
+*
+      do ivar = 1, p_bgeo_top
+*
+         if (geonm(ivar,2) == Topo_mskname_S) then
+            msk = geopar(ivar,1)
+            write(6,1000) trim( Topo_mskname_S ),ivar,msk
+            do ij=0,nifi*njfi-1
+               if (abs( geobus(msk+ij) ) < 1E-6) topof(ij+1) = 0.0
+            enddo
+CCC         topouf = topof      ! Ces trois variables n'ont
+CCC         topovf = topof      !    pas la meme taille
+         endif
+*
+      enddo
+*
+      return
+*
+ 1000 format(/' *************************************************',/
+     +        ' In E_TOPOMASK: Mask variable ',A,' has been found '/
+     +        ' geobus => Variable no. ',I3,' at position ',I10 /
+     +        ' *************************************************' /)
+* 
+      end

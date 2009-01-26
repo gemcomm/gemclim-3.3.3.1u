@@ -1,0 +1,144 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r set_dync - initialize the dynamics model configuration
+*
+#include "model_macros_f.h"
+*
+      subroutine set_dync
+      implicit none
+*
+*author
+*     M. Desgagne - V. Lee ( after version v1_03 of setdync )
+*
+*revision
+* v2_00 - Desgagne/Lee       - initial MPI version
+* v2_10 - Lee V.             - correction to call to pstune
+* v2_20 - Desgagne M.        - fnom on Wafiles now in p_set
+* v2_30 - Desgagne M.        - entry vertical interpolator in gemdm
+* v3_00 - Desgagne & Lee     - Lam configuration
+* v3_21 - Desgagne M.        - Optimization
+* v3_30 - Desgagne M.        - Add calls to: set_opr and adw_set
+* v3_30 - Dugas B.           - Add call to read_geophy_bus
+* v3_31 - Chardon L.         - Avoid set_opr and adw_set in offline mode 
+*
+*object
+*
+*arguments
+*	none
+*
+*interfaces
+      INTERFACE
+         subroutine read_geophy_bus
+#include "read_geophy_bus_int.cdk"
+         end subroutine read_geophy_bus
+      END INTERFACE
+*
+*implicits
+#include "glb_ld.cdk"
+#include "lun.cdk"
+#include "cstv.cdk"
+#include "geomg.cdk"
+#include "grd.cdk"
+#include "schm.cdk"
+#include "pres.cdk"
+#include "dcst.cdk"
+#include "lam.cdk"
+*
+*modules
+*
+      integer k,err
+      real*8 ZERO_8, ONE_8, HUNDRED_8
+      parameter( ZERO_8    = 0.0 )
+      parameter( ONE_8     = 1.0 )
+      parameter( HUNDRED_8 = 100.0 )
+*
+      character*16, pointer, dimension (:,:) ::  listgeonm
+*     ---------------------------------------------------------------
+
+      if (lun_out.gt.0) then
+          write(Lun_out,*)'SETTING up OPR,ADW,...(S/R SET_DYNC)'
+          write(Lun_out,*)'===================================='
+      endif
+      if (Cstv_pitop_8.ne.-ONE_8) Cstv_pitop_8=HUNDRED_8*Cstv_pitop_8
+      if (Cstv_pisrf_8.ne.-ONE_8) Cstv_pisrf_8=HUNDRED_8*Cstv_pisrf_8
+*     
+      if (Schm_cptop_L.or.Cstv_pitop_8.eq.-ONE_8) 
+     $        Cstv_pitop_8 = dble(Pres_top)
+      if (Cstv_pisrf_8.eq.-ONE_8) Cstv_pisrf_8 = dble(Pres_surf)
+*
+      if (lun_out.gt.0) then
+         write(Lun_out,*) 'POSSIBLE MODIFICATION OF :'
+         write(Lun_out,*) 'Cstv_pitop_8  = ',Cstv_pitop_8,'  PASCALS'
+         write(Lun_out,*) 'Cstv_pisrf_8  = ',Cstv_pisrf_8,'  PASCALS'
+      endif
+*
+*        Geomg_z_8 is identical to pi star
+*        ---------------------------------
+*
+      call hpalloc (Geomg_pib_ , G_nk ,err,1)
+*
+      do k=1,G_nk
+         Geomg_pib(k) = Geomg_pibb(k) * Cstv_pisrf_8
+         Geomg_z_8(k) = Geomg_pia(k) + Geomg_pib(k)
+      end do
+      call vrec (geomg_invz_8   , geomg_z_8  , G_nk )
+*
+      if (Grd_rcoef.gt.1.0) then
+          Geomg_dpib(1) = 0.0
+      else
+          Geomg_dpib(1) = Geomg_pib(G_nk)/(Geomg_pib(G_nk) - Geomg_pia(1))
+      endif
+*
+      do k=2,G_nk
+         Geomg_dpib(k) =  (Geomg_pib(k) - Geomg_pib(k-1)) 
+     $                  / (Geomg_z_8(k) - Geomg_z_8(k-1))
+      end do
+
+      do k=2,G_nk
+         Geomg_dpib(k) = 2.0 * Geomg_dpib(k) - Geomg_dpib(k-1)
+      enddo
+*
+      Geomg_dpia(1) = 0.0
+      do k=2,G_nk-1
+         Geomg_dpia(k) =  (Geomg_dpib(k+1) - Geomg_dpib(k-1))
+     $                  / (Geomg_z_8 (k+1) - Geomg_z_8 (k-1))
+      enddo
+      Geomg_dpia(G_nk) =  (Geomg_dpib(G_nk)- Geomg_dpib(G_nk-1))
+     $                  / (Geomg_z_8 (G_nk)- Geomg_z_8 (G_nk-1))
+*     
+*C       Geomg_hz_8 is the pi star grid spacing (z)
+*        ------------------------------------------
+*
+      call hpalloc(Cstvr_fistr_8_, G_nk*2, err, 1)
+      do k=1,G_nk-1
+         Geomg_hz_8(k) = Geomg_z_8(k+1) -Geomg_z_8(k)
+         Cstvr_fistr_8(k) = - Dcst_rgasd_8 * Cstv_tstr_8 * 
+     $                       log( Geomg_z_8(k)/Cstv_pisrf_8 )
+      end do
+      Cstvr_fistr_8(G_nk) = ZERO_8
+      if (.not.Schm_offline_L) then
+         call set_opr()
+         call adw_set()
+      endif
+*
+*C       Read the geobus to retreive original filtered topography
+*
+      if (G_lam .and. Lam_toptt_L) call read_geophy_bus( listgeonm )
+*
+*     ---------------------------------------------------------------
+*
+      return
+      end
