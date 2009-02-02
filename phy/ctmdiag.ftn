@@ -1,0 +1,171 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+      subroutine ctmdiag (d, f, v, dsiz, fsiz, vsiz, ni, nk)
+*
+#include "impnone.cdk"
+*
+      integer dsiz, fsiz, vsiz, ni, nk
+      real d(dsiz), f(fsiz), v(vsiz)
+*
+*Author
+*          B. Bilodeau (March 2000)
+*
+*Revisions
+* 001      B. Dugas (Feb 2002) - Modify phit0 when mol=0.
+* 002      B. Bilodeau (Sept 2003) - Use HU,TT,UU and VV at last
+*               predictive level (NK) instead of the level above (NK-1)
+* 003      B. Bilodeau (Oct 2003) - Correct MOL bug
+* 004      Y. Delage (Mar 2004) - Calculate avg value of ILMO from MOL
+* 005      B. Dugas (Jan 2009) - VAMIN is now included in OPTIONS
+*
+*
+*Object
+*          to calculate special diagnostics for the CTM (CHRONOS)
+*
+*Arguments
+*
+*          - Input/Output -
+* D        dynamic             bus
+* F        permanent variables bus
+* V        volatile (output)   bus
+*
+*          - Input -
+* DSIZ     dimension of D
+* FSIZ     dimension of F
+* VSIZ     dimension of V
+*
+*          - Input -
+* NI       number of elements processed in the horizontal
+* NK       vertical dimension
+*
+*Notes
+*
+*Implicites
+*
+#include "indx_sfc.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+*
+      real dthetav, rho, thetas, thetavs
+#include "ribcom.cdk"
+      save n0rib
+*
+**
+*
+      real fcv, fc_agg, fv_agg, hu, ps, sig
+      real tt, uu, vv, surft, surfq
+      pointer ( fc_agg_, fc_agg(1))
+      pointer ( fv_agg_, fv_agg(1))
+      pointer ( hu    _, hu    (1))
+      pointer ( tt    _, tt    (1))
+      pointer ( uu    _, uu    (1))
+      pointer ( vv    _, vv    (1))
+      pointer ( ps    _, ps    (1))
+      pointer ( sig   _, sig   (1))
+      pointer ( surft _, surft (1))
+      pointer ( surfq _, surfq (1))
+*
+*
+      integer i, j, jk, k
+*     fonction-formule
+      jk(j,k) = (k-1)*ni + j - 1
+*
+*
+      fc_agg_ = loc(v(fc     + jk(1,indx_agrege)))
+      fv_agg_ = loc(v(fv     + jk(1,indx_agrege)))
+      hu    _ = loc(d(humoins+ jk(1,nk         )))
+      tt    _ = loc(d(tmoins + jk(1,nk         )))
+      uu    _ = loc(d(umoins + jk(1,nk         )))
+      vv    _ = loc(d(vmoins + jk(1,nk         )))
+      sig   _ = loc(d(sigm   + jk(1,nk         )))
+      ps    _ = loc(d(pmoins                    ))
+      surft _ = loc(f(tsurf                     ))
+      surfq _ = loc(f(qsurf  + jk(1,indx_agrege)))
+*
+*VDIR NODEP
+      do i=1,ni
+*
+*        densite
+         rho     = ps(i)/(rgasd*tt(i) * (1.0+delta*hu(i)))
+*
+*        coefficient de transfert (non necessaire pour CTM)
+*        note : en mode "agregation", la formule suivante donne
+*        des valeurs negatives pour CTUE
+
+c        v(ctue+i-1) = v(fc+jk(i,indx_agrege)) / 
+c    +                 (cpd*rho*(surft(i)-v(thetaa+i-1)))
+         v(ctue+i-1) = 0.0
+*
+*        vitesse de frottement (fq est calcule dans difver5)
+         v(ue+i-1) = sqrt(f(fq+i-1)/rho)
+*
+*        temperature potentielle a la surface
+         thetas  = surft(i)
+*
+*        temperature potentielle virtuelle a la surface
+         thetavs = thetas * (1.+delta*surfq(i))
+*
+         dthetav = v(thetaa+i-1)* (1.+delta*hu(i)) - thetavs
+*
+*        _____________
+*        (w' thetav')s
+         fcv = (1.+ delta*surfq(i)) * fc_agg(i)/(cpd *rho)   +
+     $              delta*thetas    * fv_agg(i)/(chlc*rho)         
+*
+*
+*        fcv doit etre non nul pour eviter les divisions par zero
+         fcv = sign( max(abs(fcv),1.e-15) , fcv )
+*
+*        longueur de monin-obukhov
+         v(mol+i-1) = -v(ue+i-1)**3 * thetavs / (karman*grav*fcv)
+         f(ilmo+ jk(i,indx_agrege)) = 1. / 
+     $      sign (max ( abs(v(mol+i-1)), 0.1) , - fcv)
+*
+*        bornes pour MOL
+         v(mol+i-1) = min(1000.,max(-1000.,v(mol+i-1)))
+c        if (v(mol+i-1).gt.0.0) v(mol+i-1)=min(v(mol+i-1), 1000.0)
+c        if (v(mol+i-1).lt.0.0) v(mol+i-1)=max(v(mol+i-1),-1000.0)
+*
+*        nombre de richardson "bulk"
+         v(rib+i-1) = grav * (v(thetaa+i-1) - thetavs) * v(za+i-1) /
+     $      ( (thetavs+0.5*dthetav) * max(vamin,(uu(i)**2+vv(i)**2)) )
+*
+*        valeurs limites pour RIB
+         if      (v(rib+i-1).ge.0.0) then
+            v(rib+i-1) = max(min(v(rib+i-1),  5.0), n0rib)
+         else if (v(rib+i-1).lt.0.0) then
+            v(rib+i-1) = min(max(v(rib+i-1),-10.0),-n0rib)
+         endif
+*
+*        coherence entre RIB et MOL
+         if (v(rib+i-1)*v(mol+i-1).lt.0.0) v(mol+i-1) = sign(1000.,v(rib+i-1))
+*
+*        fonctions de stabilite
+         if (v(mol+i-1).lt.0.0) then
+            v(phit0+i-1)=1.0/sqrt(1.0-20.0*v(rib+i-1))
+         else
+            v(phit0+i-1)=1.0 + 5.0*v(rib+i-1)
+         end if
+*
+*        coefficients de diffusion pour la temperature : niveau du bas
+         v(kt+jk(i,nk+1))=karman*f(z0t+jk(i,indx_agrege))*v(ue+i-1) /  v(phit0+i-1)
+*
+      end do 
+*
+      return
+      end
