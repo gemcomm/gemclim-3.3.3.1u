@@ -1,0 +1,281 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r rdrstrt - Read the restart file
+*
+#include "model_macros_f.h"
+*
+      subroutine rdrstrt ()
+*
+      implicit none
+*
+*author
+*     M. Desgagne - Mars 2000
+*
+*revision
+* v2_00 - Desgagne M.       - initial MPI version
+* v2_10 - Desgagne M.       - introduce WA files
+* v2_30 - Dugas B.          - call ouvrstrt to open restrart file
+* v2_30 - Corbeil L.        - Added reading of pres_surf and pres_top
+* v2_31 - Desgagne M.       - Add Tr2d tracers
+* v3_00 - Desgagne & Lee    - Lam configuration
+* v3_21 - Valcke, S.        - Oasis coupling: Removed waread of c_cplg_step
+* v3_21 - Lee V.            - Remove Tr2d tracers
+* v3_30 - Desgagne M.       - restart for coupling
+* v3_30 - Desgagne & Winger - Read one global binary restart file if existing
+* v3_31 - Lee V.            - bugfix for restart for LAM BCS
+* v3_31 - Desgagne M.       - new coupling interface to OASIS
+* v3_31 - Desgagne M.       - restart with physics BUSPER
+* v3_32 - Dugas B.          - add support for ACCLIST climate-mode info
+* v3_32 - Winger K.         - add support for climatological fields
+*
+*object
+*	
+*arguments
+*	none
+*
+*implicits
+#include "lun.cdk"
+#include "init.cdk"
+#include "rstr.cdk"
+#include "lctl.cdk"
+#include "schm.cdk"
+#include "itf_phy_buses.cdk"
+#include "itf_cpl.cdk"
+#include "glb_ld.cdk"
+#include "pres.cdk"
+#include "lam.cdk"
+#include "itf_chm_bus.cdk"
+#include "bcsmem.cdk"
+#include "clim.cdk"
+#include "ifd.cdk"
+#include "cfld.cdk"
+*
+**
+      logical climat_L, inincr_L
+      integer adr,ier,dim,current_nest,errft(3),unf,nbracc,nbrcfld,j
+      integer fclos,ouvrstrt,wkoffit,bcs_ftype
+      external fclos,ouvrstrt,wkoffit,bcs_ftype
+*
+      character(len=4), dimension(:), allocatable :: listacc_S, listcfld_S
+      integer,          dimension(:), allocatable :: stepacc  , stepcfld
+      logical nav_L
+*
+*     ---------------------------------------------------------------
+*
+      Rstri_sdon = 0
+      Lctl_step  = 0
+      current_nest = 0
+*
+      if (Rstri_rstn_L) then
+*
+         if (wkoffit('../restart_glbphy.bin').eq.10 .or.
+     &       wkoffit('../restart_glbchm.bin').eq.10 .or.
+     &       wkoffit('../restart_glbcpl.bin').eq.10) then
+*
+*           Read one set of binary files for the whole domain
+*
+            call rd1rstrt ()
+*
+         else
+*
+*           Read one wa-file per tile
+*
+            if (Lun_rstrt .le. 0) Lun_rstrt = ouvrstrt( )
+*
+            call waopen (Lun_rstrt)
+            call waread (Lun_rstrt,Lctl_step   ,1,1)
+            call waread (Lun_rstrt,Rstri_idon_L,2,1)
+            adr = 3
+*
+*           restart from climate-mode simulation ?
+            call waread (Lun_rstrt,climat_L,adr,1)
+            adr = adr + 1
+*
+            if ( Clim_climat_L ) then
+*              always set Clim_stepacc to last step (as default value)
+               Clim_stepacc(1:Clim_nbracc) = Lctl_step
+            endif
+*
+*           If restart files was written in climate mode
+            if ( climat_L ) then
+*
+*              Retrieve ACCLIST information
+*
+*              Retrieve number of accumulators written in restart file
+               call waread (Lun_rstrt,     nbracc,   adr , 1)
+               adr = adr + 1
+*
+*              If model is run in climate mode ...
+               if ( Clim_climat_L ) then
+*
+*                 ... and the number of accumulators read is the expected one ...
+                  if ( nbracc .eq. Clim_nbracc ) then
+*
+*                    ... read names and last time steps.
+                     allocate( listacc_S(nbracc),stepacc(nbracc) )
+                     call waread (Lun_rstrt,  listacc_S,adr, nbracc)
+                     adr = adr + Clim_nbracc
+                     call waread (Lun_rstrt,  stepacc,  adr, nbracc)
+                     adr = adr + Clim_nbracc
+*
+*                    check accumulator set
+                     do j=1,nbracc
+                        if (listacc_S(j) .ne. Clim_listacc_S(j)) exit
+                     enddo
+*
+                     if ( j .ne. nbracc+1 ) then
+*                       wrong accumulator set, disregard it
+                        if (Lun_out > 0) write(Lun_out,1005)
+                     else
+                        Clim_stepacc(1:nbracc) = stepacc(1:nbracc)
+                     endif
+*
+                     deallocate( listacc_S,stepacc )
+*
+                  else
+*
+*                    wrong number of accumulators, disregard them
+                     if (Lun_out > 0) write(Lun_out,1006)
+                     adr = adr + 2*nbracc
+*
+                  endif
+*
+               else
+*
+*                 Model is not run in climate mode. Skip ACCLIST information
+                  adr = adr + 2*nbracc
+*
+               endif
+*
+            endif
+*
+*
+*           restart containing climatological field information?
+            call waread (Lun_rstrt,inincr_L,adr,1)
+            adr = adr + 1
+*
+            if ( Clim_inincr_L ) then
+*              always set Cfld_date to -1 (as default value)
+               Cfld_date = -1
+            endif
+*
+*           If climatological field information was written in restart
+            if ( inincr_L ) then
+*
+*              Retrieve climatological field information
+*
+*              Retrieve number of fields written in restart file
+               call waread (Lun_rstrt,nbrcfld  ,   adr , 1)
+               adr = adr + 1
+*
+*              If climatological fields are used in this run ...
+               if ( Clim_inincr_L ) then
+*
+*                 ... and the number of fields read is the expected one ...
+                  if ( nbrcfld .eq. Cfld_nbr ) then
+*
+*                    ... read names and last time steps.
+                     allocate( listcfld_S(Cfld_nbr), stepcfld(Cfld_nbr) )
+                     call waread (Lun_rstrt,listcfld_S, adr , Cfld_nbr)
+                     adr = adr + Cfld_nbr
+                     call waread (Lun_rstrt,stepcfld,   adr , Cfld_nbr)
+                     adr = adr + Cfld_nbr
+*
+*                    check climatological field set
+                     do j=1,Cfld_nbr
+                        if (listcfld_S(j) .ne. Cfld_list_S(j)) exit
+                     enddo
+*
+                     if ( j .ne. Cfld_nbr+1 ) then
+*                       wrong climatological field set, disregard it
+                        if (Lun_out > 0) write(Lun_out,1007)
+                     else
+                        Cfld_date = stepcfld
+                     endif
+*
+                     deallocate( listcfld_S, stepcfld )
+*
+                  else
+*
+*                    wrong number of climate fields, disregard them
+                     if (Lun_out > 0) write(Lun_out,1008)
+                     adr = adr + 2*nbrcfld
+*
+                  endif
+*
+               else
+*
+*                 Climatological fields not used in this run. Skip climatological fields information
+                  adr = adr + 2*nbrcfld
+*
+               endif
+*
+            endif
+*
+            call waread (Lun_rstrt,dim,adr,1)
+            adr = adr + 1
+            if (dim.gt.0) then
+               if ( .not. associated ( Chm_busper3D ) ) 
+     $                    allocate   ( Chm_busper3D (dim) )
+               call waread (Lun_rstrt, Chm_busper3D,adr,dim)
+               adr = adr + dim
+            endif
+*
+            if (G_lam) then 
+               call waread (Lun_rstrt,BCS_values,adr,BCS_siz_tot)
+               adr = adr + bcs_siz_tot         
+            endif
+*
+            call waread (Lun_rstrt, pres_surf ,adr, 1)
+            adr = adr + 1
+            call waread (Lun_rstrt, pres_top  ,adr, 1)
+            adr = adr + 1
+            call waread (Lun_rstrt, current_nest  ,adr, 1)
+            adr = adr + 1 
+*
+            call waread (Lun_rstrt,dim,adr,1)
+            adr = adr + 1
+            if (dim>0) then
+               if ( .not. associated ( atm_busin ) ) 
+     $                    allocate   ( atm_busin (G_ni,dim) )
+               call waread (Lun_rstrt, atm_busin ,adr, G_ni*dim)
+               adr = adr + G_ni*dim
+            endif
+*
+            call waclos(Lun_rstrt)
+            ier = fclos(Lun_rstrt)  
+         endif
+*
+         call datf2p (Lam_current_S,current_nest)
+*
+         errft = 0
+         unf = 76
+         nav_L = .false.
+         ier = bcs_ftype (ifd_ftype,errft,Lam_current_S, nav_L, unf)
+*
+      endif
+*
+      call rdrstrt_phy ()
+*
+*     ---------------------------------------------------------------
+*      
+ 1005 format (/' WRONG ACCUMULATOR SET IN RESTART, DISREGARDING IT '/)
+ 1006 format (/' WRONG NUMBER OF ACCUMULATORS IN RESTART, DISREGARDING'/)
+ 1007 format (/' WRONG SET OF CLIMATOLOGICAL FIELDS IN RESTART, DISREGARDING'/)
+ 1008 format (/' WRONG NUMBER OF CLIMATOLOGICAL FIELDS IN RESTART, DISREGARDING'/)
+*
+      return
+      end
