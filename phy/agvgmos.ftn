@@ -1,0 +1,215 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P AGVGMOS
+*
+#include "phy_macros_f.h"
+      subroutine agvgmos(f, fsiz, fract, mosfrac, tindx, ni, nj, nmos)
+*
+#include "impnone.cdk"
+*
+      integer ni,nj,nmos,fsiz
+      real f(fsiz), fract(ni,nj), mosfrac(ni,nmos+1), tindx(ni,nmos+1)
+
+*Author
+*       R. Larocque
+*
+*Revision
+* 001   B. Dugas  (ete 2008) - Change AGVGCLASS2 and AGVGMASK2 call sequence
+* 002   L. Duarte (Apr 2009) - Initialize ZOLN with LN_Z0MDAT instead of Z0MDAT
+* 003   L. Duarte (May 2009) - Initialize nmaxf when determining mosaic covers
+*
+*Object
+*     to initialize cover-realted information on all mosaic tiles
+*
+*Arguments
+*
+* F       Permanent bus
+* FSIZ    Permanent bus size
+*
+* - Input -
+* FRACT   Fraction of vegetation
+* NI      Horizontal dimension
+* NJ      Number of cover types
+* NMOS    Number of mosaic levels -1
+*
+* - Output -
+* MOSFRAC fractions each mosaic tile contributes to a given grid point
+* TINDX   The cover type of each mosaic tile
+*
+#include "surfacepar.cdk"
+#include "nclassvg.cdk"
+*
+#include "tuiles.cdk"
+#include "classlvls.cdk"
+#include "phybus.cdk"
+*
+      real tempfract(ni,nj), restfract(ni,nj)
+
+      integer nmaxf,i,j,k
+      real totfract(ni,nj), tottype(nclass)
+      real maxf
+      logical reste_vide
+*
+c assumes that nmos.gt.2
+c k = 1 represents mosaic averaged level used outside class
+c k = 2 is the remaining (not-mosaic'ed) levels
+c k >= 3 are the mosaic levels
+c physics has allocated nmos+1 mosaic levels for our use
+
+c prepare restfract pour etre passe a agvgclas2
+      do i=1,ni
+          do j=1,nj
+              restfract(i,j) = fract(i,j)
+          end do
+          do k=1,nmos+1
+              tindx(i,k) = 0.
+              mosfrac(i,k) = 0.
+          end do
+      end do
+*
+c trouve le tuile plus commun
+      do k=3,nmos+1
+          do j=1,nj
+              do i=1,ni
+                  tempfract(i,j) = 0.
+              end do
+          end do
+          do i=1,ni
+              maxf = 0
+              nmaxf = 0
+              do j=4,nj
+                  if (restfract(i,j).gt.maxf) then
+                      maxf = fract(i,j)
+                      nmaxf = j
+                  end if
+              end do
+c mosaique sur nmaxf
+              if (nmaxf.gt.0) then
+                 tindx(i,k) = nmaxf
+                 if (restfract(i,nmaxf).gt.critmask) 
+     $               mosfrac(i,k) = restfract(i,nmaxf)
+                 restfract(i,nmaxf) = 0.
+                 tempfract(i,nmaxf) = 1.
+              end if
+          end do
+      call agvgclas2(tempfract,ALVSDAT, VGCLASS,f(ALVSC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,ALNIDAT, VGCLASS,f(ALIRC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,LAIMXDAT,VGCLASS,f(LAIMAX),NI,class_ic  ,
+     1          NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,LAIMNDAT,VGCLASS,f(LAIMIN),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,VGMASDAT,VGCLASS,f(VEGMA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,ROOTDAT, VGCLASS,f(ROOTDP),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,LN_Z0MDAT,VGCLASS,f(ZOLN), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,RSMINDAT,VGCLASS,f(STOMR), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,QA50DAT, VGCLASS,f(QA50),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,VPDADAT, VGCLASS,f(VPDA),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,VPDBDAT, VGCLASS,f(VPDB),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,PSGADAT, VGCLASS,f(PSIGA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,PSGBDAT, VGCLASS,f(PSIGB), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgclas2(tempfract,ROOTDAT, VG000  ,f(SDEPTH),NI,1         ,
+     1              NCLASS,NCLASSURB,nmos,k)
+      call agvgmask2(tempfract,         VGCLASS,f(FCANMX),NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,k)
+      end do
+*
+c prepare le reste
+      reste_vide = .true.
+      do i=1,ni
+          do j=4,nj
+              mosfrac(i,2) = mosfrac(i,2) + restfract(i,j)
+              if (restfract(i,j).ne.0) reste_vide=.false.
+          end do
+      end do
+C      if (.not.reste_vide) print*, 'WARNING: mosaic level 2 (left-overs) is completely empty, this is a waste of memory'
+      call agvgclas2(restfract,ALVSDAT, VGCLASS,f(ALVSC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,ALNIDAT, VGCLASS,f(ALIRC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,LAIMXDAT,VGCLASS,f(LAIMAX),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,LAIMNDAT,VGCLASS,f(LAIMIN),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,VGMASDAT,VGCLASS,f(VEGMA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,ROOTDAT, VGCLASS,f(ROOTDP),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,LN_Z0MDAT,VGCLASS,f(ZOLN), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,RSMINDAT,VGCLASS,f(STOMR), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,QA50DAT, VGCLASS,f(QA50),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,VPDADAT, VGCLASS,f(VPDA),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,VPDBDAT, VGCLASS,f(VPDB),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,PSGADAT, VGCLASS,f(PSIGA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,PSGBDAT, VGCLASS,f(PSIGB), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgclas2(restfract,ROOTDAT, VG000  ,f(SDEPTH),NI,1         ,
+     1              NCLASS,NCLASSURB,nmos,2)
+      call agvgmask2(restfract,         VGCLASS,f(FCANMX),NI,class_ic+1,
+     1               NCLASS,NCLASSURB,nmos,2)
+c
+c temporary, to keep info about non-mosaic.  
+c This part can be safely deleted if the first mosaic level will be 
+c storing the average.  See agvgmos for more info.  
+      call agvgclas2(fract, ALVSDAT, VGCLASS,f(ALVSC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, ALNIDAT, VGCLASS,f(ALIRC), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, LAIMXDAT,VGCLASS,f(LAIMAX),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, LAIMNDAT,VGCLASS,f(LAIMIN),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, VGMASDAT,VGCLASS,f(VEGMA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, ROOTDAT, VGCLASS,f(ROOTDP),NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, LN_Z0MDAT,VGCLASS,f(ZOLN), NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, RSMINDAT,VGCLASS,f(STOMR), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, QA50DAT, VGCLASS,f(QA50),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, VPDADAT, VGCLASS,f(VPDA),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, VPDBDAT, VGCLASS,f(VPDB),  NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, PSGADAT, VGCLASS,f(PSIGA), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, PSGBDAT, VGCLASS,f(PSIGB), NI,class_ic  ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgclas2(fract, ROOTDAT, VG000  ,f(SDEPTH),NI,1         ,
+     1              NCLASS,NCLASSURB,nmos,1)
+      call agvgmask2(fract,         VGCLASS,f(FCANMX),NI,class_ic+1,
+     1              NCLASS,NCLASSURB,nmos,1)
+*
+      return
+      end
