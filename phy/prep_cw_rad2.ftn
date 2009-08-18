@@ -1,0 +1,521 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P PREP_CW_RAD2
+#include "phy_macros_f.h"
+      Subroutine prep_cw_rad2 (f, fsiz, d, dsiz, v, vsiz,
+     +                        tm,qm,ps,sigma,cloud,
+     +                        liqwcin,icewcin,liqwpin,icewpin,
+     +                        trav2d,seloc,
+     +                        kount, trnch, task, ni, m, nk)
+*     
+#include "impnone.cdk"
+*     
+      Integer fsiz, dsiz, vsiz, ni, m, nk, nkp
+      Integer kount, trnch, task
+      Real f(fsiz), d(dsiz), v(vsiz)
+      Real tm(m,nk), qm(m,nk), ps(ni),sigma(ni,nk)
+      Real liqwcin(ni,nk), icewcin(ni,nk)
+      Real liqwpin(ni,nk), icewpin(ni,nk)
+      Real cloud(ni,nk), trav2d(ni,nk), seloc(ni,nk)
+      Real press
+*     
+*     
+*     Author
+*     L. Spacek (Oct 2004)
+*     
+*     Revisions
+*     000      The code was extracted from newrad3 and cldoptx4 and inichamp1
+*              in order to have water calculations in one place before
+*              calling the radiation
+*     001      A-M. Leduc (Nov 2005) - Calculation of vtcel for call vsexp
+*     002      d. talbot - remove useless dt in call (may2006)
+*     003      p. vaillancourt - simplify when iradia=cccmarad, and code two options (ioptpart)
+*                                for liq/solid partition when not provided (fev2006)
+*     004      p. vaillancourt (Dec 2008)  - modifications and call to new subroutine calcNT
+*                                            to output NT "a la newrad" when using cccmarad 
+*     
+*     Object
+*     Prepare liquid/ice water contents and cloudiness
+*     for the radiation package
+*     
+*     Arguments
+*     
+*     - input -
+*     dsiz     dimension of d
+*     fsiz     dimension of f
+*     vsiz     dimension of v
+*     tm       temperature
+*     qm       specific humidity
+*     ps       surface pressure
+*     sigma    sigma levels
+*     kount    index of timestep
+*     trnch    number of the slice
+*     task     task number
+*     n        horizontal dimension
+*     m        1st dimension of tm and qm
+*     nk       number of layers
+*     
+*     - output -
+*     liqwcin  in-cloud liquid water content
+*     icewcin  in-cloud ice    water content
+*     liqwpin  in-cloud liquid water path (g/m^2)
+*     icewpin  in-cloud ice    water path (g/m^2)
+*     cloud    cloudiness passed to radiation
+*     
+*     - input/output
+*     
+*     
+*     Implicites
+*     
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "indx_sfc.cdk"
+#include "nocld.cdk"
+#include "consphy.cdk"
+*     
+*     Modules
+*     
+*
+      EXTERNAL SERXST
+*
+*     
+*     *    -------------------------------
+*     
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*     
+*     
+      AUTOMATIC ( c3d    , Real , (ni*nk  ) )
+      AUTOMATIC ( frac   , Real , (ni,nk  ) )
+      AUTOMATIC ( lwcth  , Real , (ni,nk  ) )
+      AUTOMATIC ( tcel   , Real , (ni,nk  ) )
+      AUTOMATIC ( vtcel  , Real , (ni,nk  ) )
+      AUTOMATIC ( vliqwcin , Real , (ni,nk  ) )
+*     
+************************************************************************
+*     
+      Integer ik, i, j, k, nnk, ioptpart
+      parameter(ioptpart=2)
+*     
+      Real dp,lwcm1,iwcm1,zz,rec_grav
+      Logical strcld,nostrlwc
+*     
+*     Statement function to calculate the indexes
+
+      ik(i,k) = (k-1)*ni + i - 1
+*     
+      nnk=ni*nk
+      rec_grav=1./grav
+      nkp=nk+1
+      nostrlwc=climat.Or.stratos
+*     
+*     
+*     extracted from inichamp1
+*     
+      If (kount.Eq.0) Then
+         If (inilwc) Then
+            If(istcond.Ge.2) then
+*     
+*     initialiser le champ d'eau nuageuse ainsi que la
+*     fraction nuageuse pour l'appel a la radiation a kount=0
+*     seulement.
+*     ces valeurs seront remplacees par celles calculees dans
+*     les modules de condensation.
+*     
+               Call cldwin(f(ftot),f(lwc),d(tmoins),d(humoins),d(pmoins),
+     $              trav2d,d(sigm),ni,nkp,satuco)
+           Endif
+         Endif
+*     
+      Endif
+*     
+*     extracted from newrad3
+*     
+      If ( istcond .Lt. 2 ) Then
+*     
+*     Correct stratospheric clouds (bd, mars 1995)
+*     --------------------------------------------------
+         strcld = .not.nostrlwc
+         Call nuages2 ( f(nhaut) , f(nmoy) , f(nbas) ,
+     +        c3d, v(basc), qm, tm, ps, f(scl),
+     +        f(ilmo+(indx_agrege-1)*ni), sigma,
+     +        trnch, ni, m, nk, task, satuco, strcld)
+
+         Do  j=0,nnk-1
+            If (f(fbl+j).Gt.0.0) c3d(j+1) = 0.
+            f(fbl+j)=Min(1.,c3d(j+1)+f(fbl+j))
+            f(ftot+j) = f(fbl+j)
+         Enddo
+      Endif
+*
+      If ( istcond .Eq. 3 ) Then
+         Do k = 1 , nk-1
+
+            Do i = 1, ni
+               If ( f(lwc+i-1+(k-1)*ni) .Ge. 0.1e-8 ) Then
+                  cloud(i,k)   = f(ftot+i-1+(k-1)*ni)
+               Elseif(f(fdc+i-1+(k-1)*ni) .Gt. 0.09) Then
+                  cloud(i,k)   = f(fdc+i-1+(k-1)*ni)
+                  f(lwc+i-1+(k-1)*ni) = 10.0e-5 * f(fdc+i-1+(k-1)*ni)
+               Else
+                  cloud(i,k)   = 0.
+                  f(lwc+i-1+(k-1)*ni) = 0.0
+               Endif
+            Enddo
+         Enddo
+*     
+         Do i=1,ni
+            cloud(i,nk)   = 0.0
+            f(lwc+i-1+(nk-1)*ni)  = 0.0
+         End Do
+*     
+      Else
+*
+         Do k=1,nk
+            Do i=1,ni
+               cloud(i,k) = f(ftot+i-1+(k-1)*ni)
+            Enddo
+         Enddo
+*     
+      Endif
+*     
+*     
+*     extracted from cldoptx4
+*     
+*     For maximum of lwc (when using newrad) or Liquid water content If non available as input
+*     
+c
+c    Always execute this part of the code to allow calculation of NT in calcNT
+c
+c      If(cw_rad.Eq.0 .Or. iradia.Lt.3) Then
+*
+        Call liqwc(lwcth,sigma,tm,ps,ni,nk,m,satuco)
+*     
+c      Endif
+*     
+      If(cw_rad.Eq.0) Then
+         Do k=1,nk
+            Do i=1,ni
+*     
+*     No clouds allowed above 50mb
+*     
+               If (sigma(i,k).Lt.0.050) Then
+                  f(lwc +i-1+(k-1)*ni) = 0.
+               Else
+                  f(lwc +i-1+(k-1)*ni) = 0.4*lwcth(i,k)
+               Endif
+            Enddo
+         Enddo
+      Endif
+c     
+c...  "no stratospheric lwc" mode when CLIMAT or STRATOS = true
+c...  no clouds above TOPC or where HU < MINQ (see nocld.cdk for topc and minq)
+c     
+      If(nostrlwc)Then
+            Do k=1,nk
+               Do i=1,ni
+                  press = sigma(i,k)*ps(i)
+                  If (topc.Gt.press .Or. minq.Ge.qm(i,k) ) Then
+                     cloud(i,k) = 0.0
+                     f(lwc +i-1+(k-1)*ni) = 0.0
+                     f(iwc +i-1+(k-1)*ni) = 0.
+                  Endif
+               Enddo
+            Enddo
+      Endif
+*     
+*     ************************************************************
+*     one branch for iradia < 3 and a simplified branch for iradia=3 (cccmarad) 
+*     -----------------------------------------------------------
+*     
+c      If(iradia.Lt.3) Then
+c
+c    Always execute this part of the code to allow calculation of NT in calcNT
+c
+
+      Do k=1,nk
+         Do I=1,ni
+            liqwcin(i,k) = Max(f(lwc +i-1+(k-1)*ni),0.)
+            If     (cw_rad.Le.1) Then
+               icewcin(i,k)  = 0.0
+            Else
+               icewcin(i,k) = Max(f(iwc +i-1+(k-1)*ni),0.)
+            Endif
+*
+            If(istcond.Gt.1 .And. istcond.Lt.5 ) Then
+*     
+*     The following line is an artificial source of clouds
+*     when using the "CONDS" condensation option (harmful
+*     in the stratosphere)
+*     
+               If ((liqwcin(i,k)+icewcin(i,k)) .Gt. 1.e-6) Then
+                  cloud(i,k) = Max(cloud(i,k) ,0.01)
+               Else
+                  cloud(i,k) = 0.0
+               Endif
+            Endif
+
+            If (cloud(i,k) .Lt. 0.01) Then
+               liqwcin(i,k) = 0.
+               icewcin(i,k) = 0.
+            Endif
+*     
+*     Min,Max of cloud
+*     
+            cloud(i,k) = Min(cloud(i,k),1.)
+            cloud(i,k) = Max(cloud(i,k),0.)
+*     
+*     
+            If(cw_rad.Gt.0) Then
+*     
+*     Normalize water contents to get in-cloud values
+*     
+               zz=Max(cloud(i,k),0.05)
+               lwcm1=liqwcin(i,k)/zz
+               iwcm1=icewcin(i,k)/zz
+*     
+*     Consider diabatic lifting limit when Sundquist scheme only
+*     
+               If ( istcond.Lt.5 ) Then
+                  liqwcin(i,k)=Min(lwcm1,lwcth(i,k))
+                  icewcin(i,k)=Min(iwcm1,lwcth(i,k))
+               Else
+                  liqwcin(i,k)=lwcm1
+                  icewcin(i,k)=iwcm1
+               Endif
+            Endif
+*     
+            If     (cw_rad.Lt.2) Then
+*       calculation of argument for call vsexp
+              tcel(i,k)=tm(i,k)-TCDK
+              vtcel(i,k)=-.003102*tcel(i,k)*tcel(i,k)
+            Endif
+
+         End Do
+      Enddo
+c
+c...  liquid/solid water partition when not provided by microphysics scheme ( i.e. cw_rad.lt.2 )
+c...
+c...   as in cldoptx4 of phy4.2 - after Rockel et al, Beitr. Atmos. Phys, 1991, p.10 (depends on T only)
+c...                              [frac = .0059+.9941*Exp(-.003102 * tcel*tcel)]
+      If ( cw_rad .Lt. 2 ) Then
+*
+         Call VSEXP (frac,vtcel,nk*ni)
+         Do k=1,nk
+            Do I=1,ni
+               If (tcel(i,k) .Ge. 0.) Then
+                  frac(i,k) = 1.0
+               Else
+                  frac(i,k) = .0059+.9941*frac(i,k)
+               Endif
+               If (frac(i,k) .Lt. 0.01) frac(i,k) = 0.
+
+               icewcin(i,k) = (1.-frac(i,k))*liqwcin(i,k)
+               liqwcin(i,k) = frac(i,k)*liqwcin(i,k)
+            Enddo
+         Enddo
+      Endif
+c
+c... calculate in-cloud liquid and ice water paths in each layer
+c... note: the calculation of the thickness of the layers done here is not coherent
+c...       with what is done elsewhere for newrad (radir and sun) or cccmarad
+c...       this code was extracted from cldoptx4 for phy4.4
+c...       dp(nk) is wrong
+c
+      Do i=1,ni
+         dp=0.5*(sigma(i,1)+sigma(i,2))
+         dp=Max(dp*ps(i),0.)
+         icewpin(i,1) = icewcin(i,1)*dp*rec_grav*1000.
+         liqwpin(i,1) = liqwcin(i,1)*dp*rec_grav*1000.
+
+         dp=0.5*(1.-sigma(i,nk))
+         dp=Max(dp*ps(i),0.)
+         icewpin(i,nk) = icewcin(i,nk)*dp*rec_grav*1000.
+         liqwpin(i,nk) = liqwcin(i,nk)*dp*rec_grav*1000.
+      End Do
+
+      Do k=2,nk-1
+         Do i=1,ni
+            dp=0.5*(sigma(i,k+1)-sigma(i,k-1))
+            dp=Max(dp*ps(i),0.)
+            icewpin(i,k) = icewcin(i,k)*dp*rec_grav*1000.
+            liqwpin(i,k) = liqwcin(i,k)*dp*rec_grav*1000.
+         End Do
+      End Do
+
+c
+c... cccmarad (iradia=3) simplified branch    
+c
+c      Else
+
+      If(iradia.eq.3) Then
+c
+c Begin - Calculation of NT - reproduction of NT obtained with newrad code (see cldoptx4)
+c
+        call calcNT(liqwpin,icewpin,cloud,f(nt),ni,nk,nkp)
+        call serxst (f(nt)   ,'nt',trnch,ni,0.0    ,1.0,-1   )
+c
+c End - Calculation of NT - reproduction of NT obtained with newrad code (see cldoptx4)
+c
+c
+c...  impose coherent thresholds to cloud fraction and content
+c
+      Do k=1,nk
+         Do I=1,ni
+            cloud(i,k) = Min(cloud(i,k),1.)
+            cloud(i,k) = Max(cloud(i,k),0.)
+            liqwcin(i,k) = Max(f(lwc +i-1+(k-1)*ni),0.)
+            icewcin(i,k) = Max(f(iwc +i-1+(k-1)*ni),0.)
+*
+c            If ((liqwcin(i,k)+icewcin(i,k)) .Le. 1.e-6) Then
+c               cloud(i,k) = 0.0
+c            Endif
+
+            If ((liqwcin(i,k)+icewcin(i,k)) .Gt. 1.e-6) Then
+                cloud(i,k) = Max(cloud(i,k) ,0.01)
+            Else
+                cloud(i,k) = 0.0
+            Endif
+
+
+            If (cloud(i,k) .Lt. 0.01) Then
+               liqwcin(i,k) = 0.
+               icewcin(i,k) = 0.
+               cloud(i,k) = 0.0
+            Endif
+*     
+*     Normalize water contents to get in-cloud values
+*     
+            If(cw_rad.Gt.0) Then
+c               zz=Max(cloud(i,k),0.01)
+               zz=Max(cloud(i,k),0.05)
+               liqwcin(i,k)=liqwcin(i,k)/zz
+               icewcin(i,k)=icewcin(i,k)/zz
+            Endif
+         End Do
+      Enddo
+
+c
+c...  calculate liquid/solid water partition when not provided by microphysics scheme ( i.e. cw_rad.lt.2 )
+c...
+c...  ioptpart=1 : as for newrad - after Rockel et al, Beitr. Atmos. Phys, 1991, p.10 (depends on T only)
+c...                              [frac = .0059+.9941*Exp(-.003102 * tcel*tcel)]
+c...  ioptpart=2 : after Boudala et al. (2004), QJRMS, 130, pp. 2919-2931. (depends on T and twc)
+c...                      [frac=twc^(0.141)*exp(0.037*(tcel))]
+c
+      If ( cw_rad .Lt. 2 ) Then
+         If ( ioptpart .Eq. 1 ) Then
+           Do k=1,nk
+              Do I=1,ni
+                tcel(i,k)=tm(i,k)-TCDK
+                vtcel(i,k)=-.003102*tcel(i,k)*tcel(i,k)
+              Enddo
+           Enddo
+         Elseif (ioptpart .Eq. 2) Then
+           Do k=1,nk
+              Do I=1,ni
+                  tcel(i,k)=tm(i,k)-TCDK
+                  vtcel(i,k)=.037*tcel(i,k)
+              Enddo
+           Enddo
+           Call VSPOWN1(vliqwcin, liqwcin, 0.141, nk * ni)
+         Endif
+*
+         Call VSEXP (frac,vtcel,nk*ni)
+*
+         If ( ioptpart .Eq. 1 ) Then
+           Do k=1,nk
+              Do I=1,ni
+                 frac(i,k) = .0059+.9941*frac(i,k)
+              Enddo
+           Enddo
+         Elseif (ioptpart .Eq. 2) Then
+           Do k=1,nk
+              Do I=1,ni
+c                    frac(i,k) = vliqwcin(i,k)*frac(i,k)
+                    frac(i,k) = vliqwcin(i,k)*exp(0.037*tcel(i,k))
+c                    frac(i,k) = liqwcin(i,k)**(0.141)*exp(0.037*tcel(i,k))
+              Enddo
+           Enddo
+         Endif
+         Do k=1,nk
+            Do I=1,ni
+               If (tcel(i,k) .Ge. 0.) Then
+                  frac(i,k) = 1.0
+               Elseif (tcel(i,k) .Lt. -38.) Then
+                  frac(i,k) = 0.0
+               Endif
+               If (frac(i,k) .Lt. 0.01) frac(i,k) = 0.
+
+               icewcin(i,k) = (1.-frac(i,k))*liqwcin(i,k)
+               liqwcin(i,k) = frac(i,k)*liqwcin(i,k)
+            Enddo
+         Enddo
+      Endif
+
+c
+c... calculate in-cloud liquid and ice water paths in each layer
+c... note: the calculation of the thickness of the layers done here is not coherent
+c...       with what is done elsewhere for newrad (radir and sun) or cccmarad
+c...       this code was extracted from cldoptx4 for phy4.4
+c...       dp(nk) is wrong
+c
+         Do i=1,ni
+            dp=0.5*(sigma(i,1)+sigma(i,2))
+            dp=dp*ps(i)
+            icewpin(i,1) = icewcin(i,1)*dp*rec_grav*1000.
+            liqwpin(i,1) = liqwcin(i,1)*dp*rec_grav*1000.
+
+            dp=0.5*(1.-sigma(i,nk))
+            dp=dp*ps(i)
+            icewpin(i,nk) = icewcin(i,nk)*dp*rec_grav*1000.
+            liqwpin(i,nk) = liqwcin(i,nk)*dp*rec_grav*1000.
+         End Do
+
+      Do k=2,nk-1
+         Do i=1,ni
+            dp=0.5*(sigma(i,k+1)-sigma(i,k-1))
+            dp=dp*ps(i)
+            icewpin(i,k) = icewcin(i,k)*dp*rec_grav*1000.
+            liqwpin(i,k) = liqwcin(i,k)*dp*rec_grav*1000.
+         End Do
+      End Do
+c
+c...  to impose coherence between cloud fraction and thresholds on liqwpin and icewpin
+c...  in calculations of cloud optical properties (cldoppro) in cccmarad
+c
+        do k=1,nk
+        do i=1,ni 
+          if(liqwpin(i,k).le.0.001.and.icewpin(i,k).le.0.001) cloud(i,k)=0.0
+        end do
+        end do
+      Endif
+c
+c     to simulate a clear sky radiative transfer, de-comment following lines
+c        do k=1,nk
+c        do i=1,ni 
+c              liqwcin(i,k)   = 0.0
+c              icewcin(i,k)   = 0.0
+c              liqwpin(i,k)   = 0.0
+c              icewpin(i,k)   = 0.0
+c              cloud(i,k)     = 0.0
+c        end do
+c        end do
+
+*     
+      End Subroutine prep_cw_rad2

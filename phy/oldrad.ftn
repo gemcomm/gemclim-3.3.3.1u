@@ -1,0 +1,460 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P OLDRAD3
+*
+#include "phy_macros_f.h"
+      SUBROUTINE OLDRAD3 ( F, SIZEF,  V, VSIZ, G, ESPG,
+     +                     T , Q , PS , S, TAU, SATUCO, STRCLD,
+     +                     KOUNT , DATE , KNTRAD , TRNCH,
+     +                     N , M , NK , DBGMEM , ITASK)
+*
+#include "impnone.cdk"
+      INTEGER ESPG, SIZEF, KNTRAD, ITASK, VSIZ
+      INTEGER KOUNT,DATE(14),TRNCH,N,M,NK
+      REAL F(SIZEF), V(VSIZ),G(ESPG)
+      REAL T(M,NK),Q(M,NK),PS(N),S(M,NK)
+      REAL TAU
+      real delp,JULIEN,R0R,JULIAND
+      LOGICAL DBGMEM
+      EXTERNAL SUNCOS1,JULIAND
+*
+      LOGICAL SATUCO, STRCLD
+*
+*AUTHOR
+*          LOUIS GARAND(OCTOBER 1989)
+*
+*REVISION
+* 001      G.PELLERIN STANDARD DOCUMENTATION (APR90)
+* 002      G.PELLERIN  (JUL 90)
+*            STANDARDIZATION OF THERMODYNAMIC FUNCTIONS
+* 003      Y. DELAGE  (NOV 1990)
+*            REMOVAL OF ZAI FROM PERMANENT VARIABLES
+*            REPLACE WC BY ILMO
+* 004      N. BRUNET  (MAY91)
+*            NEW VERSION OF THERMODYNAMIC FUNCTIONS
+*            AND FILE OF CONSTANTS
+* 005      B. BILODEAU  (JULY 1991)- ADAPTATION TO UNIX
+* 006      C. GIRARD (NOV 1992) - NEW PARAMETERIZATION OF
+*          CLOUD FRACTION
+* 007      R. BENOIT (AUGUST 93) - LOCAL SIGMA COORDINATE
+* 008      B. BILODEAU (MAY 1994) - New physics interface
+* 009      B. BILODEAU (DEC 1995) - IR tendency bug correction
+* 010      M. Desgagne (Oct 95) - New interface
+* 011      B. Bilodeau (Sept 96) - Replace the previous
+*          memory management system by the new "STK" system designed
+*          by Marc Gagnon
+* 012      B. Bilodeau (Nov 96) - Replace common block pntclp by
+*                                 common block radbus
+* 013      G. Pellerin (Aug 96) -Remove ANEMOX and PSKI
+* 014      B. Bilodeau (Nov 98) - Merge phyexe and param4
+* 015      J. Mailhot  (Mar 1999) - Changes for new SURFACE interface
+* 016      B. Bilodeau (Nov 2000) - New comdeck phybus.cdk
+* 017      M. Lepine (March 2003) -  CVMG... Replacements
+* 018      J.P. Toviessi (June 2003) - IBM conversion
+*               - calls to exponen4 (to calculate power function '**')
+*               - divisions replaced by reciprocals
+*               - unnecessary calculations removed
+* 019      B. Bilodeau (Aug 2003) - exponen4 replaced by vspown1
+* 020      B. Bilodeau (Mar 2004) - Change indexing of ilmo
+* 021      L. Spacek (Aug 2004) - cloud clean-up fn, ccn
+*                                 change to fbl, ftot respectively
+* 022      A. Lemonsu  (Jun 2005) - flusolis in permanent bus
+* 023      G. Balsamo  (Dec 2005) - solcons in common deck 
+* 024      V. Lee      (May 2006) - HZ0 calculation includes seconds
+* 025      J. Toviessi (July 2009) - changing the call from suncos to
+*                                    suncos1
+*
+************************************************************************                
+*OBJECT
+*          TO CALCULATE SOLAR AND INFRARED RADIATION AND CLOUDS.
+*          THE ROUTINES RADIX AND RASOL ARE BASED ON RADIR AND
+*          SUN1.
+*
+*ARGUMENTS
+*
+*          - INPUT/OUTPUT -
+* F        FIELD OF PERMANENT PHYSICS VARIABLES
+* SIZEF    DIMENSION OF F
+* V        VOLATILE BUS
+* VSIZ     DIMENSION OF V
+*
+*
+*          - INPUT -
+* G        physics work space
+* ESPG     dimension of G
+* T        TEMPERATURE
+* Q        SPECIFIC HUMIDITY
+* PS       SURFACE PRESSURE
+* S        LOCAL SIGMA VALUES
+* TAU      TIMESTEP
+* SATUCO   .TRUE. IF WATER/ICE PHASE FOR SATURATION
+*          .FALSE. IF WATER PHASE ONLY FOR SATURATION
+* STRCLD   .TRUE. if stratospheric clouds are acceptable
+*          .FALSE. otherwise
+* KOUNT    NUMBER OF TIMESTEPS
+* DATE     DATE
+* KNTRAD   FREQUENCY OF CALL FOR INFRA-RED RADIATION
+* TRNCH    NUMBER OF THE SLICE
+* N        HORIZONTAL DIMENSION
+* M        1ST DIMENSION OF T AND Q
+* NK       NUMBER OF LAYERS
+* DBGMEM   .TRUE. TO DEBUG MEMORY
+*          .FALSE. TO NOT DEBUG MEMORY
+* ITASK    TASK NUMBER
+*
+*NOTES
+*          OLDRAD3 PRODUCES:
+*          INFRA-RED RATE (TI) OF COOLING
+*          VISIBLE RATE (T2) OF HEATING
+*          VISIBLE FLUX TO GROUND (FDSS)
+*          INFRA-RED FLUX TO GROUND (FDSI)
+*
+*
+*IMPLICITES
+#include "indx_sfc.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "stk.cdk"
+*
+#include "maxlev.cdk"
+*
+#include "consphy.cdk"
+*
+*MODULES
+*
+*     ROUTINES DE GESTION DE MEMOIRE
+*
+      EXTERNAL RADIX, RASOL, CONRAY2, SETDSR2
+*
+*     ROUTINES D'EXTRACTION DE SERIES TEMPORELLES
+*
+      EXTERNAL SERXST
+*
+*     ROUTINES RADIATION ET NUAGES
+*
+      EXTERNAL NUAGES
+*
+*     UTILITAIRES
+*
+*      EXTERNAL PRINTER
+*
+**
+*
+      INTEGER IHTMP,ILTMP,IMTMP
+*
+*     POINTEURS DES VARIABLES DE TRAVAIL DE LA RADIATION
+*     DETERMINES PAR UNE ROUTINE DE GESTION DE MEMOIRE
+*
+      REAL P0 ,P1 ,P2 ,P3 ,P4 ,P5 ,P6 ,P7 ,P8
+*
+      POINTER (PTP0 ,P0  (1)), (PTP1 ,P1 (1)), (PTP2 ,P2 (1)),
+     +        (PTP3 ,P3  (1)), (PTP4 ,P4 (1)), (PTP5 ,P5 (1)),
+     +        (PTP6 ,P6  (1)), (PTP7 ,P7 (1)), (PTP8 ,P8 (1))
+*
+      REAL C3D, IB, TT, QQ, PG, ZAI
+      REAL IH, IL, IM, DSR, FRFL
+
+      REAL DUMMY1(N),DUMMY2(N),DUMMY3(N),DUMMY4(N)
+*
+      POINTER (PTC3D ,C3D (1)), (PTIB   ,IB   (1)),
+     +        (PTTT  ,TT  (1)), (PTQQ   ,QQ   (1)), (PTPG   ,PG   (1)),
+     +        (PTZAI ,ZAI (1)), (PTIH   ,IH   (1)), (PTIL   ,IL   (1)),
+     +        (PTIM  ,IM  (1)), (PTDSR  ,DSR  (1)), (PTFRFL ,FRFL (1))
+
+*
+      REAL V1,SC,CPSG
+*     REAL DSR(LEVMAX), FRFL(LEVMAX)  ... PUT ON WORK STACK AND 2D
+      REAL DECL(2)
+      REAL HZ0,HZ
+*
+      REAL tmp
+*
+      AUTOMATIC ( tmp1    , REAL  , (N ) )
+      AUTOMATIC ( tmp2    , REAL  , (N ) )
+      AUTOMATIC ( tmp3    , REAL  , (N ) )
+      AUTOMATIC ( tmp4    , REAL  , (N ) )
+      AUTOMATIC ( tmp5    , REAL  , (N ) )
+*
+      REAL SST,SLL,SH,SSM,EPSH,EPSM,EPSL
+      INTEGER J,K,NNK,IT
+      REAL HEURSER,rGRAV,rEPS,rSTEFAN
+      INTEGER IERGET
+      EXTERNAL MZONXST, SERGET
+*
+      SAVE SST,SLL,SH,SSM,EPSH,EPSM,EPSL
+*
+      DATA SST, SLL, SH, SSM/.225,.905,.395,.710/
+      DATA EPSH,EPSM,EPSL/ .32,.27,.25/
+*
+#include "solcons.cdk"
+*
+*
+*     INITIALISATION DU SYSTEME DE GESTION DE L'ESPACE DE TRAVAIL
+      STK_INITA(G,ESPG)
+*
+      IT = ITASK
+      CALL SERGET ('HEURE', HEURSER, 1, IERGET)
+1000  CONTINUE
+*
+      rGRAV = 1./GRAV
+      rEPS = 1./.622
+      rSTEFAN = 1./STEFAN
+*
+        NNK= N*NK
+*
+      STK_ALLOC(PTTT   , NNK )
+      STK_ALLOC(PTQQ   , NNK )
+      STK_ALLOC(PTPG   , N   )
+*
+      DO 500 K=1,NK
+      DO 500 J=1,N
+      TT((K-1)*N+J)  = T(J,K)
+      QQ((K-1)*N+J)  = Q(J,K)
+ 500  CONTINUE
+*
+      DO 501 J=1,N
+ 501  PG(J)= PS(J)
+*
+*     T',Q',PS' -> T,Q,PS
+*
+      DO 1 K=1,NK
+         DO 1 J=1,N
+    1       Q(J,K) = MAX ( Q(J,K) , 0.0 )
+*
+*     DATE(5)=the hour of the day at the start of the run.
+*     DATE(6)=hundreds of a second of the day at the start of the run.
+*
+      HZ0 = DATE(5) + float(DATE(6))/360000.0
+      HZ = AMOD ( HZ0+(FLOAT(KOUNT)*TAU)/3600. , 24. )
+*
+*     ARRAYS REPLACING DSR AND FRFL
+      STK_ALLOC(PTDSR   , NNK )
+      STK_ALLOC(PTFRFL  , NNK )
+      CALL SETDSR2(DSR,S,N,NK)
+      CALL CONRAY2(DECL,FRFL,S,DSR,N,NK,0., DATE)
+*
+*
+*     NUAGES
+*
+      STK_ALLOC(PTC3D   , NNK )
+*
+      CALL NUAGES2 ( F(NHAUT) , F(NMOY) , F(NBAS) ,
+     X               C3D, V(BASC), Q, T, PS, F(SCL), 
+     X               F(ILMO+(INDX_AGREGE-1)*N), S,
+     Y               TRNCH, N, M, NK, ITASK, SATUCO, STRCLD)
+*
+      DO 449 J=0,NNK-1
+      if (F(FBL+J).GT.0.0) C3D(J+1)=0.
+      F(FBL+J)=MIN(1.,C3D(J+1)+F(FBL+J))
+  449 CONTINUE
+*
+      CALL SERXST  ( F(FBL),'NU' , TRNCH , N , 0.0 ,    1.0 ,-1    )
+      CALL MZONXST ( F(FBL),'NU' , TRNCH , N , HEURSER, 1.0, -1, IT)
+      CALL SERXST  ( C3D   , 'NS' , TRNCH , N , 0.0 ,    1.0 ,-1    )
+      CALL MZONXST ( C3D   , 'NS' , TRNCH , N , HEURSER, 1.0, -1, IT)
+*
+*     REFROIDISSEMENT RADIATIF
+*
+      IF(MOD(KOUNT,KNTRAD).EQ.0)THEN
+        STK_ALLOC(PTP1   , N   )
+        STK_ALLOC(PTP2   , N   )
+        STK_ALLOC(PTP3   , N   )
+        STK_ALLOC(PTP4   , N   )
+        STK_ALLOC(PTP5   , N   )
+        STK_ALLOC(PTZAI  , N   )
+*
+       call VSLOG(tmp1,S(1,NK),N)
+       DO J=1,N
+          ZAI(j) = -1./(RGASD*rGRAV*T(J,NK)*tmp1(J))
+       enddo
+
+        CALL RADIX ( F(TI) , T , Q , f(TSRAD) , ZAI , PS , S ,
+     X               P1 , P2 , P3 , P4 , P5 ,
+     Y               N , M , NK )
+*
+        STK_DEALL (PTP1)
+*
+*       DE THETA A T
+*
+        DO  K=1,NK
+        DO J=1,N
+           tmp1(J)=(S(J,K)*PS(J)*1.e-5)
+        enddo
+        call vspown1 (tmp1,tmp1,CAPPA,N)
+        DO J=1,N
+           F(TI+(K-1)*N+J-1) = F(TI+(K-1)*N+J-1)*tmp1(J)
+        enddo
+        enddo
+*
+      ENDIF
+*
+C
+C  RADIATION SOLAIRE
+C
+        STK_ALLOC(PTP1   , N   )
+        STK_ALLOC(PTP2   , N   )
+        STK_ALLOC(PTP3   , N   )
+        STK_ALLOC(PTP4   , N   )
+        STK_ALLOC(PTP5   , N   )
+        STK_ALLOC(PTP6   , N   )
+        STK_ALLOC(PTP7   , N   )
+        STK_ALLOC(PTP8   , N   )
+*
+      CALL RASOL  (F(T2), F(FDSS), DECL, Q, PS, S, F(FBL),
+     +              N, M, NK, DSR, f(dLAT), f(dLON), FRFL, HZ,
+     +              P1, P2, P3, P4, P5,
+     +              P6, P7, P8)
+*
+      do j=1,n*nk
+         f(ftot+j-1) = f(fbl+j-1)
+      end do
+*
+      DO 2035 J=0,N-1
+         F(FLUSOLIS+J) = F(FDSS+J)
+         F(FDSS    +J) = F(FDSS+J)*(1.-f(ALVIS+(indx_agrege-1)*N+J))
+ 2035 CONTINUE
+*
+      STK_ALLOC(PTIL   , N   )
+      STK_ALLOC(PTIM   , N   )
+      STK_ALLOC(PTIH   , N   )
+      DO 51 K=1,NK
+         DO 60 J=1,N
+            IF (S(J,K).GT.SST.AND.S(J,K).LT.SH)  THEN
+               IH(J)=K
+            ELSE IF (S(J,K).GT.SST.AND.S(J,K).LT.SSM)  THEN
+               IM(J)=K
+            ELSE IF (S(J,K).GT.SST.AND.S(J,K).LT.SLL) THEN
+               IL(J)=K
+            ENDIF
+ 60      CONTINUE
+ 51   CONTINUE
+*     AFTER THIS LOOP, IL, IM, IH ARE KNOWN
+      DO  K=1,NK
+         DO J=1,N
+            IHTMP = NINT(IH(J))
+            IMTMP = NINT(IM(J))
+            ILTMP = NINT(IL(J))
+            tmp1(J) = T(J,ILTMP)
+            tmp2(J) = T(J,IMTMP)
+            tmp3(J) = T(J,IHTMP)
+            tmp5(J)=  ((PS(J)*0.01)*Q(J,NK))*rEPS 
+         enddo
+         tmp = 4
+         call vspown1 (tmp1,tmp1,tmp,N)
+         call vspown1 (tmp2,tmp2,tmp,N)
+         call vspown1 (tmp3,tmp3,tmp,N)
+         call vspown1 (tmp4,T(1,NK),tmp,N)
+         tmp = .08
+         call vspown1 (tmp5,tmp5,tmp,N)
+         DO J=1,N
+            SC=STEFAN* ( EPSL*tmp1(J) *F(NBAS+J-1) +
+     X           (   EPSM*tmp2(J)*F(NMOY+J-1)
+     X           +  EPSH*tmp3(J)*F(NHAUT+J-1)*
+     $           (1.0-F(NMOY+J-1)))*(1.0-F(NBAS+J-1)) )
+C     POUR CORRIGER LE BUG ENLEVER /EMISSY*STEFAN DEVANT SC.
+C     LA PRESSION DOIT ETRE EN MB DANS CETTE EQUATION
+C           F(FDSI+J-1)= STEFAN*0.67*((PS(J)*0.01)*Q(J,NK)/
+C    X           (EPS1+EPS2*Q(J,NK)))**.08 *(V1*T(J,NK))**4 + SC
+*
+            F(FDSI+J-1)= 0.67*tmp5(J)*STEFAN*tmp4(J) + SC
+         enddo
+      enddo
+*
+*
+       do j=1,n
+          delp=ps(j)*0.5*(s(j,2)-s(j,1))
+          p2(j)=f(TI+J-1)*delp
+          p3(j)=f(T2+J-1)*delp
+       end do
+*
+       do k=2,nk-1
+          do j=1,n
+             delp=ps(j)*0.5*(s(j,k+1)-s(j,k-1))
+             p2(j)=p2(j)+f(TI+(K-1)*N+J-1)*delp
+             p3(j)=p3(j)+f(T2+(K-1)*N+J-1)*delp
+          end do
+       end do
+*
+       do j=1,n
+          delp=ps(j)*(1.-0.5*(s(j,nk)+s(j,nk-1)))
+          p2(j)=p2(j)+f(TI+(NK-1)*N+J-1)*delp
+          p3(j)=p3(j)+f(T2+(NK-1)*N+J-1)*delp
+       end do
+*
+*      CALCUL DU JOUR JULIEN
+       JULIEN = JULIAND(TAU,KOUNT,DATE)
+       CALL SUNCOS1(P1, DUMMY1, DUMMY2, DUMMY3, DUMMY4,N,f(dLAT),
+     &              f(dLON),HZ,JULIEN,DATE, .false.)
+       ALF = JULIEN/365.*2.*PI
+       R0R = SOLCONS(ALF)
+*
+*      cpsg permet de convertir des variables du type
+*      ps*dT/dt en flux d'energie (W/m2)
+       cpsg = cpd/grav
+*
+       tmp = 4
+       call vspown1 (tmp1,f(TSM1-1),tmp,N)
+       DO J=0,N-1
+       p4(J+1)=CONSOL*R0R*P1(J+1)
+       p1(J+1)=p4(J+1)-cpsg*p3(J+1)-f(FDSS+J)
+       p5(J+1)=f(EPSTFN+J)*(tmp1(j+1)-f(FDSI+J)*rSTEFAN)
+     &                -cpsg*p2(J+1)
+       p6(J+1)=p4(J+1)-p1(J+1)-p5(J+1)
+       END DO
+*
+*     EXTRAIRE LES TENDANCES RADIATIVES
+      CALL SERXST ( F(TI)   ,'TI', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST( F(TI)   ,'TI', TRNCH , N , HEURSER, PS  , -2, IT)
+      CALL SERXST ( F(T2)   ,'T2', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST( F(T2)   ,'T2', TRNCH , N , HEURSER, PS  , -2, IT)
+*
+      CALL SERXST (F(FDSS)  ,'FS', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(F(FDSS)  ,'FS', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (F(FLUSOLIS),'FU', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(F(FLUSOLIS),'FU', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P1       ,'EV', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(P1       ,'EV', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P2       ,'T3', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(P2       ,'T3', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P3       ,'T4', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(P3       ,'T4', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P4       ,'IV', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(P4       ,'IV', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P5       ,'EI', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(P5       ,'EI', TRNCH , N , HEURSER, 1.0 , -1, IT)
+      CALL SERXST (P6       ,'NR', TRNCH , N , 0.0    , 1.0 , -1    )
+      CALL MZONXST(p6       ,'NR', TRNCH , N , HEURSER, 1.0 , -1, IT)
+*
+      STK_DEALL (PTIH)
+      STK_DEALL (PTIM)
+      STK_DEALL (PTIL)
+     
+C  RESUBSTITUER T,Q ET PS
+      DO 502 K=1,NK
+      DO 502 J=1,N
+      T(J,K)= TT((K-1)*N+J)
+      Q(J,K)= QQ((K-1)*N+J)
+ 502  CONTINUE
+      DO 503 J=1,N
+ 503  PS(J) = PG(J)
+*
+      STK_DEALL (PTTT)
+C
+*
+      STK_FREE
+*
+      RETURN
+      END

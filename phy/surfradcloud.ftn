@@ -1,0 +1,125 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  SURFRADCLOUD
+*
+      SUBROUTINE SURFRADCLOUD ( F, SIZEF, V, VSIZ, 
+     +                     TAU, KOUNT, N )
+#include "impnone.cdk"
+*
+      INTEGER SIZEF,ESPVOL,KOUNT,TRNCH, VSIZ, N
+      REAL F(SIZEF), V(VSIZ), COS0(N), COS3(N), COSLIN
+      REAL TAU
+*
+*Author
+*          G. Balsamo RPN  (June 2004)
+*
+*Revision
+* 01       V. Lee      (May 2006) - HZ0 calculation includes seconds
+*
+*Object
+*          to calculate the cosine of solar angle and the
+*          total cloud cover from surface radiative forcing (FB or N4)
+*          according to the parameterization used in METRO (Y. Delage)
+*          
+*
+*Arguments
+*
+*          - Input/Output -
+* F        field of permanent physics variables
+* SIZEF    dimension of F
+*
+*          - Input -
+* TAU      timestep
+* KOUNT    number of timesteps
+* N        horizontal dimension
+*
+*Notes
+*
+#include "phy_macros_f.h"
+*
+*IMPLICITES
+*
+#include "indx_sfc.cdk"
+#include "phybus.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "radclcons.cdk"
+*
+*MODULES
+*
+      REAL JULIAND
+      EXTERNAL JULIAND
+*
+*     ROUTINES RADIATION ET NUAGES
+      EXTERNAL SUNCOS1
+*
+*
+      INTEGER J,CCOVER(1)
+      INTEGER FSOLIS
+      REAL VTOA,FCLOUD,D1EST
+      REAL JULIEN,R0R
+      REAL HZ0,HZ,HZ3I,HZ3F
+      REAL dummy1(n),dummy2(n),dummy3(n),dummy4(n)
+*
+#include "solcons.cdk"
+*
+*     DATE(5)=the hour of the day at the start of the run.
+*     DATE(6)=hundreds of a second of the day at the start of the run.
+*
+      HZ0 = DATE(5) + float(DATE(6))/360000.0
+      HZ = AMOD ( HZ0+(FLOAT(KOUNT)*TAU)/3600. , 24. )
+      HZ3I = HZ - AMOD ( HZ, 3. )
+      HZ3F = HZ3I + 3.
+      JULIEN = JULIAND(TAU,KOUNT,DATE)
+
+*     CALCUL DE LA VARIATION DE LA CONSTANTE SOLAIRE
+      ALF=JULIEN/365.*2*PI
+      R0R = SOLCONS(ALF)
+*     CALCUL DE L'ANGLE SOLAIRE (HEURE ACTUELLE ET DEBUT/FIN DE L'INTERVAL 
+*     DE 3 HEURES)
+
+      IF (RADSLOPE ) THEN
+         FSOLIS =  FLUSLOP
+      ELSE
+         FSOLIS =  FLUSOLIS
+      ENDIF
+      CALL SUNCOS1(V(CANG), dummy1, dummy2, dummy3, dummy4, N,F(DLAT),
+     +             F(DLON),HZ,JULIEN,DATE, .false.)
+      CALL SUNCOS1(COS0,dummy2, dummy2, dummy3, dummy4,N,F(DLAT),
+     +             F(DLON),HZ3I,JULIEN,DATE, .false.)
+      CALL SUNCOS1(COS3,dummy1, dummy2, dummy3, dummy4,N,F(DLAT),
+     +             F(DLON),HZ3F,JULIEN,DATE, .false.)
+
+      DO J=0,N-1
+*     CALCUL DU FLUX SOLAIRE AU SOMMET  
+         IF ((F(FSOLIS+J).GT.1.0).AND.(V(CANG+J).GT.SEUIL_SOL)) THEN
+*           CALCUL DE L'INCREMENT LINEAIRE DU COSZ 
+            COSLIN=((HZ-HZ3I)*COS3(J+1)+(HZ3F-HZ)*COS0(J+1))/3.
+*           CALCUL APPROX (SANS OZONE) DE LE RAYONNEMENT AU SOMMET
+            VTOA=CONSOL*R0R*COSLIN
+*           FONCTION D'ATTENUATION  
+            FCLOUD=A4*(VTOA**4)+A3*(VTOA**3)+A2*(VTOA**2)+A1*VTOA+A0
+            FCLOUD=MAX(MIN(FCLOUD,1.),0.1)
+*           CALCUL DE LA FRACTIONE DE NUAGES
+            D1EST=MAX(MIN(F(FSOLIS+J)/(VTOA*FCLOUD*TORPFACT),1.),0.)
+            CCOVER=MINLOC(ABS(D1(:)-D1EST))
+            F(NT+J)=FLOAT(CCOVER(1)-1)/8.
+         ELSE
+            F(NT+J)=0.
+         ENDIF   
+      ENDDO
+      RETURN
+      END

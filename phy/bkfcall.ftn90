@@ -1,0 +1,303 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!**********************************************************
+!*** Interface for Bechtold-Kain-Fritsch scheme         ***
+!*** Yanjun Jiao (March 2008)                           ***
+!**********************************************************
+      SUBROUTINE BKFCALL(NI,NK,DTIME,KOUNT,               &
+                        DODEEP,DOSHALLOW,FLAGCONV,        &
+                        PSB,PTT,PQT,PUT,PVT,PWT,          &
+                        DTDT,DQDT,OUVCONV,DUDT,DVDT,      &
+                        DQCDT,DQRDT,                      &
+                        AVERT,PDXDY,ZCRR,GZM,             &
+                        CAPEOUT,AREAUP,CLOUDS,            &
+                        DMFOUT,PEFFOUT,UMFOUT,            &
+                        ZBASEOUT, ZTOPOUT,                &
+                        WMAXOUT,RLIQOUT,RICEOUT,          &
+                        RLIQINT,RICEINT,                  &
+                        PPRLFLX,PPRSFLX,                  &
+                        WSTAR,                            &
+                        STDT,SQDT,SLIQOUT,SICEOUT,SLOUDS)
+
+!!     Module MOD_INI_CSTS : Interface to physical constants initialization routine
+
+      USE MODI_INI_CSTS
+
+      IMPLICIT NONE
+!**    0.1   Declarations of dummy arguments :
+!**
+      INTEGER,                   INTENT(IN   ) :: NI       ! horizontal dimension
+      INTEGER,                   INTENT(IN   ) :: NK       ! vertical dimension
+      INTEGER,                   INTENT(IN   ) :: KOUNT    ! time step count
+      REAL   ,                   INTENT(IN   ) :: DTIME    ! time step (s)
+      LOGICAL,                   INTENT(IN   ) :: DODEEP   ! call DEEP_CONVECTION
+      LOGICAL,                   INTENT(IN   ) :: DOSHALLOW! call SHAL_CONVECTION
+
+      REAL   , DIMENSION(NI   ), INTENT(IN   ) :: PSB      ! pressure at the bottom of the atmosphere
+      REAL   , DIMENSION(NI   ), INTENT(IN   ) :: PDXDY    ! horizontal grid area of each tile (m2)
+      REAL   , DIMENSION(NI   ), INTENT(IN   ) :: WSTAR    ! convective vertical vilocity scale in PBL
+                                                           ! calculated in turbul.f
+
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: PTT      ! grid scale temperature at t
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: PQT      ! grid scale water vapor "
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: PUT      ! grid scale horiz. wind u "
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: PVT      ! grid scale horiz. wind v "
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: PWT      ! grid scale vertical velocity (m/s)
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: AVERT    ! a subset of the sigma levels in the model
+      REAL   , DIMENSION(NI,NK), INTENT(IN   ) :: GZM      ! geopotential height 
+
+!**    0.2   Declarations of output variables for deep:
+!**
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DTDT     ! convective effects of heating    (K/s)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DQDT     ! convective effects of moistening (1/s)
+      LOGICAL,                   INTENT(IN)    :: OUVCONV  ! include wind transport (Cu friction)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DUDT     ! convective effects of u-momentum (m/s^2)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DVDT     ! convective effects of v-momentum (m/s^2)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DQCDT    ! cloud water/ice due to BKF scheme (1/s)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DQRDT    ! rain water/snow due to BKF scheme (1/s)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: PPRLFLX  ! liquid precip flux (m/s), RNFLX in KF
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: PPRSFLX  ! solid precip flux (m/s), SNOFLX in KF
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: UMFOUT   ! updraft   mass flux (kg/s), the unit used in KF
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: DMFOUT   ! downdraft mass flux (kg/s), the unit used in KF
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: RLIQOUT  ! liquid water mixing ratio in updraft
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: RICEOUT  ! ice water mixing ratio in updraft
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: AREAUP   ! cloud coverage (updraft) area (m^2)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: CLOUDS   ! cloud fractional coverage area 
+                                                           ! (fraction between 0 and 1 = areaup/dxdy)
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: ZCRR     ! total (liquid+solid) convective precipitation rate (m/s)
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: CAPEOUT  ! available buoyant energy CAPE (J/kg)       !not the maximum
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: ZTOPOUT  ! cloud top  height (m)
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: ZBASEOUT ! cloud base height (m) (e.g. LCL height)
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: RLIQINT  ! integrated (rliqout) liquid water mixing ratio in updraft
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: RICEINT  ! integrated (riceout) ice    water mixing ratio in updraft 
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: FLAGCONV ! counter for whether convection is activated? 
+                                                           ! renamed as KCOUNT in bkfconv.ftn90
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: PEFFOUT  ! precipitation efficiency
+      REAL   , DIMENSION(NI   ), INTENT(INOUT) :: WMAXOUT  ! maximum velocity in the convective updrafts (m/s)
+
+!**    0.25   Declarations of output variables for shallow:
+!**
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: STDT     ! convective effects of heating    (K/s)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: SQDT     ! convective effects of moistening (1/s)
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: SLIQOUT  ! liquid water mixing ratio in updraft
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: SICEOUT  ! ice water mixing ratio in updraft
+      REAL   , DIMENSION(NI,NK), INTENT(INOUT) :: SLOUDS   ! cloud fractional coverage area 
+                                                           ! (fraction between 0 and 1 = areaup/dxdy)
+
+!**    0.3   Declarations of local variables required by BKF :
+!**
+      INTEGER                                  :: KIDIA    ! value of the first point in x
+      INTEGER                                  :: KFDIA    ! value of the last  point in x
+      INTEGER                                  :: KBDIA    ! vertical  computations start at
+                                                           ! KBDIA that is at least 1
+      INTEGER                                  :: KTDIA    ! vertical computations can be
+                                                           ! limited to KLEV + 1 - KTDIA (default=1)
+      REAL                                     :: PDTCONV  ! Interval of time between two
+                                                           ! calls of the deep convection scheme
+      INTEGER                                  :: KICE     ! flag for ice ( 1 = yes, 0 = no ice )
+      LOGICAL                                  :: OREFRESH ! refresh or not tendencies at every call
+      LOGICAL                                  :: ODOWN    ! take or not convective downdrafts into account
+      LOGICAL                                  :: OSETTADJ ! logical to set convective adjustment time by user
+
+      INTEGER , DIMENSION (NI   )              :: INDEXCV  ! flagconv
+      REAL    , DIMENSION (NI   )              :: PTIMEC   ! value of convective adjustment
+                                                           ! time if OSETTADJ=.TRUE.
+      REAL    , DIMENSION (NI,NK)              :: PPABST   ! grid scale pressure at t
+      REAL    , DIMENSION (NI,NK)              :: PRVT     ! grid scale water vapor 
+      REAL    , DIMENSION (NI,NK)              :: PRCT     ! grid scale cloud liquid water
+      REAL    , DIMENSION (NI,NK)              :: PRIT     ! grid scale cloud ice water
+      REAL    , DIMENSION (NI,NK)              :: PZZ      ! height of model layer (m)
+
+      LOGICAL                                  :: OCHCONV  ! include tracer transport
+      INTEGER                                  :: KCH      ! number of species
+      REAL    , DIMENSION (NI,NK,1)            :: PCH      ! grid scale chemical species
+      REAL    , DIMENSION (NI,NK,1)            :: PCHTEN   ! species conv. tendency (1/s)
+
+      INTEGER                                  :: I,K
+!***********************************************************************
+!**
+      KICE  = 1
+      KIDIA = 1
+      KFDIA = NI
+      KBDIA = 1
+      KTDIA = 1
+      KCH   = 1
+      ODOWN    = .TRUE. 
+      OSETTADJ = .TRUE. 
+      OREFRESH = .FALSE.
+      OCHCONV  = .FALSE. 
+!**      
+!**-------------------------------------------------------------------
+!**    calculate mixing ratio of grid box from specific humidity
+         PRVT(:,:) = PQT(:,:) / (1. - PQT(:,:))
+         PRCT(:,:) = 0.0
+         PRIT(:,:) = 0.0
+
+!**    calculate pzz, height of the model layer
+         PZZ(:,:) = GZM(:,:) / 9.80616
+
+!**    caculate pressure (Pa) of the model layer, here psb is in kPa
+       DO 310 K=1,NK
+         PPABST(1:NI,K) = AVERT(1:NI,K) * PSB(1:NI) * 1000.
+ 310   CONTINUE
+
+!**    In the RPN physics, the K indices goes
+!**    from 1 at the top of the model to NK at the surface.
+!**    In the Bechtold-Kain-Fritsch subroutine, 
+!**    the opposite order is used (of course).
+
+      CALL REVERT (PPABST   ,NI ,NK)
+      CALL REVERT (PZZ      ,NI ,NK)
+      CALL REVERT (PTT      ,NI ,NK)
+      CALL REVERT (PRVT     ,NI ,NK)
+      CALL REVERT (PRCT     ,NI ,NK)
+      CALL REVERT (PRIT     ,NI ,NK)
+      CALL REVERT (PUT      ,NI ,NK)
+      CALL REVERT (PVT      ,NI ,NK)
+      CALL REVERT (PWT      ,NI ,NK)
+
+!**   reverse output variables from deep convection
+      CALL REVERT (DTDT     ,NI ,NK)
+      CALL REVERT (DQDT     ,NI ,NK)
+      CALL REVERT (DUDT     ,NI ,NK)
+      CALL REVERT (DVDT     ,NI ,NK)
+      CALL REVERT (DQCDT    ,NI ,NK)
+      CALL REVERT (DQRDT    ,NI ,NK)
+      CALL REVERT (PPRLFLX  ,NI ,NK)
+      CALL REVERT (PPRSFLX  ,NI ,NK)
+      CALL REVERT (UMFOUT   ,NI ,NK)
+      CALL REVERT (DMFOUT   ,NI ,NK)
+      CALL REVERT (RLIQOUT  ,NI ,NK)
+      CALL REVERT (RICEOUT  ,NI ,NK)
+      CALL REVERT (AREAUP   ,NI ,NK)
+      CALL REVERT (CLOUDS   ,NI ,NK)
+
+!**   reverse output variables from shal convection
+      CALL REVERT (STDT     ,NI ,NK)
+      CALL REVERT (SQDT     ,NI ,NK)
+      CALL REVERT (SLIQOUT  ,NI ,NK)
+      CALL REVERT (SICEOUT  ,NI ,NK)
+      CALL REVERT (SLOUDS   ,NI ,NK)
+
+      CALL INI_CSTS ! Initialize physical constants in MODD_CSTS
+
+!**-------------------------------------------------------------------------
+      if ( DODEEP ) then
+
+!**      appel de la convection profonde
+!**     
+         PTIMEC(:) = 1800.    
+         CALL INI_CONVPAR
+         CALL DEEP_CONVECTION (NI      , NK      , DTIME   ,           &
+                     KIDIA   , KFDIA   , KBDIA   , KTDIA   ,           &
+                     KICE    , OREFRESH, ODOWN   , OSETTADJ, PTIMEC,   &   
+                     FLAGCONV, INDEXCV , PDXDY   ,                     &
+                     PPABST  , PZZ     , PTT     ,                     &
+                     PRVT    , PRCT    , PRIT    ,                     &
+                     PUT     , PVT     , PWT     ,                     &
+                     DTDT    , DQDT    , OUVCONV , DUDT    ,           &
+                     DVDT    , DQCDT   , DQRDT   ,                     &
+                     AREAUP  , CLOUDS  , PEFFOUT , WMAXOUT ,           &
+                     PPRLFLX , PPRSFLX , ZCRR    ,                     &
+                     RLIQOUT , RICEOUT , RLIQINT, RICEINT,             &
+                     CAPEOUT , ZTOPOUT , ZBASEOUT,                     &
+                     UMFOUT  , DMFOUT  ,                               &
+                     OCHCONV , KCH     , PCH     , PCHTEN              )
+
+      endif
+!----------------------------------------------------------------------
+      if ( DOSHALLOW ) then
+
+!**      appel de la convection peu profonde
+!**
+         PTIMEC(:) = 5400.
+         CALL INI_CONVPAR_SHAL
+         CALL SHAL_CONVECTION (NI      , NK      , DTIME   ,        &
+                     KIDIA   , KFDIA   , KBDIA   , KTDIA   ,        &
+                     KICE    , OSETTADJ, PTIMEC  ,                  &
+                     INDEXCV , WSTAR   ,                            &
+                     PPABST  , PZZ     , PTT     ,                  &
+                     PRVT    , PRCT    , PRIT    , PWT     ,        &
+                     STDT    , SQDT    ,                            &
+                     SLIQOUT , SICEOUT , SLOUDS  ,                  &
+                     OCHCONV , KCH     , PCH     , PCHTEN           )
+
+      endif
+!**------------------------------------------------------------------------
+!**   reverse input variables back to normal
+!**
+      CALL REVERT (PPABST   ,NI ,NK)
+      CALL REVERT (PZZ      ,NI ,NK)
+      CALL REVERT (PTT      ,NI ,NK)
+      CALL REVERT (PRVT     ,NI ,NK)
+      CALL REVERT (PRCT     ,NI ,NK)
+      CALL REVERT (PRIT     ,NI ,NK)
+      CALL REVERT (PUT      ,NI ,NK)
+      CALL REVERT (PVT      ,NI ,NK)
+      CALL REVERT (PWT      ,NI ,NK)
+
+!**   reverse output variables from deep back to normal
+!**
+      CALL REVERT (DTDT     ,NI ,NK)
+      CALL REVERT (DQDT     ,NI ,NK)
+      CALL REVERT (DUDT     ,NI ,NK)
+      CALL REVERT (DVDT     ,NI ,NK)
+      CALL REVERT (DQCDT    ,NI ,NK)
+      CALL REVERT (DQRDT    ,NI ,NK)
+      CALL REVERT (PPRLFLX  ,NI ,NK)
+      CALL REVERT (PPRSFLX  ,NI ,NK)
+      CALL REVERT (UMFOUT   ,NI ,NK)
+      CALL REVERT (DMFOUT   ,NI ,NK)
+      CALL REVERT (RLIQOUT  ,NI ,NK)
+      CALL REVERT (RICEOUT  ,NI ,NK)
+      CALL REVERT (AREAUP   ,NI ,NK)
+      CALL REVERT (CLOUDS   ,NI ,NK)
+
+!**   reverse output variables from shal back to normal
+!**
+      CALL REVERT (STDT     ,NI ,NK)
+      CALL REVERT (SQDT     ,NI ,NK)   
+      CALL REVERT (SLIQOUT  ,NI ,NK)
+      CALL REVERT (SICEOUT  ,NI ,NK)
+      CALL REVERT (SLOUDS   ,NI ,NK)
+
+!**   change unit of zcrr from m/s to mm/s
+       ZCRR(:)=ZCRR(:)*1000.
+
+      RETURN
+      END
+
+!-------------------------------------------------------
+!-------------------------------------------------------
+      SUBROUTINE REVERT (FIN,IHOR,KLEV)
+      IMPLICIT NONE
+      INTEGER  IHOR,KLEV,KHAF,I,K
+      REAL FIN(IHOR,KLEV), WRK(IHOR)
+!
+      KHAF=KLEV/2
+      DO 20 K=1,KHAF
+        DO 10 I=1,IHOR
+           WRK(I)         = FIN (I,K)
+           FIN(I,K)       = FIN (I,KLEV-K+1)
+           FIN(I,KLEV-K+1) = WRK (I)
+ 10     CONTINUE
+ 20   CONTINUE
+
+      RETURN
+      END
+
+
+
