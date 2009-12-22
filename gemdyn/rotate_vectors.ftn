@@ -1,0 +1,261 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!!! s/r rotate_vectors- rotates vector components
+
+#include "model_macros_f.h"
+
+      subroutine rotate_vectors( uu,vv,DIST_DIM, F_nk, DO_IT )
+
+      implicit none
+
+      logical   DO_IT
+      integer   DIST_DIM,F_nk
+      integer   F_ni0,F_nj0,F_offi,F_offj
+      real      uu(DIST_SHAPE,F_nk),vv(DIST_SHAPE,F_nk)
+!
+!author Bernard Dugas - RPN (Jan->Nov 2008)
+
+!revision
+! v3_32 - Dugas B.    - Code inspired from ZONGINI for local tiles
+
+!object
+!      This routine calculates the local rotation angles between
+!      a rotated frame of reference and the normal geographical one.
+!      This set of angles can be used to convert model wind vectors
+!      to ordinary zonal and meridional winds.
+
+!      Thus, the (UZ,VZ) model winds vectors convert to (UG,VG)
+!      geographical winds via the following transformation:
+
+!      /                         \ /    \   /    \
+!      |  cos( phi )  sin( phi ) | | UZ | = | UG |
+!      | -sin( phi )  cos( phi ) | | VZ |   | VG |
+!      \                         / \    /   \    /
+
+!arguments
+! uu,vv      I/O    - input (uz,vz) and output (ug,vg)
+
+!implicits
+#include "dcst.cdk"
+#include "glb_ld.cdk"
+#include "grd.cdk"
+#include "geomg.cdk"
+#include "geomn.cdk"
+
+!!
+!     Work space for coordinate calculations
+
+      character(len=3), save :: initialize_S = 'yes'
+      integer,  save :: l_ni0=-1,l_nj0=-1
+
+      real,     dimension (:), allocatable :: lon, lat
+      real*8,   dimension (:), allocatable :: lonr, latr
+      real*8,   dimension (:), allocatable :: cart, carot
+      real*8,   dimension (:,:), pointer,save :: cosphi,sinphi
+
+      real*8    ri_8(3,3),costeta,sinteta
+      real ::   polon,polat, rot=0.0
+
+      integer   i,j,k,l, ij
+      real*8    mp(3,2),mt(2,3)
+      real*8    pis2, rmp, hold
+
+      logical,  save :: pset_L = .false.
+      integer,  save :: pni,pnj,poffi,poffj
+!     ---------------------------------------------------------------
+
+      INITIAL_PHI_CALCULATION : \
+      if (initialize_S == 'yes' .or. \
+     .not. (l_ni0 == l_ni .and. l_nj0 == l_nj) ) then
+
+!$omp critical (PHI_CALCULATION)
+
+         if (initialize_S == 'no' .and. \
+            l_ni0 == l_ni .and. l_nj0 == l_nj) goto 100
+
+         l_ni0 = l_ni ; l_nj0 = l_nj
+
+         allocate( cosphi(l_ni,l_nj),sinphi(l_ni,l_nj) )
+         cosphi = 1.0 ; sinphi = 0.0
+
+!     ---------------------------------------------------------------
+
+         GRD_ROULE_BLOCK : if (Grd_roule) then
+
+!     Allouer les variables temporaire
+
+            allocate( lon (l_ni*l_nj) , lat (l_ni*l_nj) )
+            allocate( lonr(l_ni*l_nj) , latr(l_ni*l_nj) )
+            allocate( cart(3*l_ni*l_nj),carot(3*l_ni*l_nj) )
+
+            pis2 = Dcst_pi_8/2.0
+
+!     Calcul des latitudes et longitudes de la
+!     grille tournee dans le cadre non-tourne
+
+            call llacar( cart, Geomn_longs(l_i0),Geomn_latgs(l_j0), l_ni,l_nj )
+
+            do i=1,3
+               do j=1,3
+                  ri_8(i,j) = Grd_rot_8(j,i)
+               end do
+            end do
+
+            call mxma8( ri_8,1,3,cart,1,3,carot,1,3, 3,3, l_ni*l_nj )
+            call cartall( lon, lat, carot, l_ni*l_nj)
+
+!     Calcul de l'angle entre les poles des deux grilles
+
+            call llacar( cart, 90.,90., 1,1 )
+            call mxma8 (ri_8,1,3,cart,1,3,carot,1,3, 3,3,1)
+            call cartall( polon, polat, carot, 1 )
+
+            rot  = 90. - polat
+
+            do i=1,l_ni*l_nj
+               lon(i)  = mod(lon(i) + 360.0,360.0)
+               lonr(i) = lon(i)*Dcst_pi_8/180.
+               latr(i) = lat(i)*Dcst_pi_8/180.
+            end do
+
+         endif GRD_ROULE_BLOCK
+
+         ROTATED_GEOMETRY : if ( abs( rot )-0.001 .gt. 0 ) then
+
+            do j=1,l_nj 
+            do i=1,l_ni
+
+               ij = (j-1)*l_ni+i
+
+!     Calcul de la matrice de rotation des vents
+!     ------------------------------------------
+
+!     Definir les composantes requises de M' 
+!     [ ou M':(u,v)geo --> (dx/dt,dy/dt,dz/dt)geo ]
+               mp(1,1) = -sin( lonr(ij) )
+               mp(2,1) =  cos( lonr(ij) )
+               mp(3,1) =  0.0
+!!!            mp(1,2) = -sin( latr(ij) )*cos( lonr(ij) )
+!!!            mp(2,2) = -sin( latr(ij) )*sin( lonr(ij) )
+!!!            mp(3,2) =  cos( latr(ij) )
+
+!     Definir les composantes de MT, la transposee de M
+!     [ ou M:(u,v)mod --> (dx/dt,dy/dt,dz/dt)mod ]
+               mt(1,1) = -Geomg_sx_8(i)
+               mt(1,2) =  Geomg_cx_8(i)
+               mt(1,3) =  0.0
+               mt(2,1) = -Geomg_sy_8(j)*Geomg_cx_8(i)
+               mt(2,2) = -Geomg_sy_8(j)*Geomg_sx_8(i)
+               mt(2,3) =  Geomg_cy_8(j)
+!
+!     Calculer la premiere colonne du produit MT RT M' = TT
+!     [ ou R:(repere modele) --> (repere geographique) ] 
+               sinteta = 0.0
+               costeta = 0.0
+!
+!     On ne calcule donc que -TT(1,1) (= sin(theta)) et
+!     TT(2,1) (= cos(theta))
+!
+               do k=1,3
+                  rmp     = 0.0
+                  do l=1,3
+                     rmp  = rmp+Grd_rot_8(k,l)*mp(l,1)
+                  enddo
+                  sinteta = sinteta - mt(1,k)*rmp
+                  costeta = costeta + mt(2,k)*rmp
+               enddo
+
+!     Angle de rotation phi = theta + PI/2
+
+               cosphi(i,j) = -sinteta
+               sinphi(i,j) =  costeta
+
+!     Trouver theta a partir de sin(theta) et cos(theta)
+!!!            if ( costeta .ne. 0.0 ) then
+!!!               theta(i,j) = atan( sinteta/costeta )
+!!!            else if ( sinteta .gt. 0.0 ) then
+!!!               theta(i,j) = pis2
+!!!            else if ( sinteta .lt. 0.0 ) then
+!!!               theta(i,j) = -pis2
+!!!            endif
+
+!     theta est defini dans l'interval [ -pi , +pi ]
+!!!            if ( costeta .lt. 0.0 ) then
+!!!               if ( sinteta .ge. 0.0 ) then
+!!!                  theta(i,j) = theta(i,j) + Dcst_pi_8
+!!!               else
+!!!                  theta(i,j) = theta(i,j) - Dcst_pi_8
+!!!               endif
+!!!            endif
+
+!!!            phi(i,j) = theta(i,j) + pis2
+
+            enddo
+            enddo
+
+         endif ROTATED_GEOMETRY
+
+!     Desallouer les variables temporaire
+
+         if (Grd_roule) then
+            deallocate( lon  , lat   )
+            deallocate( lonr , latr  )
+            deallocate( cart , carot )
+         endif
+
+         initialize_S = 'no'
+
+  100    continue
+
+!$omp end critical (PHI_CALCULATION)
+
+      endif INITIAL_PHI_CALCULATION
+
+      if ( DO_IT ) then
+
+         if (.not.pset_L) then
+            poffi = 0 ; poffj = 0 ; pni = l_ni ; pnj = l_nj
+         endif
+
+         do k=1,F_nk
+            do j=1+poffj,pnj+poffj
+               do i=1+poffi,pni+poffi
+                  hold      =  cosphi(i,j)*uu(i,j,k)+sinphi(i,j)*vv(i,j,k)
+                  vv(i,j,k) = -sinphi(i,j)*uu(i,j,k)+cosphi(i,j)*vv(i,j,k)
+                  uu(i,j,k) =  hold
+               enddo
+            enddo
+         enddo
+
+      endif
+
+      return
+!     ---------------------------------------------------------------
+      Entry rotate_vectors_pset( F_ni0,F_nj0,F_offi,F_offj )
+
+      pset_L = .true.
+      pni = F_ni0 ; pnj = F_nj0 ; poffi = F_offi ; poffj = F_offj
+
+      return
+!     ---------------------------------------------------------------
+      Entry rotate_vectors_punset( )
+
+      pset_L = .false.
+
+      return
+!     ---------------------------------------------------------------
+      end
+      
