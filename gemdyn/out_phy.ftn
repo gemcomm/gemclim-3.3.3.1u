@@ -1,0 +1,371 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+copyright (C) 2001  MSC-RPN COMM  %%%MC2%%%
+***s/r out_phy
+#include "model_macros_f.h"
+*
+      subroutine out_phy ( bus_o,F_ni,F_nj,stepno )
+      use v4d_prof, only: Pr_nsim4d
+
+      implicit none
+*
+      integer F_ni,F_nj,ni,nj,stepno
+      real bus_o(F_ni*F_nj,*)
+*
+*AUTHOR     Michel Desgagne                July 2004 (MC2)
+*
+*REVISION
+* v3_20 - Lee V.            -  initial GEMDM version
+* v3_21 - Lee V.            -  bugfix for LAM output
+* v3_30 - McTaggart-Cowan R.-  allow for user-defined domain tag extensions
+* v3_30 - Larocque R.       -  changed call to ecris_fst2m to do mosaic output
+*                              but only for 2D fields on multiple arbitrary leve
+* v3_31 - Lee V.            -  modification of Out_etik_S in out_sgrid only
+* v3_31 - Lee and Bilodeau  -  in offline mode, extend physics output
+*                              grid to whole domain
+* v3_31 - Lee V.            -  kind is set to 2 (press) for 2D fields, not -1
+* v3_32 - Dugas B.          -  allow for 3D multiple-pressure level output
+*                           -  allow for "Obus_mult" 3D outputs of a variable
+*                           -  add call to out_phy_rotate
+*                           -  use Out3_2DLev for 2D fields
+*                           -  change call to out_phy_rotate
+*                           -  account for request of single level variables
+*                              output on pressure coordinates (but this will 
+*                              still make use of Out3_2DLev).   
+*
+*
+*OBJECT
+*    Gather the index of physics variables to write on disk 
+*    for the current timestep.
+*
+*ARGUMENTS
+*    NAMES     I/O  TYPE  A/S        DESCRIPTION
+*
+*   bus_o       I    R         array containing physics fields to output
+*   F_ni        I    I    S    bus_o hor. dimension along X (same as l_ni)
+*   F_nj        I    I    S    bus_o hor. dimension along Y (same as l_nj)
+*   stepno      I    I    S    step number
+*
+*IMPLICIT
+#include "glb_ld.cdk"
+#include "glb_pil.cdk"
+#include "dcst.cdk"
+#include "out3.cdk"
+#include "geomg.cdk"
+#include "geomn.cdk"
+#include "init.cdk"
+#include "rstr.cdk"
+#include "grid.cdk"
+#include "out.cdk"
+#include "itf_phy_buses.cdk"
+#include "obus.cdk"
+#include "grd.cdk"
+#include "level.cdk"
+#include "outp.cdk"
+#include "ptopo.cdk"
+#include "v4dg.cdk"
+#include "schm.cdk"
+#include "vt1.cdk"
+*
+**
+      character*4 ext_S
+      character*6 etikadd_S
+      integer err,key0
+      integer ip3_hold,offbo,vtype
+      integer i,j,k,mult,nk_o,levset,ii,jj,kk,ip3,ig1
+      integer, dimension (:), allocatable :: ind_o
+      integer irff(100)
+      integer grille_x0,grille_x1,grille_y0,grille_y1
+      logical periodx_L
+      real rff(100),lev2d
+*
+      real, dimension(:,:,:), pointer :: lnph,dodlnph,preso
+      integer o_nk
+*
+      integer  vmmlod, vmmuld, vmmget
+      external vmmlod, vmmuld, vmmget
+*
+*----------------------------------------------------------------------
+*
+      if (Obus_top.le.0) return
+      if (F_ni /= l_ni .or. F_nj /= l_nj) then
+         print *,'Bad arguments to out_phy'
+         return
+      endif
+*
+      if (abs( Out3_2DLev-1.0 ) < 0.000001 ) then
+         lev2d = 1.0 ; vtype = 5
+      else
+         lev2d = 0.0 ; vtype = 2
+      endif
+*
+*     setup of ip3 and modifs to label
+*
+      call tmg_start0(67, 'OUT_PHY  ')
+      ip3=0
+      etikadd_S = ' '
+      ext_S=""
+      if (Out3_ip3.eq.-1) ip3 = stepno
+      if (Out3_ip3.gt.0 ) ip3 = Out3_ip3
+      if (V4dg_conf.ne.0) then
+          if (.not.V4dg_4dvar_L) then
+              ip3 = V4dg_status
+              if (V4dg_conf/100.eq.1.and.V4dg_ad_L)
+     %        ip3 = 20 + V4dg_status
+          else
+              ip3 = V4dg_status
+              if(V4dg_tl_L) ip3 = Pr_nsim4d
+              if(V4dg_ad_L) ip3 = Pr_nsim4d
+          endif
+          ext_S = '_nl'
+          if (V4dg_tl_L) ext_S = '_tl'
+          if (V4dg_ad_L) ext_S = '_ad'
+          write(etikadd_S,'(a3,i3.3)')ext_S,ip3
+      endif
+*     setup of filename extension if needed
+      if ( ((Init_balgm_L).and.(.not.Rstri_idon_L)).and.
+     $     ((stepno.gt.(Init_dfnp-1)/2)) )
+     $       ext_S = '_dgf'
+*
+*     pressure output initialization (part 1)
+      do kk=1,Outp_sets
+         if (Level_typ(Outp_lev(kk)).ne.'P') cycle
+         o_nk = Level_max(Outp_lev(kk))
+         allocate(   lnph(l_ni,l_nj,l_nk),
+     $            dodlnph(l_ni,l_nj,l_nk),
+     $              preso(l_ni,l_nj,o_nk) )
+         key0 = VMM_KEY    (pipt1)
+         err  = vmmlod     (key0,1)
+         err  = VMM_GET_VAR(pipt1)
+         do k=1,l_nk
+            do j=1,l_nj
+               do i=1,l_ni
+                  lnph(i,j,k) = log( geomg_z_8(k) +
+     $                               pipt1(i,j,k) )
+               enddo
+            enddo
+         enddo
+         err = vmmuld(key0,1)
+         exit
+      enddo
+*
+*     rotate physics vector component output ?
+      if (Out3_rotate_L)
+     $   call out_phy_rotate( bus_o,l_ni,l_nj,p_ni,p_nj,
+     $                        p_offi,p_offj,Out3_debug_L )
+*
+*########## REGULAR OUTPUT #######################################
+*
+*     ON sortie_p sets
+*
+      ON_SORTIE_P : do kk=1,Outp_sets
+         if ( Outp_dostep_L(kk) )then
+            periodx_L=.false.
+            if (.not.G_lam .and.
+     $      (Grid_x1(Outp_grid(kk))-Grid_x0(Outp_grid(kk))+1).eq. G_ni )
+     $         periodx_L= .true.
+            ig1 = Grid_ig1(outp_grid(kk))
+            grille_x0 = max( 1+Lam_pil_w - p_nmp,
+     $                       Grid_x0(outp_grid(kk)) )
+            grille_x1 = min( Grid_x1(outp_grid(kk)),
+     $                       G_ni - Lam_pil_e + p_nmp )
+            grille_y0 = max( 1+Lam_pil_s - p_nmp,
+     $                       Grid_y0(outp_grid(kk)) )
+            grille_y1 = min( Grid_y1(outp_grid(kk)),
+     $                       G_nj - Lam_pil_n + p_nmp )
+            if (G_lam .and. 
+     $         ( grille_x0.ne.Grid_x0(outp_grid(kk)).or.
+     $           grille_x1.ne.Grid_x1(outp_grid(kk)).or.
+     $           grille_y0.ne.Grid_y0(outp_grid(kk)).or.
+     $           grille_y1.ne.Grid_y1(outp_grid(kk)) ) )
+     $         ig1=Grid_ig1(outp_grid(kk))+100
+            if (Schm_offline_L) then
+               grille_x0 = max(1   ,Grid_x0(outp_grid(kk)))
+               grille_x1 = min(G_ni,Grid_x1(outp_grid(kk)))
+               grille_y0 = max(1   ,Grid_y0(outp_grid(kk)))
+               grille_y1 = min(G_nj,Grid_y1(outp_grid(kk)))
+            endif
+            call out_sgrid(grille_x0,grille_x1,grille_y0,grille_y1,
+     $                     periodx_L,
+     $                     ig1,Grid_ig2(outp_grid(kk)),
+     $                     Grid_stride(outp_grid(kk)),
+     $                     Grid_etikext_s(outp_grid(kk)),etikadd_S,
+     $                     Geomn_longs, Geomn_latgs          )
+            levset= Outp_lev(kk)
+            nk_o =  Level_max(levset)
+            allocate (ind_o(nk_o+1))
+            call out_slev(Level_typ(levset),Level(1,levset),
+     $                 ind_o,nk_o,G_nk,Level_kind_ip1,'p')
+            call out_sfile(Out3_closestep,stepno,ip3,ext_S)
+*
+            if (Level_typ(levset).eq.'M') then
+*
+*              model levels requested
+               do ii=1, Outp_var_max(kk)
+                  do j=1,Obus_top
+                     if ( Outp_var_S(ii,kk).eq. Obus_var_S(j) ) then
+*
+                        if (Obus_shp(j).gt.1) then
+*                          3D field
+                           ip3_hold = Out_ip3
+                           offbo = Obus_offset(j)
+                           if (Obus_stag(j).eq.0) then
+                              do mult=1,Obus_mult(j)
+                                 if (Obus_mult(j) > 1) Out_ip3 = mult
+                                 call ecris_fst2(bus_o(1,offbo),
+     $                            1,l_ni,1,l_nj,Geomg_hyb,Obus_var_s(j),
+     $                            Obus_mul(j),Obus_add(j),Out_kind,G_nk,
+     $                            ind_o,nk_o,Outp_nbit(ii,kk) )
+                                 offbo = offbo+Obus_shp(j)
+                              enddo
+                           else
+*                          3D field staggerred
+                              do i=1,G_nk-2
+                                 rff(i)= (Geomg_hyb(i+1)+Geomg_hyb(i))/2.
+                              enddo
+                              do i=G_nk-1,G_nk
+                                 rff(i)=Geomg_hyb(i)
+                              enddo
+                              do mult=1,Obus_mult(j)
+                                 if (Obus_mult(j) > 1) Out_ip3 = mult
+                                 call ecris_fst2(bus_o(1,offbo),
+     $                            1,l_ni,1,l_nj,rff,Obus_var_s(j),
+     $                            Obus_mul(j),Obus_add(j),Out_kind,G_nk,
+     $                            ind_o,nk_o,Outp_nbit(ii,kk) )
+                                 offbo = offbo+Obus_shp(j)
+                              enddo
+                           endif
+                           Out_ip3 = ip3_hold
+                        else
+                           if ( Obus_mult(j).gt.1) then
+*                          2D field-multiple arbitrary levels
+                              do mult=1,Obus_mult(j)
+                                 rff(mult)= mult
+                                 irff(mult)=mult
+                              enddo
+                              call ecris_fst2_mos(bus_o(1,Obus_offset(j)),
+     $                        1,l_ni,1,l_nj,rff,Obus_var_s(j),
+     $                        Obus_mul(j),Obus_add(j),Obus_mos(j),Obus_mult(j),
+     $                        irff,Obus_mult(j), Outp_nbit(ii,kk) )
+                           else
+*                          2d field-single level saved on Out3_2DLev
+                              call ecris_fst2(bus_o(1,Obus_offset(j)),
+     $                         1,l_ni,1,l_nj,lev2d,Obus_var_s(j),
+     $                         Obus_mul(j),Obus_add(j),vtype,1,1,1, 
+     $                         Outp_nbit(ii,kk) )
+                           endif
+                        endif
+                     endif
+                  enddo
+               enddo
+*
+            else if(Level_typ(levset).eq.'P') then
+*
+*              pressure output initialization (part 2)
+               if (o_nk.ne.nk_o) then
+                  deallocate( preso )
+                  o_nk = nk_o
+                  allocate( preso(l_ni,l_nj,o_nk) )
+               endif
+               do i = 1, nk_o
+                  rff(i) = level(i,levset) * 100.0
+               enddo
+*
+               do ii=1, Outp_var_max(kk)
+                  do j=1,Obus_top
+                     if ( Outp_var_S(ii,kk).eq. Obus_var_S(j) ) then
+                     
+                        if (Obus_shp(j).gt.1 .and. Obus_stag(j).eq.0 ) then
+*
+*                          Found 3D field
+                           ip3_hold = Out_ip3
+                           offbo = Obus_offset(j)
+*
+                           do mult=1,Obus_mult(j)
+*
+                              if (Obus_mult(j) > 1) Out_ip3 = mult
+*
+*                             Calculate vertical derivative of the
+*                             current array with respect to lnph
+*
+                              call verder( dodlnph,bus_o(1,offbo),
+     $                               lnph,2.0,2.0, 1,l_ni,1,l_nj,l_nk,
+     $                               p_offi+1,p_offi+p_ni,
+     $                               p_offj+1,p_offj+p_nj)
+*
+*                             Calculate current array in pressure coordinates
+*
+                              call prgen2( preso,bus_o(1,offbo),
+     $                               dodlnph,lnph,rff,nk_o,Out3_cubzt_L,
+     $                               1,l_ni,1,l_nj,l_nk,
+     $                               p_offi+1,p_offi+p_ni,
+     $                               p_offj+1,p_offj+p_nj)
+*
+                              call ecris_fst2(preso,1,l_ni,1,l_nj,
+     $                         level(1,levset),Obus_var_s(j),
+     $                         Obus_mul(j),Obus_add(j),Out_kind,
+     $                         nk_o,ind_o,nk_o,Outp_nbit(ii,kk) )
+*
+                              offbo = offbo+Obus_shp(j)
+*
+                           enddo
+*
+                           Out_ip3 = ip3_hold
+*
+                        else if (Obus_shp(j) == 1) then
+*
+                           if ( Obus_mult(j) >  1) then
+*                          2D field-multiple arbitrary levels
+*                          treat same as in case M
+                              do mult=1,Obus_mult(j)
+                                 rff(mult)= mult
+                                 irff(mult)=mult
+                              enddo
+                              call ecris_fst2_mos(bus_o(1,Obus_offset(j)),
+     $                         1,l_ni,1,l_nj,rff,Obus_var_s(j),
+     $                         Obus_mul(j),Obus_add(j),Obus_mos(j),
+     $                         Obus_mult(j),irff,Obus_mult(j),
+     $                         Outp_nbit(ii,kk) )
+                           else
+*                          2d field-single level saved on Out3_2DLev
+                              call ecris_fst2(bus_o(1,Obus_offset(j)),
+     $                         1,l_ni,1,l_nj,lev2d,Obus_var_s(j),
+     $                         Obus_mul(j),Obus_add(j),vtype,1,1,1, 
+     $                         Outp_nbit(ii,kk) )
+                           endif
+*
+                        endif
+                     endif
+                  enddo
+               enddo
+            endif
+*
+            deallocate (ind_o)
+*
+            call out_cfile
+*
+         endif
+*
+      enddo ON_SORTIE_P
+*
+      if (associated( preso )) deallocate( lnph,dodlnph,preso )
+      call tmg_stop0(67)
+*
+*----------------------------------------------------------------------
+      return
+      end
+
+
