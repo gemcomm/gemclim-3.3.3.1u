@@ -1,0 +1,178 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r out_anal_uv - output winds in analysis file
+*
+#include "model_macros_f.h"
+*
+      subroutine out_anal_uv (F_ut1,F_vt1,minx,maxx,miny,maxy,
+     %                   F_nk, F_indo,F_nko)
+*
+      implicit none
+*
+      integer F_nk,minx,maxx,miny,maxy,F_nko,F_indo(*)
+      real F_ut1 (minx:maxx,miny:maxy,F_nk), F_vt1(minx:maxx,miny:maxy,F_nk)
+*
+*author
+*     Katja Winger - UQAM/RPN Sep 2009
+*
+*     Writes derived wind on Phi grid into analysis file
+*     This routine is based on the rountine out_uv from James Caveen,
+*     Andre Method and Vivian Lee
+*
+*revision
+* v3_32 - Winger K.         - initial version
+* v3_32 - Winger K.         - Set level type of UU and VV to hybrid (5) (Jun 2010)
+*
+*object
+*     See above id.
+*	
+*arguments
+*  Name        I/O                 Description
+*----------------------------------------------------------------
+*
+*
+*implicits
+#include "glb_ld.cdk"
+#include "dcst.cdk"
+#include "out3.cdk"
+#include "geomg.cdk"
+#include "out.cdk"
+*
+**
+      integer i,j,k
+      integer pnerr
+      integer i0,in,j0,jn,i0v,inv,j0v,jnv
+      real*8 c1_8(l_nj)
+      real uu_temp,vv_temp
+      real, dimension(:,:,:), allocatable     :: uu,vv
+      pointer (pauu, uu_temp(minx:maxx,miny:maxy,G_nk) )
+      pointer (pavv, vv_temp(minx:maxx,miny:maxy,G_nk) ) 
+*
+* ___________________________________________________________________
+*
+*     Initialization of data
+* ___________________________________________________________________
+*
+*     initialize conversion of units
+*
+      real prmult
+*
+      prmult =  1.0 / Dcst_knams_8
+*
+* ---------------------------------------------
+*
+      allocate ( uu(minx:maxx,miny:maxy,G_nk) ,
+     &           vv(minx:maxx,miny:maxy,G_nk) , stat= pnerr )
+      if (pnerr.ne.0)
+     &   call gem_stop( 'STOP IN OUT_ANAL_UV: ALLOCATION problem',-2 )
+*
+*
+* ___________________________________________________________________
+*
+*     Load and Get required fields
+* ___________________________________________________________________
+*
+*
+      pauu = loc(F_ut1)
+      pavv = loc(F_vt1)         
+*
+* ___________________________________________________________________
+*
+*     Compute real wind from image wind
+* ___________________________________________________________________
+*
+*     Horizontal interpolation of image winds into PHI output grid.
+*
+      do j= 1, l_nj
+         c1_8(j) = Dcst_rayt_8 / geomg_cy_8(j)
+      end do
+*
+      call uv_acg2g (uu,uu_temp,1,0,LDIST_DIM,l_nk,i0 ,in ,j0 ,jn )
+      call uv_acg2g (vv,vv_temp,2,0,LDIST_DIM,l_nk,i0v,inv,j0v,jnv)
+*
+*C    Borders need to be filled for LAM configuration
+*C    Compute real wind components from wind images.
+*
+!$omp parallel
+!$omp do
+      do k=1,G_nk
+         if (G_lam) then
+            do i=1,i0-1
+            do j=1,l_nj
+               uu(i,j,k)=uu(i0,j,k)
+            enddo
+            enddo      
+            do i=in+1,l_ni
+            do j=1,l_nj
+               uu(i,j,k)=uu(in,j,k)
+            enddo
+            enddo
+            do j=1,j0-1
+            do i=1,l_ni
+               uu(i,j,k)=uu(i,j0,k)
+            enddo
+            enddo     
+            do j=jn+1,l_nj
+            do i=1,l_ni
+               uu(i,j,k)=uu(i,jn,k)
+            enddo
+            enddo
+            do i=1,i0v-1
+            do j=1,l_nj
+               vv(i,j,k)=vv(i0v,j,k)
+            enddo
+            enddo     
+            do i=inv+1,l_ni
+            do j=1,l_nj
+               vv(i,j,k)=vv(inv,j,k)
+            enddo
+            enddo
+            do j=1,j0v-1
+            do i=1,l_ni
+               vv(i,j,k)=vv(i,j0v,k)
+            enddo
+            enddo      
+            do j=jnv+1,l_nj
+            do i=1,l_ni
+               vv(i,j,k)=vv(i,jnv,k)
+            enddo
+            enddo
+         endif
+         do j= 1, l_nj
+         do i= 1, l_ni
+            uu(i,j,k) = c1_8(j) * uu(i,j,k)
+            vv(i,j,k) = c1_8(j) * vv(i,j,k)
+         end do
+         end do
+      enddo
+!$omp enddo
+!$omp end parallel
+*
+*
+* ___________________________________________________________________
+*
+*     Output of (UU,VV) fields on ETA levels
+* ___________________________________________________________________
+*
+      call ecris_fst2(uu,LDIST_DIM,Geomg_hyb,
+     $        'UU  ',prmult,0.0,5,F_nk, F_indo, F_nko, Out3_nbitg )
+      call ecris_fst2(vv,LDIST_DIM,Geomg_hyb,
+     $        'VV  ',prmult,0.0,5,F_nk, F_indo, F_nko, Out3_nbitg )
+*
+      deallocate (uu, vv)
+*
+      return
+      end

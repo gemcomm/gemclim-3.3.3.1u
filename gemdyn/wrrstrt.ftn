@@ -1,0 +1,178 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*s/r wrrstrt - Write the restart file
+*
+#include "model_macros_f.h"
+*
+      subroutine wrrstrt ()
+*
+      implicit none
+*
+*author
+*     M. Desgagne - Mars 2000
+*
+*revision
+* v2_00 - Desgagne M.       - initial MPI version
+* v2_10 - Desgagne M.       - introduce WA files
+* v2_21 - Dugas B.          - adapt to climate mode
+* v2_30 - Corbeil L.        - Added writing of pres_surf pres_top
+* v2_31 - Desgagne M.       - Add Tr2d tracers
+* v3_00 - Desgagne & Lee    - Lam configuration
+* v3_21 - Valcke, S.        - Oasis coupling: Removed wawrit of c_cplg_step
+* v3_21 - Lee V.            - Remove Tr2d tracers
+* v3_30 - Desgagne & Winger - Write one global binary restart file if required
+* v3_30 - Desgagne M.       - restart for coupling
+* v3_31 - Desgagne M.       - new coupling interface to OASIS
+* v3_31 - Desgagne M.       - restart with physics BUSPER
+* v3_32 - Dugas B.          - add support for ACCLIST climate-mode info
+* v3_32 - Winger K.         - add support for climatological fields
+* v3_32 - Winger K.         - start by removing old physics restart files
+* v3_32 - Winger K.         - wawrit() cannot write parameters but only variables
+*                             (as found with g95, i.e. depending on compiler)
+*
+*object
+*	
+*arguments
+*	none
+*
+*implicits
+#include "lun.cdk"
+#include "init.cdk"
+#include "rstr.cdk"
+#include "lctl.cdk"
+#include "schm.cdk"
+#include "itf_phy_buses.cdk"
+#include "itf_cpl.cdk"
+#include "glb_ld.cdk"
+#include "pres.cdk"
+#include "lam.cdk"
+#include "itf_chm_bus.cdk"
+#include "bcsmem.cdk"
+#include "clim.cdk"
+#include "cfld.cdk"
+#include <clib_interface.cdk>
+*
+*
+*modules
+      integer vmmckmx,fnom,fclos,close_db_file
+      external vmmckmx,fnom,fclos,close_db_file
+*
+      integer i,ier,adr,dim,n,current_nest
+      integer, save :: nombre=Cfld_nbr
+*
+*     ---------------------------------------------------------------
+*
+      if (Lun_out.gt.0) write(Lun_out,2000) Lctl_step
+*
+      if (Rstri_glbcol_L) then
+C        Write one global binary file for the physics
+C        and chemistry restarts for the whole domain
+         call wr1rstrt()
+*
+C        Write one global binary file for the dynamics 
+C        restart for the whole domain
+         call glb_restart('W')
+      else
+*
+C        Remove eventually existing restart files because they might be hard links
+         ier = clib_remove ('restart')
+         ier = clib_remove ('restart_BUSPER')
+*
+C        Write one wa-file per tile
+         Lun_rstrt = 0
+         ier = fnom (Lun_rstrt,'restart','RND',0)
+         call waopen (Lun_rstrt)
+*
+         call wawrit (Lun_rstrt,Lctl_step      ,1,1)
+         call wawrit (Lun_rstrt,Rstri_idon_L   ,2,1)
+         adr = 3
+*
+         if ( Clim_climat_L ) then
+            call wawrit (Lun_rstrt,Clim_climat_L, adr , 1)
+            adr = adr + 1
+            call wawrit (Lun_rstrt,Clim_nbracc,   adr , 1)
+            adr = adr + 1
+            call wawrit (Lun_rstrt,Clim_listacc_S,adr, Clim_nbracc)
+            adr = adr + Clim_nbracc
+            call wawrit (Lun_rstrt,Clim_stepacc,  adr, Clim_nbracc)
+            adr = adr + Clim_nbracc
+         else
+*           indicate that this is not a climate-mode restart
+            call wawrit (Lun_rstrt, .false. , adr, 1)
+            adr = adr + 1
+         endif
+*
+         if ( Clim_inincr_L ) then
+            call wawrit (Lun_rstrt,Clim_inincr_L, adr , 1)
+            adr = adr + 1
+            call wawrit (Lun_rstrt, nombre ,      adr , 1)
+            adr = adr + 1
+            call wawrit (Lun_rstrt,Cfld_list_S,   adr , Cfld_nbr)
+            adr = adr + Cfld_nbr
+            call wawrit (Lun_rstrt,Cfld_date,     adr , Cfld_nbr)
+            adr = adr + Cfld_nbr
+         else
+*           indicate that climate increments were not used
+            call wawrit (Lun_rstrt, .false. , adr, 1)
+            adr = adr + 1
+         endif
+*
+         dim = chm_bper_siz*chm_nj
+         call wawrit (Lun_rstrt,dim            ,adr,1)
+         adr = adr + 1
+         if (dim>0) then
+            call wawrit (Lun_rstrt,Chm_busper3D,adr,chm_bper_siz*chm_nj)
+            adr = adr + chm_bper_siz*chm_nj
+         endif
+*
+         if (G_lam) then
+            call wawrit( Lun_rstrt,BCS_values,adr,BCS_siz_tot)
+            adr = adr + bcs_siz_tot
+         endif
+*
+         call wawrit (Lun_rstrt, pres_surf ,adr, 1)
+         adr = adr + 1
+         call wawrit (Lun_rstrt, pres_top  ,adr, 1)
+         call datp2f (current_nest,Lam_current_S )
+         adr = adr + 1
+         call wawrit (Lun_rstrt, current_nest  ,adr, 1)
+         adr = adr + 1 
+*
+         dim = 0
+         if (C_coupling_L) dim = nbusin
+         call wawrit (Lun_rstrt,dim           ,adr, 1)
+         adr = adr + 1
+         if (dim>0) then
+            call wawrit (Lun_rstrt, atm_busin ,adr, G_ni*dim)
+            adr = adr + G_ni*dim
+         endif
+*
+C        Write Vmm-files
+         ier = vmmckmx()
+         call waclos(Lun_rstrt)
+         ier = fclos(Lun_rstrt)  
+*
+         call wrrstrt_phy (.false.)
+*
+      endif
+*
+ 2000 format(/,'WRITING A RESTART FILE AT TIMESTEP #',I8,
+     +       /,'=========================================')
+*
+*     ---------------------------------------------------------------
+*      
+      return
+      end
