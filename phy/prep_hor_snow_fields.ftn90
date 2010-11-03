@@ -1,0 +1,203 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #######################################################
+SUBROUTINE PREP_HOR_SNOW_FIELDS(HPROGRAM,HSURF,              &
+                                HFILE,HFILETYPE,KLUOUT,OUNIF,&
+                                KPATCH,                      &
+                                PLAT,PLON,TPSNOW,            &
+                                PPATCH                       )
+!     #######################################################
+!
+!
+!!****  *PREP_HOR_SNOW_FIELDS* - prepares all snow fields for one surface scheme.
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     V. Masson 
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2004
+!!------------------------------------------------------------------
+!
+!
+USE MODD_TYPE_SNOW
+!
+USE MODD_PREP,           ONLY : XLAT_OUT, XLON_OUT
+USE MODD_SURF_PAR,       ONLY : XUNDEF
+!
+USE MODI_ALLOCATE_GR_SNOW
+USE MODI_PREP_HOR_SNOW_FIELD
+!
+USE MODE_SNOW3L
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=7),   INTENT(IN)  :: HSURF     ! type of field
+CHARACTER(LEN=28),  INTENT(IN)  :: HFILE     ! file name
+CHARACTER(LEN=6),   INTENT(IN)  :: HFILETYPE ! file type
+INTEGER,            INTENT(IN)  :: KLUOUT    ! logical unit of output listing
+LOGICAL,            INTENT(IN)  :: OUNIF     ! flag for prescribed uniform field
+INTEGER,            INTENT(IN)  :: KPATCH    ! patch number for output scheme
+REAL, DIMENSION(:), INTENT(IN)  :: PLAT      ! output latitudes
+REAL, DIMENSION(:), INTENT(IN)  :: PLON      ! output longitudes
+TYPE(SURF_SNOW)                 :: TPSNOW    ! snow fields
+REAL,DIMENSION(:,:),INTENT(IN), OPTIONAL  :: PPATCH ! fraction of each patch
+!
+!
+!*      0.2    declarations of local variables
+!
+CHARACTER(LEN=8)                    :: YSNSURF   ! type of field
+REAL,ALLOCATABLE,DIMENSION(:,:)     :: ZW        ! total snow content
+REAL,ALLOCATABLE,DIMENSION(:,:)     :: ZWRHO     ! total snow content from rho profile alone
+REAL,ALLOCATABLE,DIMENSION(:,:)     :: ZD        ! total snow depth
+REAL,ALLOCATABLE,DIMENSION(:,:,:)   :: ZDEPTH    ! snow depth of each layer
+!
+INTEGER                             :: JPATCH    ! loop counter on patches
+INTEGER                             :: JLAYER    ! loop counter on layers
+!---------------------------------------------------------------------------
+!
+!*      1.     Allocation of output field
+!
+CALL ALLOCATE_GR_SNOW(TPSNOW,SIZE(PLAT),KPATCH)
+!
+!---------------------------------------------------------------------------
+!
+!*      2.     Definition of output grid
+!
+IF (.NOT. ALLOCATED(XLAT_OUT)) ALLOCATE(XLAT_OUT(SIZE(PLAT)))
+IF (.NOT. ALLOCATED(XLON_OUT)) ALLOCATE(XLON_OUT(SIZE(PLON)))
+XLAT_OUT = PLAT
+XLON_OUT = PLON
+!
+!
+!----------------------------------------------------------------------------
+!
+!*      3.     Treatment of total snow content (kg/m2)
+!
+ALLOCATE(ZW(SIZE(PLAT),KPATCH))
+!
+YSNSURF='W'//HSURF
+CALL PREP_HOR_SNOW_FIELD(HPROGRAM,HFILE,HFILETYPE,KLUOUT,OUNIF,       &
+                         YSNSURF,KPATCH,PLAT,PLON,TPSNOW,PF=ZW,PPATCH=PPATCH)
+!
+!
+!----------------------------------------------------------------------------
+!
+!*      4.     Treatment of total snow depth
+!
+ALLOCATE(ZD(SIZE(PLAT),KPATCH))
+!
+YSNSURF='D'//HSURF
+CALL PREP_HOR_SNOW_FIELD(HPROGRAM,HFILE,HFILETYPE,KLUOUT,OUNIF,       &
+                         YSNSURF,KPATCH,PLAT,PLON,TPSNOW,PF=ZD,PPATCH=PPATCH)
+!
+!* snow layer thickness definition
+!
+ALLOCATE(ZDEPTH(SIZE(TPSNOW%WSNOW,1),TPSNOW%NLAYER,KPATCH))
+IF (TPSNOW%NLAYER==1) THEN
+  DO JPATCH=1,KPATCH
+    ZDEPTH(:,1,JPATCH) = ZD(:,JPATCH)
+  END DO
+ELSE IF (TPSNOW%SCHEME=='3-L') THEN
+  DO JPATCH=1,KPATCH
+    CALL SNOW3LGRID(ZDEPTH(:,:,JPATCH),ZD(:,JPATCH))
+  END DO
+END IF
+!
+!----------------------------------------------------------------------------
+!
+!*      4.     Snow density profile
+!              --------------------
+!
+
+!* density profile
+YSNSURF='R'//HSURF
+CALL PREP_HOR_SNOW_FIELD(HPROGRAM,HFILE,HFILETYPE,KLUOUT,OUNIF,       &
+                         YSNSURF,KPATCH,PLAT,PLON,TPSNOW,PDEPTH=ZDEPTH,PPATCH=PPATCH)
+!
+!----------------------------------------------------------------------------
+!
+!*      5.     Snow water content profile
+!              --------------------------
+!
+ALLOCATE(ZWRHO(SIZE(TPSNOW%WSNOW,1),KPATCH))
+ZWRHO(:,:) = 0.
+!
+!* snow depth estimated from rho profile
+DO JPATCH=1,KPATCH
+  DO JLAYER=1,TPSNOW%NLAYER
+    ZWRHO(:,JPATCH) = ZWRHO(:,JPATCH) + TPSNOW%RHO(:,JLAYER,JPATCH) * ZDEPTH(:,JLAYER,JPATCH)
+  END DO
+END DO
+!
+!* modification of rho: coherence between rho profile, total snow and total depth
+DO JPATCH=1,KPATCH
+  DO JLAYER=1,TPSNOW%NLAYER
+    WHERE(ZWRHO(:,JPATCH)/=0.)
+      TPSNOW%RHO(:,JLAYER,JPATCH) = TPSNOW%RHO(:,JLAYER,JPATCH) * ZW(:,JPATCH) / ZWRHO(:,JPATCH)
+    ELSEWHERE
+      TPSNOW%RHO(:,JLAYER,JPATCH) = XUNDEF
+    END WHERE
+  END DO
+END DO
+!
+!* snow content profile for each grid level
+TPSNOW%WSNOW(:,:,:) = TPSNOW%RHO(:,:,:) * ZDEPTH(:,:,:)
+!
+DEALLOCATE(ZWRHO)
+!
+!----------------------------------------------------------------------------
+!
+!*      6.     Albedo and snow heat content
+!              ----------------------------
+!
+!* albedo
+YSNSURF='A'//HSURF
+CALL PREP_HOR_SNOW_FIELD(HPROGRAM,HFILE,HFILETYPE,KLUOUT,OUNIF,       &
+                         YSNSURF,KPATCH,PLAT,PLON,TPSNOW,PPATCH=PPATCH)
+!
+!* heat in snowpack profile
+YSNSURF='H'//HSURF
+CALL PREP_HOR_SNOW_FIELD(HPROGRAM,HFILE,HFILETYPE,KLUOUT,OUNIF,       &
+                         YSNSURF,KPATCH,PLAT,PLON,TPSNOW,PDEPTH=ZDEPTH,PPATCH=PPATCH)
+!
+!----------------------------------------------------------------------------
+!
+!*      7.     Deallocations
+!
+!DEALLOCATE(XLAT_OUT)
+!DEALLOCATE(XLON_OUT)
+DEALLOCATE(ZD      )
+DEALLOCATE(ZW      )
+DEALLOCATE(ZDEPTH  )
+!
+!----------------------------------------------------------------------------
+!
+END SUBROUTINE PREP_HOR_SNOW_FIELDS
