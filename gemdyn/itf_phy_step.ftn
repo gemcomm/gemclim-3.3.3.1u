@@ -1,0 +1,287 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r itf_phy_step - Apply the physical processes: CMC/RPN package
+*
+#include "model_macros_f.h"
+*
+      subroutine itf_phy_step (F_stepno)
+      implicit none
+*
+      integer F_stepno
+*
+*author 
+*     Michel roch - rpn - april 1994
+*
+*revision
+* v2_00 - Desgagne M.       - initial MPI version
+* v2_21 - Desgagne/Methot/Bilodeau - dzmin calculation
+* v2_31 - Desgagne          - clean up and introduce h2o tracers
+* v2_32 - Lee V.            - call genslabp here, add "HY" record to slabs
+* v3_00 - Laroche S.        - adapted for simplified physics
+* v3_02 - Tanguay M.        - Add V4dg_oktr_L for v4d_rwtraj_kmkt 
+* v3_10 - Corbeil & Desgagne & Lee - AIXport+Opti+OpenMP
+* v3_11 - Dugas B.          - Correct DUMPBUS mechanism for OpenMP
+* v3_12 - Leduc A-M         - Add variables gzm and topo
+* v3_20 - Lee & Kallaur     - Add coding to support chemistry modules. (may/june 2005)
+* v3_21 - Valcke, S.        - Bugfix: no call to itf_phy_apply in offline mode
+* v3_30 - Tanguay M.        - adapt TL/AD to pvptr
+* v3_30 - McTaggart-Cowan R.- Allow for user-defined domain tag extensions
+* v3_31 - Desgagne M.       - new coupling interface to OASIS
+* v3_31 - Lee V.            - modification of Out_etik_S in out_sgrid only
+* v3_32 - Winger K.         - Call 'output_pilots' to output pilot files
+*                           - Move call to itf_phy_inincr from gem_run
+* v3_32 - Dugas B.          - Dumpbus3 now supports Entry bus
+*                           - Add calls to PHY_(GETT/PUTT/SETT)ACC
+* v3_32 - Winger K.         - Add calls to output_anal and out_anal_phy
+* v3_32 - Winger K.         - Add call  to phy_getgreengas
+*   
+*object
+*	Computes the physical processes and apply the resulting
+*	tendencies to the dynamic variables of the model:
+*	CMC/RPN package
+*
+*arguments
+*  Name        I/O                 Description
+*----------------------------------------------------------------
+* F_stepno      I           step number
+*----------------------------------------------------------------
+*
+*implicits
+#include "glb_ld.cdk"
+#include "lun.cdk"
+#include "mem.cdk"
+#include "ptopo.cdk"
+#include "itf_phy_busind.cdk"
+#include "itf_chm_busind.cdk"
+#include "v4dg.cdk"
+#include "p4d_simp.cdk"
+#include "itf_phy_buses.cdk"
+#include "itf_phy_config.cdk"
+#include "itf_phy_vmm.cdk" 
+#include "itf_cpl.cdk"
+#include "grdc.cdk"
+#include "geomn.cdk"
+#include "out3.cdk"
+#include "cstv.cdk"
+#include "schm.cdk"
+#include "lctl.cdk"
+#include "rstr.cdk"
+#include "obus.cdk"
+#include "clim.cdk"
+*
+*modules
+      integer  omp_get_max_threads
+      external omp_get_max_threads
+**
+      character(len=4) bidon_S
+      integer, parameter :: zero=0
+*
+      integer dim,err,i,j,k,ndim, obussiz,cobussiz
+      character*15 datev,pdate
+      real*8 dayfrac, sec_in_day
+      parameter (sec_in_day=86400.0d0)
+      real  vtmoins(LDIST_SHAPE,l_nk)
+      real, dimension(:,:   ), allocatable :: obusval,cobusval
+      real, dimension(:)     , allocatable :: trm,trp,kmm,ktm,tp,qp
+      real, dimension(:)     , allocatable :: tdu,tdv,tdt
+      integer*8, dimension(:), allocatable :: pvptr
+*
+*     Declare pointers to temporary 3D chemical tracer fields 
+*     for time levels t+ and t-.
+*
+      integer*8, dimension(:), allocatable :: cvptrp,cvptrm
+*
+*     ---------------------------------------------------------------
+*
+      call iniobus(obussiz)
+*
+      if ( Clim_climat_L) then
+         if (Rstri_sdon == 1) then
+*           initialize internal bus pointers
+            call phy_settacc( bidon_S,zero,zero )
+*           restore internal saving times with Clim_stepacc read from the restart
+            if (F_stepno > 1) call
+     $      phy_puttacc( Clim_nbracc,Clim_listacc_S,Clim_stepacc,Lun_out )
+         endif
+      endif
+*     
+      allocate(obusval(l_ni*l_nj,obussiz))
+      dim  = (l_maxx-l_minx+1)*(l_maxy-l_miny+1)*l_nk
+      ndim = COMMON_SIZE(p_phy)
+      allocate (pvptr(ndim),kmm(dim),ktm(dim),tp(dim),qp(dim),
+     $          tdu(dim),tdv(dim),tdt(dim),
+     $          trp(dim*phyt_ntr),trm(dim*phyt_ntr))
+*
+*     With chmistry flag ON, initialize work and output
+*     fields for chemistry for chemistry also.
+*
+      if (Schm_chems_L) then
+         call itf_chm_iniobus(cobussiz)
+         if (cobussiz>0) allocate(cobusval(l_ni*l_nj,cobussiz))
+         if (chmt_ntr>0) then
+            allocate (cvptrp(chmt_ntr),cvptrm(chmt_ntr))
+         else
+            call gem_stop ('chmt_ntr in itf_phy_step',-1)
+         endif
+      endif
+*
+*C              load all fields required by the physic in memory
+*	        ------------------------------------------------
+      call itf_phy_vmmprep (pvptr, ndim, trp, trm, tp, qp, vtmoins,
+     $                                              LDIST_DIM,l_nk)
+*
+*C              (Re-)initialize physics surface forcing increments
+*               --------------------------------------------------
+      if ( Clim_inincr_L ) call itf_phy_inincr( )
+*
+*
+*C              Update green house gases from table
+*               ------------------------------------------------
+      call phy_getgreengas( Lctl_step, Lun_out )
+*
+*
+*C              output pilot files 
+*               ------------------------------------------------
+      call output_pilots (trp, LDIST_DIM, l_nk)
+*
+*
+*C              initialize bus to output analysis files
+*               ------------------------------------------------
+      call output_anal ()
+*
+*C              load all fields required by the chemistry in memory;
+*               includes reading emissions (forcing) fields from file.
+*	        ------------------------------------------------
+*
+      call itf_chm_prep(cvptrp,cvptrm)
+*
+*
+*               Store TRAJ for the simplified physics
+*               -------------------------------------
+      if ( V4dg_conf.ne.0 .and. F_stepno.gt.0) 
+     $     call v4d_rwtraj_sigma_phystep (tp,qp,trp,vtmoins,trm,
+     $                                           LDIST_DIM,l_nk)
+*
+*C       4.	compute physics tendencies
+*		--------------------------
+*	initialize the number of slices previously done
+*
+      Mem_pslic = 0
+*
+      tdu=0. ; tdv=0.
+*
+      call pe_rebind (Ptopo_smtphy,(Ptopo_myproc.eq.0).and.
+     $                                 (F_stepno.eq.0))
+!$omp parallel
+!$omp do
+      do j=1,omp_get_max_threads()
+      call itf_phy_slb ( j , F_stepno,obusval, cobusval, 
+     $                   pvptr, cvptrp,cvptrm, ndim, chmt_ntr,
+     $                   trp,trm, tdu,tdv,tdt,kmm,ktm,
+     $                   LDIST_DIM, l_nk)
+      enddo
+!$omp enddo
+!$omp end parallel
+      call pe_rebind (Ptopo_smtdyn,(Ptopo_myproc.eq.0).and.
+     $                                 (F_stepno.eq.0))
+*
+*
+*C              output physics fields for analysis file
+*               ------------------------------------------------
+      call out_anal_phy ()
+*
+*
+      call out_phy (obusval,l_ni,l_nj,F_stepno)
+*
+*      Update ACCLIST information as needed
+*
+      if ( Clim_climat_L .and. Obus_top > 0) then
+*        update saving times for variables in Obus_var_S
+         call phy_settacc( Obus_var_S,Obus_top,F_stepno )
+*        synchronize Clim_stepacc with internal list of saving times
+         call phy_gettacc( Clim_nbracc,Clim_listacc_S,Clim_stepacc )
+      endif
+*
+*      If chemistry flag set, output desired chemical species as well
+*
+      if (Schm_chems_L) then
+         call itf_chm_out(cobusval,l_ni,l_nj,F_stepno)
+         if (cobussiz>0) deallocate (cobusval)
+      endif
+*
+      deallocate (obusval)
+*
+      if (Grdc_gid .gt. 0.and.F_stepno.eq.Grdc_start) then
+*     Only done once in the integration
+*        Accumulate data from permanent bus
+            Mem_pslic = 0
+            cobussiz=p_bper_siz/(p_ni)
+            allocate (cobusval(l_ni*l_nj,cobussiz))
+            call out_sgrid (Grdc_gid,Grdc_gif,Grdc_gjd,Grdc_gjf,
+     $                   .false.,-1,-1,1,'','',Geomn_longs,Geomn_latgs)
+
+            call datf2p (pdate,Out3_date)
+            dayfrac = dble(F_stepno) * Cstv_dt_8 / sec_in_day
+            call incdatsd (datev,pdate,dayfrac)
+
+!$omp parallel
+!$omp do
+            do j=1,Ptopo_npeOpenMP
+               call out_phycasc ( j , F_stepno, cobusval )
+            enddo
+!$omp enddo
+!$omp end parallel
+
+            if (Grdc_initphy_L) then
+*             Dump permanent bus out
+               call out_perbus_3df(cobusval,l_ni,l_nj,datev,
+     $                   Grdc_gid,Grdc_gif,Grdc_gjd,Grdc_gjf)
+               deallocate (cobusval)
+            else
+*             Dump only minimum physics fields out for cascade grid
+              call out_phy_3df(cobusval,l_ni,l_nj,datev,
+     $                   Grdc_gid,Grdc_gif,Grdc_gjd,Grdc_gjf)
+              deallocate (cobusval)
+            endif
+      endif
+*
+      if (P_pbd_dumpbus.gt.0) then
+        if (mod( F_stepno,P_pbd_dumpbus ).eq.0)
+     $  call dumpwrit3( Lun_out, F_stepno, Ptopo_myproc, F_stepno.eq.0 )
+      endif
+*
+*C   6.	Apply physics tendencies to the appropriate dynamic fields
+*C      and insure consistency with other dynamic variables
+*       ----------------------------------------------------------
+*
+      if (.not. schm_offline_L) then
+         call itf_phy_apply ( tdu,tdv,tdt,trm,
+     $                        tp,qp,LDIST_DIM,l_nk,F_stepno.gt.0 )
+      endif
+*
+*
+*       Store TRAJ of vertical exchange coefficients from full-physics
+*       --------------------------------------------------------------
+      if ( V4dg_conf.ne.0 .and. P4d_pbl.eq.2 .and. F_stepno.gt.0 .and.
+     $     V4dg_oktr_L ) call v4d_rwtraj_kmkt(kmm,ktm,LDIST_DIM,l_nk) 
+
+      deallocate (pvptr,tdu,tdv,tdt,trp,trm,tp,qp,kmm,ktm)
+      if (Schm_chems_L) deallocate (cvptrp,cvptrm)
+*
+*     ---------------------------------------------------------------
+*
+      return
+      end
