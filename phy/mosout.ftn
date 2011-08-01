@@ -1,0 +1,63 @@
+      subroutine mosout(var, bus_sfc, sfcsiz, ptsurf, ptsurfsiz, i, trnch,
+     $                  j, ni)
+
+* Auteur: L. Duarte, UQAM
+*
+* Revision   
+* 001     K. Winger  (Aug 2011) - Correct output format for GFORTAN
+*
+* Sous-routine permettant d'afficher les valeurs d'une variable sur toutes
+* les tuiles de la mosaique, sur un point de grille donne.
+*
+* Arguments:
+* var: index de la variable a afficher (fait reference au comdeck sfcbus.cdk)
+* bus_sfc: bus de surface
+* ptsurf  : Vecteur contenant les indices du premier element de chaque
+*           champ dans bus_sfc
+* i : position horisontale du point de grille
+* trnch: tranche traitee (correspond a la position verticale du point de
+*        grille)
+* j: niveau (pour variables avec une multiplicite superieure a 1)
+* ni: dimension horisontale
+*
+* Exemple d'appel:
+*
+*      call mosout(bm, bus, bussiz, ptsurf, ptsurfsiz, 21, trnch, 1, ni)
+*
+* Il est recommande d'utiliser cette sous-routine dans les sous-routines
+* utilisant le comdeck sfcbus.cdk (ex.: class.ftn)
+
+#include "impnone.cdk"
+
+      integer var, i, trnch, j, ni, sfcsiz, ptsurfsiz
+      real bus_sfc(sfcsiz)
+      integer ptsurf(ptsurfsiz)
+      integer ind, i_mf, i_ti, m
+      character*16 nomsurf  (0:1)
+
+#define DCLCHAR
+#include "phy_macros_f.h"
+#include "sfcbus.cdk"
+*
+#include "nbvarsurf.cdk"
+*
+#include "dimsurf.cdk"
+
+      equivalence (sfcbus_c_first(0),nomsurf(0))
+
+      if (i.gt.ni) then
+        write(*,'(a,i3,a,i3)') 'Erreur mosout: i=',i,', ni =',ni
+      elseif (j.gt.mul(var)) then
+        write(*,'(a,i3,a,i3)') 'Erreur mosout: j=',j,', mul=',mul(var)
+      else
+        print *, 'Mos  I  J Mul Mosfract   Tindex  ',nomsurf(var)
+        do m=1,mosaik(var)
+          ind =ptsurf(var)     +(j-1)*ni+(m-1)*ni*mul(var)+i-1
+          i_mf=ptsurf(mosfract)         +(m-1)*ni         +i-1
+          i_ti=ptsurf(tindex)           +(m-1)*ni         +i-1
+          write(*,'(x,3i3,i4,f9.5,f9.1,e12.5)') m, i, trnch, j, bus_sfc(i_mf),bus_sfc(i_ti),bus_sfc(ind)
+        end do
+      endif
+ 
+      return
+      end
