@@ -1,0 +1,427 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!
+!revisions
+! v3_32 - Winger & Dugas         - modify OMP Threadprivate code
+!
+!     ################
+      MODULE MODD_ISBA
+!     ################
+!
+!!****  *MODD_ISBA - declaration of packed surface parameters for ISBA scheme
+!!
+!!    PURPOSE
+!!    -------
+!
+!!
+!!**  IMPLICIT ARGUMENTS
+!!    ------------------
+!!      None 
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!    AUTHOR
+!!    ------
+!!	A. Boone   *Meteo France*
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original       20/09/02
+!
+!
+!*       0.   DECLARATIONS
+!             ------------
+!
+USE MODD_TYPE_DATE
+USE MODD_TYPE_SNOW
+!
+IMPLICIT NONE
+!-------------------------------------------------------------------------------
+!
+#define ALLOCATES ALLOCATABLE,SAVE
+!
+! ISBA Scheme Options:
+!
+CHARACTER(LEN=4), SAVE         :: CROUGH   ! type of roughness length
+                                           ! 'Z01D'
+                                           ! 'Z04D'
+CHARACTER(LEN=3), SAVE         :: CISBA    ! type of ISBA version:
+!                                          ! '2-L' (default)
+!                                          ! '3-L'
+!                                          ! 'DIF'
+CHARACTER(LEN=3), SAVE         :: CPHOTO   ! type of photosynthesis
+!                                          ! 'NON'
+!                                          ! 'AGS'
+!                                          ! 'LAI'
+CHARACTER(LEN=4), SAVE         :: CALBEDO  ! albedo type
+!                                          ! 'DRY ' 
+!                                          ! 'EVOL' 
+!                                          ! 'WET ' 
+!                                          ! 'USER' 
+CHARACTER(LEN=4), SAVE         :: CRUNOFF  ! surface runoff formulation
+!                                          ! 'WSAT'
+!                                          ! 'DT92'
+CHARACTER(LEN=4), SAVE         :: CSCOND   ! Thermal conductivity
+!                                          ! 'DEF ' = DEFault: NP89 implicit method
+!                                          ! 'PL98' = Peters-Lidard et al. 1998 used
+!                                          ! for explicit computation of CG
+CHARACTER(LEN=4), SAVE         :: CC1DRY   ! C1 formulation for dry soils
+!                                          ! 'DEF ' = DEFault: Giard-Bazile formulation
+!                                          ! 'GB93' = Giordani 1993, Braud 1993 
+!                                          !discontinuous at WILT
+CHARACTER(LEN=3), SAVE         :: CSOILFRZ ! soil freezing-physics option
+!                                          ! 'DEF' = Default (Boone et al. 2000; 
+!                                          !        Giard and Bazile 2000)
+!                                          ! 'LWT' = Phase changes as above,
+!                                          !         but relation between unfrozen 
+!                                          !         water and temperature considered
+!                            NOTE that when using the YISBA='DIF' multi-layer soil option,
+!                            the 'LWT' method is used. It is only an option
+!                            when using the force-restore soil method ('2-L' or '3-L')
+!
+CHARACTER(LEN=4), SAVE         :: CDIFSFCOND ! Mulch effects
+!                                            ! 'MLCH' = include the insulating effect of
+!                                            ! leaf litter/mulch on the surf. thermal cond.
+!                                            ! 'DEF ' = no mulch effect
+!                            NOTE: Only used when YISBA = DIF
+!
+CHARACTER(LEN=3), SAVE         :: CSNOWRES ! Turbulent exchanges over snow
+!	                                        ! 'DEF' = Default: Louis (ISBA)
+!       	                                  ! 'RIL' = Maximum Richardson number limit
+!                                          !         for stable conditions ISBA-SNOW3L
+!                                          !         turbulent exchange option
+!
+!-------------------------------------------------------------------------------
+!
+! type of initialization of vegetation: from cover types (ecoclimap) or parameters prescribed
+!
+LOGICAL, SAVE                  :: LPRESCRIBED_VEG ! T: LAI, veg, z0, z0/z0h, albedo, 
+!                                                 ! and emissivity are prescribed
+!                                                 ! F: they are computed from ecoclimap
+!
+!-------------------------------------------------------------------------------
+!
+! Mask and number of grid elements containing patches/tiles:
+!
+INTEGER, ALLOCATES  , DIMENSION(:)   :: NSIZE_NATURE_P ! number of sub-patchs/tiles              (-)
+INTEGER, ALLOCATES  , DIMENSION(:,:) :: NR_NATURE_P    ! patch/tile mask                         (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XPATCH         ! fraction of each tile/patch             (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XVEGTYPE       ! fraction of each vegetation type for
+!                                                      ! each grid mesh                          (-)
+REAL, ALLOCATES  , DIMENSION(:,:,:)  :: XVEGTYPE_PATCH ! fraction of each vegetation type for
+!                                                      ! each vegetation unit/patch              (-)
+INTEGER, SAVE                        :: NPATCH         ! maximum number of sub-tiles (patches)
+!                                                      ! used at any grid point within a 
+!                                                      ! natural surface fraction
+INTEGER, SAVE                        :: NGROUND_LAYER  ! number of ground layers
+!
+!-------------------------------------------------------------------------------
+!
+! General surface parameters:
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XZS               ! relief                                  (m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XCOVER            ! fraction of each ecosystem              (-)
+LOGICAL, ALLOCATES  , DIMENSION(:):: LCOVER            ! GCOVER(i)=T --> ith cover field is not 0.
+!
+! Averaged Surface radiative parameters:
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBNIR_DRY       ! dry soil near-infra-red albedo          (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBVIS_DRY       ! dry soil visible albedo                 (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBUV_DRY        ! dry soil UV albedo                      (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBNIR_WET       ! wet soil near-infra-red albedo          (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBVIS_WET       ! wet soil visible albedo                 (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XALBUV_WET        ! wet soil UV albedo                      (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBNIR_SOIL      ! soil near-infra-red albedo              (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBVIS_SOIL      ! soil visible albedo                     (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBUV_SOIL       ! soil UV albedo                          (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XEMIS_NAT         ! patch averaged emissivity               (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XTSRAD_NAT        ! patch averaged radiative temperature    (K)
+!
+! Subgrid orography parameters
+!
+REAL, DIMENSION(:), ALLOCATES   :: XAOSIP,XAOSIM,XAOSJP,XAOSJM
+! directional A/S quantities in 4 coordinate directions
+! (IP: i index up;  IM: i index down;  JP: j index up;  JM: j index down)
+! They are used in soil routines to compute effective roughness length
+!
+REAL, DIMENSION(:), ALLOCATES   :: XHO2IP,XHO2IM,XHO2JP,XHO2JM
+! directional h/2 quantities in 4 coordinate directions
+! (IP: i index up;  IM: i index down;  JP: j index up;  JM: j index down)
+! They are used in soil routines to compute effective roughness length
+!
+REAL, DIMENSION(:,:), ALLOCATES   :: XZ0EFFIP,XZ0EFFIM,XZ0EFFJP,XZ0EFFJM
+! directional total roughness lenghts in 4 coordinate directions
+! (IP: i index up;  IM: i index down;  JP: j index up;  JM: j index down)
+!
+REAL, DIMENSION(:), ALLOCATES     :: XZ0EFFJPDIR    ! heading of J direction (deg from N clockwise)
+!
+REAL, DIMENSION(:), ALLOCATES     :: XZ0REL         ! relief roughness length                 (m)
+!
+REAL, DIMENSION(:), ALLOCATES     :: XSSO_SLOPE     ! slope of S.S.O.                         (-)
+!-------------------------------------------------------------------------------
+!
+! Input Parameters, per patch:
+!
+! - vegetation + bare soil:
+!
+REAL, ALLOCATES  , DIMENSION(:,:) :: XZ0_O_Z0H         ! ratio of surface roughness lengths
+!                                                      ! (momentum to heat)                      (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBNIR           ! near-infra-red albedo                   (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBVIS           ! visible albedo                          (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBUV            ! UV albedo                               (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XEMIS             ! surface emissivity                      (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XZ0               ! surface roughness length                (m)
+!
+! - vegetation:
+!
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBNIR_VEG       ! vegetation near-infra-red albedo        (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBVIS_VEG       ! vegetation visible albedo               (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XALBUV_VEG        ! vegetation UV albedo                    (-)
+!
+! - vegetation: default option (Jarvis) and general parameters:
+!
+REAL, ALLOCATES  , DIMENSION(:,:) :: XVEG              ! vegetation cover fraction               (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XWRMAX_CF         ! coefficient for maximum water 
+!                                                      ! interception 
+!                                                      ! storage capacity on the vegetation      (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XRSMIN            ! minimum stomatal resistance             (s/m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XGAMMA            ! coefficient for the calculation
+!                                                      ! of the surface stomatal
+!                                                      ! resistance
+REAL, ALLOCATES  , DIMENSION(:,:) :: XCV               ! vegetation thermal inertia coefficient  (K m2/J)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XRGL              ! maximum solar radiation
+!                                                      ! usable in photosynthesis                (W/m2)
+REAL, ALLOCATES  , DIMENSION(:,:,:) :: XROOTFRAC       ! root fraction profile ('DIF' option)
+!
+!-------------------------------------------------------------------------------
+!
+! - vegetation: Ags parameters ('AGS', 'LAI', 'AST', 'LST', 'NIT' options)
+!
+REAL, SAVE,        DIMENSION(3)   :: XABC             ! abscissa needed for integration
+!                                                     ! of net assimilation and stomatal
+!                                                     ! conductance over canopy depth           (-)
+REAL, SAVE,        DIMENSION(3)   :: XPOI             ! Gaussian weights for integration
+!                                                     ! of net assimilation and stomatal
+!                                                     ! conductance over canopy depth           (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XBSLAI        ! ratio d(biomass)/d(lai)                 (kg/m2)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XLAIMIN       ! minimum LAI (Leaf Area Index)           (m2/m2)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XSEFOLD       ! e-folding time for senescence           (s)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XH_TREE       ! height of trees                         (m)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XANF          ! total assimilation over canopy          (
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XANMAX        ! maximum photosynthesis rate             (
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XFZERO        ! ideal value of F, no photo- 
+!                                                     ! respiration or saturation deficit       (
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XEPSO         ! maximum initial quantum use             
+!                                                     ! efficiency                              (mg J-1 PAR)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XGAMM         ! CO2 conpensation concentration          (ppm)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XQDGAMM       ! Q10 function for CO2 conpensation 
+!                                                     ! concentration                           (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XGMES         ! mesophyll conductance                   (m s-1)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XQDGMES       ! Q10 function for mesophyll conductance  (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XT1GMES       ! reference temperature for computing 
+!                                                     ! compensation concentration function for 
+!                                                     ! mesophyll conductance: minimum
+!                                                     ! temperature                             (K)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XT2GMES       ! reference temperature for computing 
+!                                                     ! compensation concentration function for 
+!                                                     ! mesophyll conductance: maximum
+!                                                     ! temperature                             (K)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XAMAX         ! leaf photosynthetic capacity            (mg m-2 s-1)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XQDAMAX       ! Q10 function for leaf photosynthetic 
+!                                                     ! capacity                                (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XT1AMAX       ! reference temperature for computing 
+!                                                     ! compensation concentration function for 
+!                                                     ! leaf photosynthetic capacity: minimum
+!                                                     ! temperature                             (K)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XT2AMAX       ! reference temperature for computing 
+!                                                     ! compensation concentration function for 
+!                                                     ! leaf photosynthetic capacity: maximum
+!                                                     ! temperature                             (K)
+!
+!-------------------------------------------------------------------------------
+!
+! - vegetation: Ags Stress parameters ('AST', 'LST', 'NIT' options)
+!
+LOGICAL, ALLOCATES  , DIMENSION(:,:) :: LSTRESS       ! vegetation response type to water
+!                                                     ! stress (true:defensive false:offensive) (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XF2I          ! critical normilized soil water 
+!                                                     ! content for stress parameterisation
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XGC           ! cuticular conductance                   (m s-1)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XAH           ! coefficients for herbaceous water stress 
+!                                                     ! response (offensive or defensive)       (log(mm/s))
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XBH           ! coefficients for herbaceous water stress 
+!                                                     ! response (offensive or defensive)       (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XDMAX         ! maximum air saturation deficit
+!                                                     ! tolerate by vegetation                  (kg/kg)
+!
+!-------------------------------------------------------------------------------
+!
+! - vegetation: Ags Nitrogen-model parameters ('NIT' option)
+!
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCE_NITRO       ! leaf aera ratio sensitivity to 
+!                                                       ! nitrogen concentration                (m2/kg)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCF_NITRO       ! lethal minimum value of leaf area
+!                                                       ! ratio                                 (m2/kg)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCNA_NITRO      ! nitrogen concentration of active 
+!                                                       ! biomass                               (kg/kg)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XBSL_INIT_NITRO ! biomass/LAI ratio from nitrogen 
+!                                                       ! decline theory                        (kg/m2)
+!
+!-------------------------------------------------------------------------------
+!
+! - soil: primary parameters
+!
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XSAND          ! sand fraction                           (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCLAY          ! clay fraction                           (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XRUNOFFB       ! sub-grid surface runoff slope parameter (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XWDRAIN        ! continuous drainage parameter           (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XTAUICE        ! soil freezing characteristic timescale  (s)
+REAL, ALLOCATES  , DIMENSION(:)      :: XGAMMAT        ! 'Force-Restore' timescale when using a
+!                                                      ! prescribed lower boundary temperature   (1/days)
+REAL, ALLOCATES  , DIMENSION(:,:,:)  :: XDG            ! soil layer thicknesses                  (m)
+!                                                      ! NOTE: in Force-Restore mode, the 
+!                                                      ! uppermost layer thickness is superficial
+!                                                      ! and is only explicitly used for soil 
+!                                                      ! water phase changes                     (m)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XRUNOFFD       ! depth over which sub-grid runoff is
+!                                                      ! computed: in Force-Restore this is the
+!                                                      ! total soil column ('2-L'), or root zone
+!                                                      ! ('3-L'). For the 'DIF' option, it can
+!                                                      ! be any depth within soil column         (m)
+!
+!-------------------------------------------------------------------------------
+!
+! - soil: Secondary parameters: hydrology
+!
+REAL, ALLOCATES  , DIMENSION(:)      :: XC1SAT         ! 'Force-Restore' C1 coefficient at 
+!                                                      ! saturation                              (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XC2REF         ! 'Force-Restore' reference value of C2   (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XC3            ! 'Force-Restore' C3 drainage coefficient (m)
+REAL, ALLOCATES  , DIMENSION(:)      :: XC4B           ! 'Force-Restore' sub-surface vertical 
+!                                                      ! diffusion coefficient (slope parameter) (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XC4REF         ! 'Force-Restore' sub-surface vertical 
+!                                                      ! diffusion coefficient                   (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XACOEF         ! 'Force-Restore' surface vertical 
+!                                                      ! diffusion coefficient                   (-)
+REAL, ALLOCATES  , DIMENSION(:)      :: XPCOEF         ! 'Force-Restore' surface vertical 
+!                                                      ! diffusion coefficient                   (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XWFC           ! field capacity volumetric water content
+!                                                      ! profile                                 (m3/m3)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XWWILT         ! wilting point volumetric water content 
+!                                                      ! profile                                 (m3/m3)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XWSAT          ! porosity profile                        (m3/m3) 
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XBCOEF         ! soil water CH78 b-parameter             (-)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCONDSAT       ! hydraulic conductivity at saturation    (m/s)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XMPOTSAT       ! matric potential at saturation          (m)
+!
+!-------------------------------------------------------------------------------
+!
+! - soil: Secondary parameters: thermal 
+!
+REAL, ALLOCATES  , DIMENSION(:)      :: XCGSAT         ! soil thermal inertia coefficient at 
+!                                                      ! saturation                              (K m2/J)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XHCAPSOIL      ! soil heat capacity                      (J/K/m3)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCONDDRY       ! soil dry thermal conductivity           (W/m/K)
+REAL, ALLOCATES  , DIMENSION(:,:)    :: XCONDSLD       ! soil solids thermal conductivity        (W/m/K)
+REAL, ALLOCATES  , DIMENSION(:)      :: XTDEEP         ! prescribed deep soil temperature 
+!                                                      ! (optional)                              (K)
+!-------------------------------------------------------------------------------
+!
+! Prognostic variables:
+!
+! - Snow Cover:
+!
+TYPE(SURF_SNOW), SAVE                 :: TSNOW         ! snow state: 
+!                                                      ! scheme type/option                      (-)
+!                                                      ! number of layers                        (-)
+!                                                      ! snow (& liq. water) content             (kg/m2)
+!                                                      ! heat content                            (J/m2)
+!                                                      ! temperature                             (K)
+!                                                      ! density                                 (kg m-3)
+!
+!-------------------------------------------------------------------------------
+!
+! - Soil and vegetation heat and water:
+!
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XWR           ! liquid water retained on the
+!                                                      ! foliage of the vegetation
+!                                                      ! canopy                                  (kg/m2)
+REAL, ALLOCATES  , DIMENSION(:,:,:)   :: XTG           ! surface and sub-surface soil 
+!                                                      ! temperature profile                     (K)
+REAL, ALLOCATES  , DIMENSION(:,:,:)   :: XWG           ! soil volumetric water content profile   (m3/m3)
+REAL, ALLOCATES  , DIMENSION(:,:,:)   :: XWGI          ! soil liquid water equivalent volumetric 
+!                                                      ! ice content profile                     (m3/m3)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XRESA         ! aerodynamic resistance                  (s/m)
+!
+!-------------------------------------------------------------------------------
+!
+! - Vegetation: Ags Prognostic (YPHOTO = ('LAI', 'LST', or 'NIT') or prescribed (YPHOTO='NON', 'AGS' or 'LST')
+!
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XLAI          ! Leaf Area Index                         (m2/m2)
+!
+!-------------------------------------------------------------------------------
+!
+! - Vegetation: Ags Prognostic (YPHOTO = 'LAI', 'LST', 'AGS' or 'LST')
+!
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XAN           ! net CO2 assimilation                    (mg/m2/s)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XANDAY        ! daily net CO2 assimilation              (mg/m2)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XANFM         ! maximum leaf assimilation               (mg/m2/s)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XLE           ! evapotranspiration                      (W/m2)
+!
+!-------------------------------------------------------------------------------
+!
+! - Vegetation (Ags 'NIT' option):
+!
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XRESPBSTR        ! respiration of above-ground 
+!                                                         ! structural biomass                   (kg/m2/s)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XRESPBSTR2       ! respiration of deep structural 
+!                                                         ! biomass                              (kg/m2/s)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XBIOMASSTR2_LAST ! dry below-ground structural biomass 
+!                                                         ! of previous day                      (kg/m2) 
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XBIOMASSTR2      ! dry below-ground structural biomass  (kg/m2)
+REAL, ALLOCATES  , DIMENSION(:,:)     :: XBIOMASS_LAST    ! dry above-ground active biomass of 
+!                                                         ! previous day                         (kg/m2)
+!
+!-------------------------------------------------------------------------------
+!
+TYPE (DATE_TIME)                      :: TTIME            ! current date and time
+!
+REAL, SAVE                            :: XTSTEP           ! ISBA time step
+!
+REAL, SAVE                            :: XOUT_TSTEP       ! ISBA output writing time step
+!-------------------------------------------------------------------------------
+!
+!$OMP THREADPRIVATE(XPATCH,XVEGTYPE,XVEGTYPE_PATCH,XZS,XCOVER,XALBNIR_DRY,   &
+!$OMP XALBVIS_DRY,XALBUV_DRY,XALBNIR_WET,XALBVIS_WET,XALBUV_WET,XALBNIR_SOIL,&
+!$OMP XALBVIS_SOIL,XALBUV_SOIL,XEMIS_NAT,XTSRAD_NAT,XAOSIP,XAOSIM,XAOSJP,    &
+!$OMP XAOSJM,XHO2IP,XHO2IM,XHO2JP,XHO2JM,XZ0EFFIP,XZ0EFFIM,XZ0EFFJP,XZ0EFFJM,&
+!$OMP XZ0EFFJPDIR,XZ0REL,XSSO_SLOPE,XZ0_O_Z0H,XALBNIR,XALBVIS,XALBUV,XEMIS,  &
+!$OMP XZ0,XALBNIR_VEG,XALBVIS_VEG,XALBUV_VEG,XVEG,XWRMAX_CF,XRSMIN,XGAMMA,   &
+!$OMP XCV,XRGL,XROOTFRAC,XABC,XPOI,XBSLAI,XLAIMIN,XSEFOLD,XH_TREE,XANF,      &
+!$OMP XANMAX,XFZERO,XEPSO,XGAMM,XQDGAMM,XGMES,XQDGMES,XT1GMES,XT2GMES,XAMAX, &
+!$OMP XQDAMAX,XT1AMAX,XT2AMAX,XF2I,XGC,XAH,XBH,XDMAX,XCE_NITRO,XCF_NITRO,    &
+!$OMP XCNA_NITRO,XBSL_INIT_NITRO,XSAND,XCLAY,XRUNOFFB,XWDRAIN,XTAUICE,       &
+!$OMP XGAMMAT,XDG,XRUNOFFD,XC1SAT,XC2REF,XC3,XC4B,XC4REF,XACOEF,XPCOEF,XWFC, &
+!$OMP XWWILT,XWSAT,XBCOEF,XCONDSAT,XMPOTSAT,XCGSAT,XHCAPSOIL,XCONDDRY,       &
+!$OMP XCONDSLD,XTDEEP,XWR,XTG,XWG,XWGI,XRESA,XLAI,XAN,XANDAY,XANFM,XLE,      &
+!$OMP XRESPBSTR,XRESPBSTR2,XBIOMASSTR2_LAST,XBIOMASSTR2,XBIOMASS_LAST,XTSTEP,&
+!$OMP XOUT_TSTEP,LCOVER,LSTRESS,NSIZE_NATURE_P,NR_NATURE_P,                  &
+!$OMP NPATCH,NGROUND_LAYER,LPRESCRIBED_VEG,CROUGH,CISBA,CPHOTO,CALBEDO,      &
+!$OMP CRUNOFF,CSCOND,CC1DRY,CSOILFRZ,CDIFSFCOND,CSNOWRES,TSNOW)
+!
+END MODULE MODD_ISBA
+

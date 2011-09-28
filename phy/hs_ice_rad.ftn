@@ -1,0 +1,15 @@
+c Version 1.0
+      subroutine hs_ice_rad (sw, hi, hs, condbar, val, val2)
+      implicit none
+#include "lakepar.cdk"
+      real  a,b,c,d,sw,hi,hs,val,val2,condbar
+       condbar=(hs*condi+hi*conds)/(condi*conds)
+       a=(1.-exp(-lamssw*hs))/(conds*lamssw)
+       b=exp(-lamssw*hs)*(1-exp(-lamisw*hi))/(condi*lamisw)
+       c=(1.-exp(-lamslw*hs))/(conds*lamslw)
+       d=exp(-lamslw*hs)*(1-exp(-lamilw*hi))/(condi*lamilw)
+       val=sw*afrac1*(a+b)+sw*afrac2*(c+d)
+       val2=-afrac1*sw*(1-exp(-(lamssw*hs+lamisw*hi)))
+     +      -afrac2*sw*(1-exp(-(lamslw*hs+lamilw*hi)))
+       return
+       end

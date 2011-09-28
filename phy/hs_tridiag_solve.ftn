@@ -1,0 +1,83 @@
+c Version 1.0
+c     to compute the solution of many tridiagonal linear systems.
+c     this is Starley and Stephen's method
+      subroutine hs_tridiag_solve (ns, nd, ne, a, b, c, y, x, alpha, gamma)
+
+c      ns ..... the number of systems to be solved.
+c      nd ..... first dimension of arrays (ge ns).
+c      ne ..... the number of unknowns in each system.
+c               this must be > 2. second dimension of arrays.
+c      a ...... the subdiagonals of the matrices are stored
+c               in locations a(j,2) through a(j,ne).
+c      b ...... the main diagonals of the matrices are stored
+c               in locations b(j,1) through b(j,ne).
+c      c ...... the super-diagonals of the matrices are stored in
+c               locations c(j,1) through c(j,ne-1).
+c      y ...... the right hand side of the equations is stored in
+c               y(j,1) through y(j,ne).
+c      x ...... the solutions of the systems are returned in
+c               locations x(j,1) through x(j,ne).
+c      alpha .. work array dimensioned alpha(nd,ne)
+c      gamma .. work array dimensioned gamma(nd,ne)
+c      history: based on a streamlined version of the old ncar
+c               ulib subr trdi used in the phoenix climate
+c               model of schneider and thompson (j.g.r., 1981).
+c               revised by starley thompson to solve multiple
+c               systems and vectorize well on the cray-1.
+c               later revised to include a parameter statement
+c               to define loop limits and thus enable cray short
+c               vector loops.
+c      algorithm: lu decomposition followed by solution.
+c                 note: this subr executes satisfactorily
+c                 if the input matrix is diagonally dominant
+c                 and non-singular.  the diagonal elements are
+c                 used to pivot, and no tests are made to determine
+c                 singularity. if a singular or numerically singular
+c                 matrix is used as input a divide by zero or
+c                 floating point overflow will result.
+c
+c     last revision date:      4 february 1988
+c
+      implicit none
+      integer ns,ne,nd,nm1,j,i,ib
+      real a(nd,ne), b(nd,ne), c(nd,ne), y(nd,ne),
+     +     x(nd,ne), alpha(nd,ne), gamma(nd,ne)
+
+      nm1 = ne-1
+c
+c        obtain the lu decompositions.
+c
+      do j=1,ns
+         alpha(j,1) = 1./b(j,1)
+         gamma(j,1) = c(j,1)*alpha(j,1)
+      enddo
+      do i=2,nm1
+         do j=1,ns
+            alpha(j,i) = 1./(b(j,i)-a(j,i)*gamma(j,i-1))
+            gamma(j,i) = c(j,i)*alpha(j,i)
+         enddo
+      enddo
+c
+c        solve
+c
+      do j=1,ns
+         x(j,1) = y(j,1)*alpha(j,1)
+      enddo
+      do i=2,nm1
+         do j=1,ns
+            x(j,i) = (y(j,i)-a(j,i)*x(j,i-1))*alpha(j,i)
+         enddo
+      enddo
+      do j=1,ns
+         x(j,ne) = (y(j,ne)-a(j,ne)*x(j,nm1))/
+     +             (b(j,ne)-a(j,ne)*gamma(j,nm1))
+      enddo
+      do i=1,nm1
+         ib = ne-i
+         do j=1,ns
+            x(j,ib) = x(j,ib)-gamma(j,ib)*x(j,ib+1)
+         enddo
+      enddo
+c
+      return
+      end

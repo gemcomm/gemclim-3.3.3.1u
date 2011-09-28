@@ -1,0 +1,150 @@
+c Version 1.0
+      subroutine hs_tracer_mixer ( t, dnsty, depth,
+     +             salty , mixdep, iwater,kount )
+      implicit none
+#include "lakes.cdk"
+#include "lakepar.cdk"
+      integer k,mixprev,i_tr,iwater,m,mixdep,kk,k2
+	real avet,avev,avev_tr,cp,vol,vol_tr,tav,densnew,rho_max
+      real t(depth,2), dnsty(depth)
+      real tr_work (depth,n_trace)
+      real tr_av (n_trace), ave_tr (n_trace)   ! need one for each tracer 
+      real salty (INL,n_trace),kount
+
+      do k=1,depth
+         call hs_density(t(k,1),salty(k,n_trace),dnsty(k))
+      enddo
+
+      mixprev = 1 ! top depth of local instability, may not be 1
+
+      do  k= 1,depth
+        do  i_tr = 1, num_tra
+          if (iwater.eq.1) tr_work(k,i_tr) = trace (k,i_tr)  ! open water calc
+          if (iwater.eq.0) tr_work(k,i_tr) = trace_i (k,i_tr)  ! ice calc
+        enddo
+      enddo
+
+c-----------------------------------------------------------------------
+c   1. check for density instability at each slice in water column 
+c------------------------------------------------------------------------
+ 9     continue            ! if a new instability created by mixer
+       do  k=1,depth-1
+        avet=0.0
+        avev=0.0
+
+        do i_tr = 1, num_tra
+          ave_tr (i_tr) = 0.
+        enddo
+        avev_tr = 0.    ! out of tracer loop, same for all tracers
+
+      if (dnsty(k).gt.dnsty(k+1)) then
+
+c  if density in layer above greater than density in layer below, keep
+c  track of the depth to which mixing should occur (mixdep)
+
+        if (mixprev.eq.1.and.(k+1).gt.mixdep)  ! reassigns mix
+     +      mixdep=k+1 ! if top mix and dep > wat dep for ice
+
+c-----------------------------------------------------------------------
+c   2.  sum and average temp,tracer,volume,density from mixprev to k+1  
+c------------------------------------------------------------------------
+
+        do m = mixprev, k+1 ! mix from top of instab to bot of inst 
+
+           call hs_specheat (t(m,2),salty(m,n_trace),cp)
+           if (m.eq.1) then
+              vol = surf*(1.e3+dnsty(m))*cp*area(m) ! joules / deg
+              vol_tr = surf * area(m)
+c  calculate the total heat in each layer of unstable water (vol) and the
+c  total volume of each layer (vol_tr)
+           else
+              vol = yz*(1.e3+dnsty(m))*cp*area(m)   ! joules / deg
+              vol_tr = yz * area(m)
+c  same as above, but using yz instead of surf to reflect the fact that we
+c  are in a layer below the surface
+           endif
+           avet=avet+t(m,2)*vol
+           avev=avev+vol
+
+c  sum up the total amount of heat contained within the slab of unstable water
+c  by addiding all the slices together, then sum up the total volume of the
+c  slab and the total amount of any tracers (see below)
+
+           do   i_tr = 1, num_tra
+
+             ave_tr(i_tr)=ave_tr(i_tr)+tr_work(m,i_tr)*vol_tr
+           enddo
+           avev_tr = avev_tr + vol_tr   ! sum of volume 
+
+
+        enddo  ! end summing 
+
+c  calculate the new average temperature and tracer concentrations for the
+c  mixed layer
+
+        Tav=avet/avev
+        do i_tr = 1,num_tra
+          tr_av (i_tr) = ave_tr(i_tr) / avev_tr
+        enddo
+
+
+c  next, given the new average temperature and salinity, calculate the new 
+c  density profile for the water
+        if (s_flag) then    ! need to use mixed value, which is the last tracer
+
+          call hs_density (Tav,tr_av(num_tra),densnew)
+        else    ! salinity not changing, just use surface value
+          call hs_density (Tav,salty(1,n_trace),densnew)
+        endif   
+
+c   2.1 check to make this has not generated new instabilities
+c       above mixprev    
+
+        rho_max = -50.0   !  
+
+
+
+        do kk=1,mixprev-1   ! find maximum density above mixed section
+         if (dnsty(kk).gt.rho_max ) rho_max=dnsty(kk)
+        enddo
+
+c-----------------------------------------------------------------------
+c   3.  adjust temp,tracers and density in the mixed part of column 
+c------------------------------------------------------------------------
+
+        do k2 = mixprev, k+1
+           t(k2,2)=Tav 
+           do i_tr = 1,num_tra
+             tr_work(k2,i_tr) = tr_av (i_tr)
+           enddo
+           dnsty(k2)=densnew
+        enddo
+
+c   3.1 compare rho_max to adjusted new densities
+        if (rho_max.gt.(densnew)) then   ! need to go back to top
+         mixprev = 1                   ! reset to top of column
+         go to 9                       ! start checking column again
+        endif                          ! if new instability created
+ 
+       else         ! if density at K not > k + 1
+        mixprev=k+1
+       endif        ! if density at k > k+1
+
+      enddo  !   end looping through water column searching for inst.
+
+      do k = 1, depth
+             t(k,1)=t(k,2) 
+
+        do i_tr = 1,num_tra
+          if (iwater.eq.1) trace(k,i_tr)=tr_work(k,i_tr) ! open water calc
+          if (iwater.eq.0) trace_i(k,i_tr)=tr_work(k,i_tr) ! ice calc
+      enddo
+
+c  once mixing is completely done, calculate the new density profile for the
+c  mixed water
+
+        call hs_density (t(k,1),salty(k,n_trace),dnsty(k))
+      enddo
+
+      return
+      end

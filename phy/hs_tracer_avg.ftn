@@ -1,0 +1,15 @@
+c Version 1.0
+c     average water and ice for fractional cover
+      subroutine hs_tracer_avg (depth, fracprv)
+      implicit none
+#include "lakepar.cdk"
+	real fracprv
+	integer j,i_tr
+      do j=1,depth
+         do i_tr = 1, num_tra
+             trace (j,i_tr) = (1.-fracprv)*trace(j,i_tr) + 
+     +                         fracprv*trace_i(j,i_tr) 
+         enddo
+      enddo
+      return
+      end

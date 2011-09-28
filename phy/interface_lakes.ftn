@@ -1,0 +1,1213 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** 
+*
+#include "phy_macros_f.h"
+      SUBROUTINE INTERFACE_LAKES ( bus, bussiz,
+     $                   ptsurf, ptsurfsiz,dt,
+     $                   trnch, kount,
+     $                   n, m, nk )
+*
+      implicit none
+*
+      integer bussiz, kount, trnch
+      real bus(bussiz)
+      integer ptsurfsiz
+      integer ptsurf(ptsurfsiz)
+      integer n, m, nk
+      real dt
+*
+*Author
+*          A. Martynov (UQAM)
+*
+*Revisions
+* 001      A. Martynov (Summer 2011) - Initial version
+* 002      A. Martynov (March  2012) - Correct lake depth
+*
+*Arguments
+*             - Input/Output -
+* BUS         Bus for the WATER surface scheme
+*
+*             - Input -
+* BUSSIZ      dimension of bus
+* PTSURF      surface pointers
+* PTSURFSIZ   dimension of ptsurf
+* TRNCH       row number
+* KOUNT       timestep number
+* DT          length of timestep
+* N           horizontal dimension (row length)
+* M           horiatzontal dimensions of fields
+*             (not used for the moment)
+* NK          vertical dimension
+*
+*
+*Notes
+*          Z0 = BETA*USTAR**2/GRAV (in metres) with minimum value
+*          Z0MIN and a maximum value Z0MAX
+*
+*IMPLICITES
+*
+#include "consphy.cdk"
+*
+#include "clefcon.cdk"
+#include "options.cdk"
+#include "lakes.cdk"
+
+*
+      integer ptr, x
+      INTEGER I, J, K
+*
+*
+*
+*MODULES
+*
+*      EXTERNAL FLXSURF3
+*
+*
+****************************************************
+*     AUTOMATIC ARRAYS
+****************************************************
+*
+      AUTOMATIC ( EMIST  , REAL    , (N   ) )
+      AUTOMATIC ( VMOD  , REAL , (N) )
+      AUTOMATIC ( SCR1  , REAL , (N) )
+      AUTOMATIC ( SCR2  , REAL , (N) )
+      AUTOMATIC ( SCR3  , REAL , (N) )
+      AUTOMATIC ( SCR4  , REAL , (N) )
+      AUTOMATIC ( SCR5  , REAL , (N) )
+      AUTOMATIC ( ZTN   , REAL , (N) )
+      AUTOMATIC ( ZUN   , REAL , (N) )
+*
+****************************************************
+*
+      REAL BETA, RHO
+*
+
+*AMTV I/O VARIABLES
+
+      REAL ALVIS_AVG, FC_AVG
+      REAL FV_AVG, HU, ZSNODP
+      REAL CMU_AVG,CTU_AVG,Z0H_AVG,Z0M_AVG
+      REAL HST_AVG, ILMO_AVG,QLWIN,FSOL
+      REAL PS, QS, TH, TT, UU, VV,TS
+      REAL ZALFAQ, ZALFAT, ZDLAT, ZFCOR,ZDLON
+      REAL ZFTEMP, ZFVAP, ZQDIAG, ZTDIAG
+      REAL ZTSURF, ZTSRAD, ZUDIAG, ZVDIAG
+      REAL ZFRV_AVG, ZZUSL, ZZTSL
+      REAL  ZRUNOFFTOT, ZRAINRATE,ZSNOWRATE
+
+*AMTV OPEN WATER VARIABLES
+
+      REAL ALVIS_WAT(N),CMU_WAT(N), CTU_WAT(N), FC_WAT(N)
+      REAL FV_WAT(N)
+      REAL HST_WAT(N), ILMO_WAT(N)
+      REAL Z0H_WAT(N), Z0M_WAT(N)
+      REAL ZALFAQ_WAT(N), ZALFAT_WAT(N),  ZFCOR_WAT(N)
+      REAL ZFTEMP_WAT(N), ZFVAP_WAT(N) , ZQDIAG_WAT(N), ZTDIAG_WAT(N)
+      REAL ZTSURF_WAT(N), ZTSRAD_WAT(N), ZUDIAG_WAT(N), ZVDIAG_WAT(N)
+      REAL ZFRV_WAT,WINDCRIT,ZFRVMIN,WA_WAT(N)
+      REAL QS_WAT(N),TS_WAT(N)
+*      REAL  ZRUNOFFTOT_WAT(N)
+
+*AMTV ICE-COVER VARIABLES
+
+      REAL ALVIS_ICE(N), CMU_ICE(N), CTU_ICE(N), FC_ICE(N)
+      REAL FV_ICE(N)
+      REAL HST_ICE(N), ILMO_ICE(N)
+      REAL Z0H_ICE(N), Z0M_ICE(N)
+      REAL ZALFAQ_ICE(N), ZALFAT_ICE(N),  ZFCOR_ICE(N)
+      REAL ZFTEMP_ICE(N), ZFVAP_ICE(N),  ZQDIAG_ICE(N), ZTDIAG_ICE(N)
+      REAL ZTSURF_ICE(N), ZTSRAD_ICE(N), ZUDIAG_ICE(N), ZVDIAG_ICE(N)
+      REAL ZFRV_ICE,WA_ICE(N)
+      REAL QS_ICE(N), TS_ICE(N), DQS_ICE(N)
+*      REAL  ZRUNOFFTOT_ICE(N)
+
+*AMTV LAKE MODEL VARIABLES
+
+      REAL LDEPTH,LFICE,LHICE,LHML,LFR,FDEPTH
+      REAL LTBOT,LTICE,LTMNW,LTP(N,INL),LLTP,LTRANSP,LTWML,LCT
+
+      REAL WIND, T_sfc_in, T_sfc_out, SWD, TP(INL),ZQDIAG_TMP(N)
+      REAL WA_AVG(N), LHMIN, TPOUT(INL),IDAY1,DAY1, PCPR(N)
+      REAL coszrs(N), julien1, HSNOW, T_ice_out,yz,XPI
+
+      REAL JULIAND,HZ1,DAYLNT,albedo
+      EXTERNAL JULIAND
+
+      INTEGER DEP
+
+*FLAKE VARIABLES
+	REAL CORIO,omega_earth,t_ice_in,t_snow_in,t_mnw_in
+	REAL t_wml_in,t_bot_in,c_t_in,h_ml_in,t_b1_in
+	REAL h_b1_in,t_air_in,tpl_t_r,t_bot_out
+	REAL t_snow_out,t_mnw_out,t_wml_out,t_b1_out
+	REAL c_t_out,h_snow_out,tpl_t_f
+	REAL h_ice_out,h_ml_out,h_b1_out
+
+
+      REAL CON1,CON2,CON3,CON4,CON5,CON6
+      REAL CON7,CON8,CON9,CON10,CON11,CON12
+
+      REAL FI0,CONDFI,TFRZW,TMELI,TMELS
+
+      REAL ALBOW,ALBDI,ALBMI,ALBDS,ALBMS,EMISI,EMISNO,EMISW
+
+      REAL COEFCOND,COEFHCAP,COEFEXT
+
+      REAL ROICE,ROSNOW(2),ROSWTR
+
+      REAL Z0ICE,Z0W, HICE_ALB(N)
+
+      REAL BASEHF
+
+      REAL HCAPI,HCAPW,VHFICE,VHFBAS,VHFSNO
+
+      REAL HSMIN,DMIX
+
+
+      DATA   CON1     , CON2   , CON3  , CON4    /
+     1       2.845E-6 , 2.7E-4 , 233.0 , 0.2   /
+      DATA   CON5     , CON6   , CON7  , CON8  /
+     1       92.88    , 7.364  , 3.2   , 14.24 /
+      DATA   CON9     , CON10 , CON11 , CON12 /
+     1       19.39    , 0.1   , 0.44  , 0.075 /
+      DATA  TFRZW , TMELI , TMELS /  271.2 , 273.05 , 273.15  /
+      DATA  ALBOW   ,  ALBDI  ,  ALBMI ,  ALBDS  ,  ALBMS /
+     1      0.08    ,  0.57   ,  0.50  ,  0.83   ,  0.77  /
+      DATA  FI0   ,  CONDFI , COEFCOND , COEFHCAP , COEFEXT /
+     1      0.17  ,  2.034  , 0.1172   , 1.715E+7 , 1.5     /
+      DATA  EMISI , EMISNO , EMISW / 0.99 , 0.99 , 0.97 /
+      DATA  ROICE ,  ROSWTR  / 913.0 ,  1025.0  /
+      DATA  ROSNOW / 330.0 , 450.0 /
+      DATA  Z0ICE ,  Z0W  / 1.6E-4 , 3.2E-5 /
+      DATA  BASEHF / 2.0 /
+      DATA  HCAPI    , HCAPW    , VHFICE   , VHFBAS   , VHFSNO   /
+     1      2.062E+3 , 4.088E+3 , 3.014E+8 , 2.679E+8 , 1.097E+8 /
+      DATA  HSMIN , DMIX / 0.010 , 30.0 /
+      DATA XPI /3.1415927/
+      DATA DAYLNT /86400.0/
+*
+#include "himin.cdk"
+
+*
+      POINTER (IALVIS_AVG , ALVIS_AVG  (1) )
+      POINTER (ICMU_AVG   , CMU_AVG    (1) )
+      POINTER (ICTU_AVG   , CTU_AVG    (1) )
+      POINTER (IFC_AVG    , FC_AVG     (1) )
+      POINTER (IFV_AVG    , FV_AVG     (1) )
+      POINTER (IHST_AVG   , HST_AVG    (1) )
+      POINTER (IHU        , HU         (1) )
+      POINTER (IILMO_AVG  , ILMO_AVG   (1) )
+      POINTER (IPS        , PS         (1) )
+      POINTER (IQS        , QS         (1) )
+      POINTER (ITH        , TH         (1) )
+      POINTER (ITT        , TT         (1) )
+      POINTER (IUU        , UU         (1) )
+      POINTER (IVV        , VV         (1) )
+      POINTER (IZ0H_AVG   , Z0H_AVG    (1) )
+      POINTER (IZ0M_AVG   , Z0M_AVG    (1) )
+      POINTER (IZALFAQ    , ZALFAQ     (1) )
+      POINTER (IZALFAT    , ZALFAT     (1) )
+      POINTER (IZDLAT     , ZDLAT      (1) )
+      POINTER (IZDLON     , ZDLON      (1) )
+      POINTER (IZFCOR     , ZFCOR      (1) )
+      POINTER (IZFTEMP    , ZFTEMP     (1) )
+      POINTER (IZFVAP     , ZFVAP      (1) )
+      POINTER (IZQDIAG    , ZQDIAG     (1) )
+      POINTER (IZRFTOT   , ZRUNOFFTOT  (1) )
+*      POINTER (IZRAINRATE, ZRAINRATE   (1) )
+      POINTER (IZSNOWRATE, ZSNOWRATE   (1) )
+      POINTER (IZTDIAG    , ZTDIAG     (1) )
+      POINTER (IZTSURF    , ZTSURF     (1) )
+      POINTER (IZTSRAD    , ZTSRAD     (1) )
+      POINTER (IZUDIAG    , ZUDIAG     (1) )
+      POINTER (IZVDIAG    , ZVDIAG     (1) )
+      POINTER (IZFRV_AVG  , ZFRV_AVG   (1) )
+      POINTER (IZFRV_ICE  , ZFRV_ICE   (1) )
+      POINTER (IZFRV_WAT  , ZFRV_WAT   (1) )
+      POINTER (IZZUSL     , ZZUSL      (1) )
+      POINTER (IZZTSL     , ZZTSL      (1) )
+      POINTER (IFSOL      , FSOL       (1) )
+      POINTER (ILCT       , LCT        (1) )
+      POINTER (ILDEPTH    , LDEPTH     (1) )
+      POINTER (ILFICE     , LFICE      (1) )
+      POINTER (ILHICE     , LHICE      (1) )
+      POINTER (ILHML      , LHML       (1) )
+      POINTER (ILTBOT     , LTBOT      (1) )
+      POINTER (ILTICE     , LTICE      (1) )
+      POINTER (ILTMNW     , LTMNW      (1) )
+      POINTER (ILFR       , LFR        (1) )
+      POINTER (ILLTP       , LLTP     (N,INL))
+      POINTER (ILTRANSP   , LTRANSP    (1) )
+      POINTER (ILTWML     , LTWML      (1) )
+      POINTER (IQLWIN     , QLWIN      (1) )
+      POINTER (IZSNODP   , ZSNODP     (1   ) )
+*
+*
+#include "zuzt.cdk"
+*
+      REAL Z0MAX, Z0HCON,QSENS,QLAT
+*      SAVE Z0MAX, Z0HCON
+
+      REAL dummy1(n),dummy2(n),dummy3(n),dummy4(n),dummy5,dummy6
+*
+***
+*
+***  WARNING ------ the value for Z0MAX needs to be increased when coupled with WAM
+*
+***   DATA Z0MAX / 5.E-2 /
+      DATA Z0MAX / 5.E-3 /
+      DATA Z0HCON/ 4.E-5/
+*
+*** ------------------------------------------------------------------
+*
+
+#include "sfcbus.cdk"
+
+#include "locbus.cdk"
+      INTEGER INDX_SFC, SURFLEN
+      INTEGER QUELNIVO(MAXVARSURF)
+*
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+#include "xptsurf.cdk"
+*
+*
+*
+      SURFLEN = M
+*
+*
+*     EQUIVALENCES
+*
+      INDX_SFC = INDX_LAKES
+
+      INIT_LOCBUS()
+*
+*     Syntax of macro locbus (must be typed in CAPITAL letters):
+*     locbus (pointer, array_name_in_the_bus, level)
+*     If level=0, array chosen automatically as follows:
+*        1) level =  1 if array has  1 level only (e.g. TSURF )
+*        2) level = nk if array has nk levels     (e.g. TMOINS)
+*        3) level = indx_sfc if array has a level for each surface type (e.g. FC)
+*        4) level has to be specified by user if array has more than one level
+*           that all "belong" to the same surface type (e.g. TSOIL)
+*
+      LOCBUS (IFSOL    , FLUSOLIS,  0 ) 
+      LOCBUS (IQLWIN   , FDSI    ,  0 ) 
+      LOCBUS (IALVIS_AVG, ALVIS  ,  0 ) 
+      LOCBUS (ICMU_AVG  , BM     ,  0 )
+      LOCBUS (ICTU_AVG  , BT     ,  0 )
+      LOCBUS (IFC_AVG   , FC     ,  0 )
+      LOCBUS (IFV_AVG   , FV     ,  0 )
+      LOCBUS (IHST_AVG  , HST    ,  0 )
+      LOCBUS (IHU       , HUMOINS,  0 ) !NOAGG
+      LOCBUS (IILMO_AVG , ILMO   ,  0 )
+      LOCBUS (IPS       , PMOINS ,  0 ) !NOAGG
+      LOCBUS (IQS       , QSURF  ,  0 )
+      LOCBUS (ITH       , THETAA ,  0 )
+      LOCBUS (ITT       , TMOINS ,  0 ) !NOAGG
+      LOCBUS (IUU       , UMOINS ,  0 ) !NOAGG
+      LOCBUS (IVV       , VMOINS ,  0 ) !NOAGG
+      LOCBUS (IZ0H_AVG  , Z0T    ,  0 )
+      LOCBUS (IZ0M_AVG  , Z0     ,  0 )
+      LOCBUS (IZALFAQ   , ALFAQ  ,  0 )
+      LOCBUS (IZALFAT   , ALFAT  ,  0 )
+      LOCBUS (IZDLAT    , DLAT   ,  0 ) !NOAGG 
+      LOCBUS (IZDLON    , DLON   ,  0 ) !NOAGG
+      LOCBUS (IZFCOR    , FCOR   ,  0 ) !NOAGG
+      LOCBUS (IZFTEMP   , FTEMP  ,  0 )
+      LOCBUS (IZFVAP    , FVAP   ,  0 )
+      LOCBUS (IZTSURF   , TSURF  ,  0 )
+      LOCBUS (IZTSRAD   , TSRAD  ,  0 )
+      LOCBUS (IZUDIAG   , UDIAG  ,  0 )
+      LOCBUS (IZVDIAG   , VDIAG  ,  0 )
+      LOCBUS (IZTDIAG   , TDIAG  ,  0 )
+      LOCBUS (IZQDIAG   , QDIAG  ,  0 )
+      LOCBUS (IZFRV_AVG , FRV    ,  0 )
+      LOCBUS (IZFRV_ICE , FRV_LI ,  0 ) 
+      LOCBUS (IZFRV_WAT , FRV_LW ,  0 )
+      LOCBUS (IZZTSL    , ZTSL   ,  0 ) !NOAGG
+      LOCBUS (IZZUSL    , ZUSL   ,  0 ) !NOAGG
+      LOCBUS (IZSNODP   , SNODP  ,  0 )
+      LOCBUS (IZRFTOT , RUNOFFTOT , 0 )
+*      LOCBUS (IZRAINRATE, RAINRATE, 0 )
+      LOCBUS (IZSNOWRATE, SNOWRATE, 0 )
+      LOCBUS (ILCT       , LAKECT     ,  0 ) ! Lake mixed layer curvature parameter (FLake)
+      LOCBUS (ILDEPTH    , LAKEDEPTH  ,  0 ) ! Lake depth
+      LOCBUS (ILFICE     , LAKEFICE   ,  0 ) ! Lake ice fraction
+      LOCBUS (ILHICE     , LAKEHICE   ,  0 ) ! Lake ice thickness
+      LOCBUS (ILHML      , LAKEHML    ,  0 ) ! Lake mixed layer thickness
+      LOCBUS (ILTBOT     , LAKETBOT   ,  0 ) ! Lake bottom temperature
+      LOCBUS (ILTICE     , LAKETICE   ,  0 ) ! Lake ice surface temperature
+      LOCBUS (ILTMNW     , LAKETMNW   ,  0 ) ! Lake water average temperature
+      LOCBUS (ILTRANSP   , LAKETRANSP ,  0 ) ! Lake water transparency
+      LOCBUS (ILTWML     , LAKETWML   ,  0 ) ! Lake mixed layer temperature
+      LOCBUS (ILFR       , LAKEFR     ,  0 ) ! Lake fraction
+      LOCBUS (ILLTP      , LAKETP     ,  1 ) ! Lake water temperature profile (3D)
+
+
+*********************************************************************************
+*       A)     SURFACE FLUXES AND ALBEDO FOR OPEN WATER AND ICE COVERED FRACTIONS
+*********************************************************************************
+
+      do i=1,n
+         zun(i) = 10.0
+         ztn(i) = 2.0
+      end do
+
+      if(kount.lt.1) then
+
+         do i=1,N
+            do j=1,INL
+*              LLTP((J-1)*N+I)=315.0
+               LLTP(I,J)=315.0
+            end do
+         end do
+
+      end if
+
+      do i=1,N
+         do j=1,INL
+*           LTP(I,J)=LLTP((J-1)*N+I)
+            LTP(I,J)=LLTP(I,J)
+         end do
+      end do
+
+*       A.1    Saturated specific humidity at the water surface (open water)
+*       --------------------------------------------------------------------
+
+      DO I=1,N
+
+         IF(KOUNT.GE.1) THEN
+
+            IF(ILAKES.EQ.2 ) THEN
+               TS_WAT(I) = LTP(I,1) !*HOSTETLER
+            ELSEIF(ILAKES.EQ.3 ) THEN
+               TS_WAT(I) = LTWML(I) !*FLAKE
+            ENDIF
+
+         ELSE
+
+*SUMMER INITIALISATION
+
+            TS_WAT(I)= TMELS+5.0
+            TS_ICE(I)= TMELS
+            LTICE(I)=TMELS
+            LFICE(I)=0.0
+            LHICE(I)=0.0
+
+         ENDIF
+
+         IF(LFICE(I).EQ.0.0) LTICE(I)=TMELS
+*
+*        DOES NOT     Uses FOQSA instead of FOQST to take into account saturation
+*                     with respect to sea water (liquid between 0 and -1.8 C)
+*        QS_WAT= FOQST(TS_WAT(I),PS(I))
+         QS_WAT(I)= FOQST(TS_WAT(I),PS(I))
+
+      END DO
+
+*       A.2    Calculate roughness lengths based on generalized Charnock's relation (open water)
+*       ------------------------------------------------------------------------------------------
+
+      beta = 0.018
+      windcrit= 12.5
+      ZFRVMIN=0.01
+
+      if(kount.lt.1.0) ZFRV_WAT(I)=0.01
+      if(kount.lt.1.0) ZFRV_ICE(I)=0.01
+
+      DO I=1,N
+        VMOD  (I) = SQRT(MAX(VAMIN,UU(I)**2+VV(I)**2))
+      END DO
+
+*     min of zfrv to have no impact on z0m is given by sqrt(g*z0min/beta)
+*     will also solve the division by zero peroblem for z0h
+
+* Beginning ---New formulation of Z0M from Daniel Deacu and for winds 
+*              stronger than 12.5 m/s new formulation of Z0M from Moon.
+
+      DO I=1,N
+         ZFRV_WAT(I)=MAX(ZFRVMIN,  ZFRV_WAT(I))
+         if (VMOD(I) .le. windcrit) then
+            Z0M_WAT(I) =MIN( BETA*ZFRV_WAT(I)**2/GRAV + 1.65e-06/ ZFRV_WAT(I) ,Z0MAX )
+         else
+            Z0M_WAT(I)=MAX((0.085*(-0.56*ZFRV_WAT(I)**2+20.255*ZFRV_WAT(I)+2.458)-0.58)/1000.,Z0MIN )
+         endif
+      END DO
+
+* End ---New formulation of Z0M from Deacu and Moon.
+
+*     Note:  For |lat| >= Z0TLAT(2)  Charnock's relation is used 
+*            For |lat| <= Z0TLAT(1)  Z0HCON is used.
+*            For Z0TLAT(1) < |lat| < Z0TLAT(2)
+*            we do a linear interpolation between Charnock and Z0HCON.
+
+* Beginning --New formulation of Z0H from Daniel Deacu
+      DO I=1,N
+         Z0H_WAT(I) = MIN(2.e-05/ZFRV_WAT(I), 1.e-04)
+      END DO 
+* End --New formulation of Z0H from Daniel Deacu 
+
+      DO I=1,N
+         IF (ABS(ZDLAT(I)) .GE. Z0TLAT(2)) THEN 
+            Z0H_WAT(I) = Z0H_WAT(I)
+         ELSE IF (ABS(ZDLAT(I)) .LE. Z0TLAT(1)) THEN
+            Z0H_WAT(I) = Z0HCON
+         ELSE
+            Z0H_WAT(I)=( ((ABS(ZDLAT(I))-Z0TLAT(1))/(Z0TLAT(2)-Z0TLAT(1)))
+     +                    *(Z0H_WAT(I)-Z0HCON) ) + Z0HCON
+         ENDIF
+      END DO
+
+*       A.3    Calculate the surface transfer coefficient and fluxes (open water)
+*       -------------------------------------------------------------------------
+
+      CALL FLXSURF3( CMU_WAT, CTU_WAT, SCR1, ZFTEMP_WAT, ZFVAP_WAT,
+     $               ILMO_WAT, ZFRV_WAT, ZFCOR, TH, HU,
+     $               ZZUSL, ZZTSL, VMOD, TS_WAT, QS_WAT, HST_WAT,
+     $               Z0M_WAT, Z0H_WAT,SCR2, SCR3, SCR4, SCR5, N ) 
+
+      CALL DIASURF2(ZUDIAG_WAT, ZVDIAG_WAT, ZTDIAG_WAT, ZQDIAG_WAT,
+     $              N, UU, VV, TS_WAT, QS_WAT,
+     $              Z0M_WAT, Z0H_WAT, ILMO_WAT, ZZUSL,
+     $              HST_WAT, ZFRV_WAT, ZFTEMP_WAT, ZFVAP_WAT,
+     $              ZUN, ZTN, ZDLAT)
+
+*       4.     Finalize the fluxes (open water)
+*       ---------------------------------------
+
+*VDIR NODEP
+      DO I=1,N
+
+         ZTSURF_WAT   (I) = TS_WAT (I)
+         ZTSRAD_WAT   (I) = TS_WAT (I)
+
+         ZALFAT_WAT   (I) = - CTU_WAT(I) * ( TS_WAT(I)-TH(I) )
+         ZALFAQ_WAT   (I) = - CTU_WAT(I) * ( QS_WAT(I)-HU(I) )
+         IF (.NOT.IMPFLX) CTU_WAT(I) = 0.0
+         RHO = PS(I)/(RGASD * ZTDIAG_WAT(I)*(1.+DELTA*ZQDIAG_WAT(I)))
+         FC_WAT(I) = -CPD *RHO*ZALFAT_WAT(I)
+         FV_WAT(I) = -CHLC*RHO*ZALFAQ_WAT(I)
+
+         IF (IMPFLX) THEN
+            ZALFAT_WAT   (I) = - CTU_WAT(I) *  TS_WAT(I)
+            ZALFAQ_WAT   (I) = - CTU_WAT(I) *  QS_WAT(I) 
+         ENDIF
+
+      END DO
+
+********************************************************************************
+*       B)      ICE-COVERED LAKE FRACTION
+********************************************************************************
+
+*       B.1    Preliminaries (ice)
+*       --------------------------
+
+      DO I=1,N
+
+         IF( ICEMELT ) THEN
+            IF( LHICE(I) .GE. HIMIN ) THEN
+               Z0M_ICE(I) = Z0ICE ! Roughness lengths for the surface (ice/water)
+            ELSE
+               Z0M_ICE(I) = Z0W
+*              ZSNODP(I) = 0.0 ! Remove snow if ice is too thin
+            ENDIF
+         ELSE
+            HICE_ALB(I) = MAX ( LHICE(I) , HIMIN ) ! minimum ice thickness 
+*           ZSNODP(I) = 0.0
+            Z0M_ICE(I) = Z0ICE
+         ENDIF
+
+         Z0H_ICE(I) = Z0M_ICE(I)
+
+      END DO
+
+*       B.2    Calculate the drag and heat coefficients (ice)
+*       -----------------------------------------------------
+
+      DO I=1,N
+         if(kount.gt.0.0) then
+            TS_ICE(I)=LTICE(I)
+         else
+            TS_ICE(I)=TMELS
+         endif
+         QS_ICE(I)  = FOQST ( TS_ICE  (I), PS(I) ) !  Saturated specific humidity at surface
+      END DO
+
+      CALL FLXSURF3( CMU_ICE, CTU_ICE, SCR1, ZFTEMP_ICE, ZFVAP_ICE, ILMO_ICE,
+     $               ZFRV_ICE, ZFCOR, TH, HU, ZZUSL, ZZTSL, VMOD, TS_ICE, 
+     $               QS_ICE, HST_ICE, Z0M_ICE, Z0H_ICE, 
+     $               SCR2, SCR3, SCR4, SCR5, N) 
+
+      CALL DIASURF2(ZUDIAG_ICE, ZVDIAG_ICE, ZTDIAG_ICE, ZQDIAG_ICE,
+     $              N, UU, VV, TS_ICE, QS_ICE,
+     $              Z0M_ICE, Z0H_ICE, ILMO_ICE, ZZUSL,
+     $              HST_ICE, ZFRV_ICE, ZFTEMP_ICE, ZFVAP_ICE,
+     $              ZUN, ZTN, ZDLAT)
+
+*VDIR NODEP
+      DO I=1,N
+
+*        IF( HICE_ALB(I).LT.HIMIN ) ZSNODP(I) = 0.0 ! remove snow if ice is too thin
+         ZTSURF_ICE   (I) = TS_ICE(I)
+         ZTSRAD_ICE   (I) = TS_ICE(I)
+
+         ZALFAT_ICE   (I) = - CTU_ICE(I) * ( TS_ICE (I) - TH(I) )
+         ZALFAQ_ICE   (I) = - CTU_ICE(I) * ( QS_ICE (I) - HU(I) )
+         IF (.NOT.IMPFLX) CTU_ICE (I) = 0.
+         RHO = PS(I)/(RGASD * ZTDIAG_ICE(I)*(1.+DELTA*ZQDIAG_ICE(I)))
+         FC_ICE(I) = -CPD *RHO*ZALFAT_ICE(I)
+         FV_ICE(I) = -(CHLC+CHLF)*RHO*ZALFAQ_ICE(I)
+
+         IF (IMPFLX) THEN
+            ZALFAT_ICE   (I) = - CTU_ICE(I) *  TS_ICE(I)
+            ZALFAQ_ICE   (I) = - CTU_ICE(I) *  QS_ICE(I) 
+         ENDIF
+
+      END DO
+
+*	     SURFACE-AVERAGED VALUES
+
+      DO I=1,N
+         WA_AVG(I)=(((ZUDIAG_WAT(I)**2+(ZVDIAG_WAT(I))**2)*(1.-LFICE(I)))
+     +            +((ZUDIAG_ICE(I)**2+(ZVDIAG_ICE(I))**2)*LFICE(I)))**0.5
+		
+         ZQDIAG_TMP(I)=ZQDIAG_WAT(I)*(1.-LFICE(I))+ZQDIAG_ICE(I)*LFICE(I)
+      END DO
+
+********************************************************************************
+*       C)     LAKE MODEL SELECTION: 2 = Hostetler, 3 = FLake
+********************************************************************************
+
+      IF (ILAKES.EQ.2)	THEN
+
+*       C.1    ILAKE=2, HOSTETLER LAKE MODEL
+*       ------------------------------------
+
+*...    calculate cosine of solar zenith angle at kount + kntrad - 1
+
+         JULIEN1 = JULIAND(dt,kount,DATE)
+         HZ1 = DATE(5) + float(DATE(6))/360000.0
+         DAY1 = amod (HZ1 + (float (kount) * dt) / 3600., 24.)
+         call suncos1(coszrs, dummy1, dummy2, dummy3, dummy4, n,
+     $                zdlat,zdlon, DAY1, julien1, date,.false.)
+
+         DO I=1,N        
+
+*       C.1.1 HS LAKE MODEL INPUT DATA FORMATION
+*       ----------------------------------------
+
+*       AIR TEMPERATURE @2M IN CELSIUS
+*       INPUT SURFACE TEMPERATURE (ACTUALLY NOT USED UNTIL HS MODEL RUN)
+           T_sfc_out=TMELS+5.0
+           if(kount.gt.0) T_sfc_out=LTP(I,1)
+
+           SWD = MAX(0.0,FSOL(I)) !* SW RADIATION DOWNWARD, AS IN FSS
+           WIND=WA_AVG(I)         !* WIND FORCE @10M
+
+           T_ice_out=LTICE(I)     !* ICE TEMPERATURE (CELSIUS) 0C if first call (KOUNT=0)
+           IF(KOUNT.LT.0.1) T_ice_out=TMELS !* 0C if first call (KOUNT=0)
+
+*	yz: Level thickness in Hostetler, m
+*  DEP: Number of yz levels @ depth=LDEPTH(I)
+*	Adjusting the HS layer thickness to the lake depth:
+*	DEP does not exceed 60
+
+           yz=1.0
+
+           DEP=max(3,INT(LDEPTH(I)))
+
+           if (DEP.gt.60) then
+              yz=int(DEP/60)+1
+              DEP=min(int(DEP/yz),60)
+           elseif (DEP.lt.6) then
+              yz=0.1
+              DEP=min(max(30,int(DEP/yz)),60)
+           endif
+
+*       IF NO SNOW ON ICE:
+*	        HSNOW=0.0
+
+*	SNOW COVER: INCREASE BY SNOWFALL, HOSTETLER
+
+           IF( LTICE(I).LT.TMELI .AND. LHICE(I).GT.HIMIN ) THEN
+              ZSNODP(I) = ZSNODP(I) + DELT*ZSNOWRATE(I)*(1000./ROSNOW(1))
+           ENDIF
+
+           HSNOW= ZSNODP(I)
+
+*       Water temperature profile: conversion from 3D
+
+           DO J=1,INL
+              TP(J)=LTP(I,J)
+           END DO
+
+*       ICE THICKNESS
+
+           LHMIN=HIMIN
+
+*       INITIALISATION (KOUNT=0)
+
+           IF(KOUNT.LT.1) THEN
+
+              !* SUMMER INITILIASATION: +4 everywhere,
+              !* +10 on the surface, no ice, no snow
+
+              DO J=1,INL
+                 TP(J)=TMELS+4.0
+              ENDDO
+
+              TP(1)=TMELS+5.0
+              HSNOW=0.0
+
+              T_sfc_out=TMELS+5.0
+              T_ice_out=TMELS
+
+              LCT(I)=TMELS+5.0
+              LFICE(I)=0.0
+              LHICE(I)=0.0
+
+           ENDIF
+
+           IF(KOUNT.LT.1) THEN
+
+              !* WINTER INITIALISATION: slightly above 4c,
+              !* no ice, no snow
+
+              DO J=1,INL
+                 TP(J)=TMELS+4.2
+              ENDDO
+
+              TP(1)=TMELS+10.0
+              HSNOW=0.0
+
+              T_sfc_out=TMELS+5.0
+              T_ice_out=T_sfc_out
+
+              LCT(I)=TMELS+4.2
+              LFICE(I)=0.0
+              LHICE(I)=0.0
+
+           ENDIF
+
+*       INITIALISATION COMPLETED
+
+*       THE OUTPUT WATER TEMPERATURE PROFILE: a dummy value
+
+           DO J=1,INL
+              TPOUT(J)=3.0
+           ENDDO
+ 
+*       CALLING THE Hostetler LAKE MODEL
+
+           call hs_lakes( coszrs(I),ZTDIAG_WAT(I),ZTDIAG_ICE(I),WIND,
+     +                    ZQDIAG_TMP(I),PS(I),SWD,QLWIN(I),DEP,LFICE(I),
+     +                    T_ice_out,LHICE(I),HSNOW,zdlat(I),TP,LCT(I),
+     +                    T_sfc_out,LHMIN,TPOUT,DAYLNT,dt,LTRANSP(I),
+     +                    FC_WAT(I),FV_WAT(I),FC_ICE(I),FV_ICE(I),
+     +                    ALVIS_AVG(I),kount,LHML(I) )
+
+*       OUTPUT DATA FORMATION
+
+           LTICE(I)= T_ice_out !* ICE TEMPERATURE, KELVIN
+
+*       SAVING THE WATER TEMPERATURE PROFILE
+
+           DO J=1,INL
+              LTP(I,J)=TPOUT(J)
+           ENDDO
+
+*       SAVING OTHER USEFUL LAKE VARIABLES
+
+*          LTRANSP(I)=TPOUT(1) !* OPEN WATER SURFACE TEMPERATURE, K
+           LTBOT(I)=TPOUT(DEP)  !*	BOTTOM TEMPERATURE
+           LHML(I)=MIN(1.0,LHML(I)) !*	MIXED LAYER DEPTH
+
+           LTWML(I)=0.0         !* MIXED LAYER AVERAGED TEMPERATURE
+           DO J=1,INT(LHML(I))
+              LTWML(I) = LTWML(I)+TPOUT(J)
+           END DO
+           LTWML(I) = LTWML(I)/DEP
+
+
+           LTMNW(I)=0.0         !* AVERAGE WATER COLUMN TEMPERATURE
+           DO J=1,DEP
+              LTMNW(I) = LTMNW(I)+TPOUT(J)
+           END DO
+           LTMNW(I) = LTMNW(I)/DEP
+
+        ENDDO
+
+*       HOSTETLER MODEL FINISHED
+*       ------------------------
+
+      ELSE IF (ILAKES == 3)	THEN
+
+*       C.2    ILAKE=3, FLAKE MODEL
+*       ---------------------------
+
+         DO I=1,N                  !* INPUT DATA FORMATION
+
+            SWD = MAX(0.0,FSOL(I)) !* SW RADIATION DOWNWARD, AS IN FSS
+            WIND=WA_AVG(I)         !* WIND FORCE @10m
+*           HICE=LHICE(I)          !* ICE THICKNESS
+            HSNOW=0.0              !* NO SNOW ON ICE
+
+            DEP=MIN(INT(LDEPTH(I)),60) ! this is equivalent to setting DEP=60, as
+          ! DEP=min(max(30,int(LDEPTH(I))),60) ! the default value of LDEPTH is 30.
+          ! DEP=MAX(3,MIN(INT(LDEPTH(I)),60)) ! Not so with the 2 other options.
+
+            omega_earth = 7.29E-05
+            CORIO=2.*omega_earth*SIN(zdlat(I))
+
+*       SURFACE TEMPERATURE: Ice temp. if ice present, else GT
+
+            IF(LHICE(I).GT.0.0) THEN
+               T_sfc_in  = LTICE(I)
+            ELSE
+               T_sfc_in  = LTWML(I)
+            ENDIF
+
+*       FLAKE PARAMETERS READ FROM ARRAYS       
+
+            T_ice_in = LTICE(I)
+            T_snow_in= T_ice_in
+            T_mnw_in = LTMNW(I)
+            T_wML_in = LTWML(I)
+            T_bot_in = LTBOT(I)
+            C_T_in   = LCT(I)
+            h_ML_in  = LHML(I)
+
+            IF(LHICE(I).GT.0.0) THEN
+               LFICE(I) =1.0
+               FC_AVG(I)=FC_ICE(I)
+               FV_AVG(I)=FV_ICE(I)
+               T_air_in =ZTDIAG_ICE(I)
+               ZQDIAG_TMP(I)=ZQDIAG_ICE(I)
+            ELSE
+               LFICE(I) =0.0
+               FC_AVG(I)=FC_WAT(I)
+               FV_AVG(I)=FV_WAT(I)
+               T_air_in =ZTDIAG_WAT(I)	
+               ZQDIAG_TMP(I)=ZQDIAG_WAT(I)
+            ENDIF
+
+*       sediment layer(not used) 
+            T_B1_in = TMELS
+            H_B1_in = 10.0
+
+            IF(KOUNT.LE.1) THEN !*       SUMMER INITIALISATION (KOUNT=0)
+
+* 1st step, lake model initialisation
+* Initial values: no snow, no ice cover
+* Surface water temp. = 10C
+* 1M mixed layer
+* Bottom temp. = 4C
+
+               T_wML_in = TMELS + 10.0 ! Mixed layer temperature
+               T_bot_in = TMELS + 4.0  ! Bottom temperature
+               T_mnw_in = TMELS + 5.0  ! Mean water temperature 
+               h_ML_in  = 1.0
+               C_T_in   = min(0.8,(T_wML_in - T_mnw_in)   
+     +                  / (T_wML_in - T_bot_in)  
+     +                  / (1.-h_ML_in/DEP))
+
+               HSNOW    = 0.0
+               LHICE(I) = 0.0
+               T_ice_in = TMELS
+               T_snow_in= T_ice_in
+               T_sfc_in = TMELS +10.0
+
+            ENDIF
+
+            IF(KOUNT.LE.1) THEN !*       WINTER INITIALISATION (KOUNT=0)
+
+* 1st step, lake model initialisation
+* Initial values: no snow, no ice cover
+* Surface water temp. = 5C
+* 1M mixed layer
+* Bottom temp. = 4C
+
+               T_wML_in = TMELS + 5.0 ! Mixed layer temperature
+               T_bot_in = TMELS + 4.0 ! Bottom temperature
+               T_mnw_in = TMELS + 4.5 ! Mean water temperature 
+               h_ML_in  = 1.0
+               C_T_in   = min(0.8,(T_wML_in - T_mnw_in)   
+     +                  / (T_wML_in - T_bot_in)  
+     +                  / (1.-h_ML_in/DEP))
+
+               HSNOW    = 0.0
+               LHICE(I) = 0.0
+               T_ice_in = TMELS
+               T_snow_in= T_ice_in
+               T_sfc_in = T_snow_in 
+
+            ENDIF
+
+*       Running FLake 
+
+            QSENS=0.0
+            QLAT=0.0
+            albedo=0.0
+            dummy5=0.0
+            dummy6=484.0
+            FDEPTH=DEP*1.0
+
+            CALL flaket_lakes( HSNOW, SWD, QLWIN(I),10.0, 2.0, WIND,
+     +                     T_air_in,ZQDIAG_TMP(I),PS(I),LTRANSP(I),
+     +                     FDEPTH,1.0E3,10.0,TMELS+4.0,CORIO,DELT,
+     +                     T_snow_in, T_ice_in, T_mnw_in, T_wML_in,
+     +                     T_bot_in,T_B1_in,C_T_in,0.0,LHICE(I),
+     +                     h_ML_in,H_B1_in,T_sfc_in,dummy6,albedo,
+     +                     T_snow_out,T_ice_out,T_mnw_out,T_wML_out,
+     +                     T_bot_out,T_B1_out,h_snow_out, h_ice_out,
+     +                     h_ML_out, H_B1_out, QSENS, dummy5,QLAT,
+     +                     T_sfc_out, C_T_out,trnch,n,m,i,LFR(I) )
+
+         !  if (trnch == 131 .and. i == 32) then ! debug !
+         !     print *,"Apres appel a flaket_lakes pour trnch=131 et i=32..."
+         !     print *,"HSNOW, SWD, QLWIN(I),WIND",HSNOW, SWD, QLWIN(I),WIND
+         !     print *,"T_air_in,ZQDIAG_TMP(I),PS(I),LTRANSP(I)",T_air_in,ZQDIAG_TMP(I),PS(I),LTRANSP(I)
+         !     print *,"FDEPTH,TMELS+4.0,CORIO,DELT",FDEPTH,TMELS+4.0,CORIO,DELT
+         !     print *,"T_snow_in, T_ice_in, T_mnw_in, T_wML_in",T_snow_in, T_ice_in, T_mnw_in, T_wML_in
+         !     print *,"T_bot_in,T_B1_in,C_T_in,LHICE(I)",T_bot_in,T_B1_in,C_T_in,LHICE(I)
+         !     print *,"h_ML_in,H_B1_in,T_sfc_in,dummy6,albedo",h_ML_in,H_B1_in,T_sfc_in,dummy6,albedo
+         !     print *,"T_snow_out,T_ice_out,T_mnw_out,T_wML_out",T_snow_out,T_ice_out,T_mnw_out,T_wML_out
+         !     print *,"T_bot_out,T_B1_out,h_snow_out, h_ice_out",T_bot_out,T_B1_out,h_snow_out, h_ice_out
+         !     print *,"h_ML_out, H_B1_out, QSENS, dummy5,QLAT",h_ML_out, H_B1_out, QSENS, dummy5,QLAT
+         !     print *,"T_sfc_out, C_T_out,trnch,n,m,i,LFR(I)",T_sfc_out, C_T_out,trnch,n,m,i,LFR(I)
+         !  endif
+
+!       Output parameters
+
+            FC_AVG(I)=QSENS
+            FV_AVG(I)=QLAT
+
+            LTICE(I)  = T_ice_out    
+            LTMNW(I)  = T_mnw_out    
+            LTWML(I)  = T_wML_out    
+            LTBOT(I)  = T_bot_out    
+            LCT(I)    = C_T_out    
+            LHML(I)   = h_ML_out    
+
+            HSNOW=0.0 !* No snow in FLake AMTV
+
+            LHICE(I)=h_ice_out
+            ALVIS_AVG(I)=albedo
+
+            IF(LHICE(I).GT.0.0) THEN
+               LFICE(I)=1.0
+               ALVIS_ICE(I)=albedo
+               ALVIS_WAT(I)=0.199
+               FC_ICE(I)=FC_AVG(I)
+               FV_ICE(I)=FV_AVG(I)
+            ELSE
+               LFICE(I)=0.0
+               ALVIS_WAT(I)=albedo
+               ALVIS_ICE(I)=0.199
+               FC_WAT(I)=FC_AVG(I)
+               FV_WAT(I)=FV_AVG(I)
+            ENDIF
+
+         ENDDO
+
+*       FLAKE MODEL FINISHED
+*       --------------------
+
+      ENDIF
+
+*       ALL LAKE MODELS FINISHED
+*       ------------------------
+
+*       SURFACE TEMPERATURES
+*       --------------------
+
+      DO I=1,N
+         IF(ILAKES.EQ.2 ) THEN     !* HOSTETLER
+            TS_WAT(I) = LTP(I,1)
+         ELSEIF(ILAKES.EQ.3 ) THEN !* FLAKE
+            TS_WAT(I) = LTWML(I)
+         ENDIF
+         TS_ICE(I)    = LTICE(I) !* SIMILAR FOR BOTH LAKE MODELS
+      ENDDO
+
+**************************************************************
+*       D)     AFTER THE LAKE MODEL: SURFACE FLUXES AND ALBEDO
+*              FOR OPEN WATER AND ICE COVERED FRACTIONS
+**************************************************************
+
+      do i=1,n
+         zun(i) = 10.0
+         ztn(i) = 2.0
+      end do
+
+*       D.1    Saturated specific humidity at the water surface (open water)
+*       --------------------------------------------------------------------
+
+      DO I=1,N
+
+         IF(ILAKES.EQ.2 ) THEN
+            TS_WAT(I) = LTP(I,1)
+         ELSE
+            TS_WAT(I) = LTWML(I)
+         ENDIF
+
+         IF(KOUNT.lt.1) THEN !* No ice at ininialisation
+            LFICE(I)=0.0
+            LHICE(I)=0.0
+         ENDIF
+
+         IF(LFICE(I).EQ.0.0) LTICE(I)=TMELS
+
+         QS_WAT(I)= FOQST(TS_WAT(I),PS(I))
+*        QS_WAT(I)= QS(I)
+
+      END DO
+
+*       D.2    Calculate the surface transfer coefficient and fluxes (open water)
+*       -------------------------------------------------------------------------
+
+
+      CALL FLXSURF3( CMU_WAT, CTU_WAT, SCR1, ZFTEMP_WAT, ZFVAP_WAT,
+     $               ILMO_WAT, ZFRV_WAT, ZFCOR, TH, HU,
+     $               ZZUSL, ZZTSL, VMOD, TS_WAT, QS_WAT, HST_WAT,
+     $               Z0M_WAT, Z0H_WAT,SCR2, SCR3, SCR4, SCR5, N ) 
+
+
+      CALL DIASURF2(ZUDIAG_WAT, ZVDIAG_WAT, ZTDIAG_WAT, ZQDIAG_WAT,
+     $              N, UU, VV, TS_WAT, QS_WAT,
+     $              Z0M_WAT, Z0H_WAT, ILMO_WAT, ZZUSL,
+     $              HST_WAT, ZFRV_WAT, ZFTEMP_WAT, ZFVAP_WAT,
+     $              ZUN, ZTN, ZDLAT)
+
+*       D.3    Finalize the fluxes (open water)
+*       ---------------------------------------
+
+*VDIR NODEP
+      DO I=1,N
+
+         ZTSURF_WAT   (I) = TS_WAT (I)
+         ZTSRAD_WAT   (I) = TS_WAT (I)
+
+*        ZALFAT_WAT   (I) = - CTU_WAT(I) * ( TS_WAT(I)-TH(I) )
+*        ZALFAQ_WAT   (I) = - CTU_WAT(I) * ( QS_WAT(I)-HU(I) )
+         IF (.NOT.IMPFLX) CTU_WAT(I) = 0.
+         RHO = PS(I)/(RGASD * ZTDIAG_WAT(I)*(1.+DELTA*ZQDIAG_WAT(I)))
+*        FC_WAT(I) = -CPD *RHO*ZALFAT_WAT(I)
+*        FV_WAT(I) = -CHLC*RHO*ZALFAQ_WAT(I)
+       
+         ZALFAT_WAT(I)=-FC_WAT(I)/(CPD *RHO)
+         ZALFAQ_WAT(I)=-FV_WAT(I)/(CHLC*RHO)
+
+*        ZRUNOFFTOT_WAT (I) = (1000.*(ZRAINRATE(I) +ZSNOWRATE(I))
+*    $   + RHO*ZALFAQ_WAT(I))
+
+         IF (IMPFLX) THEN
+            ZALFAT_WAT   (I) = - CTU_WAT(I) *  TS_WAT(I)
+            ZALFAQ_WAT   (I) = - CTU_WAT(I) *  QS_WAT(I) 
+*           ZRUNOFFTOT_WAT (I) = (1000.*(ZRAINRATE(I) +ZSNOWRATE(I))
+*    $      + RHO*ZALFAQ_WAT(I))
+         ENDIF
+
+      END DO
+
+*       D.4    Preliminaries (ICE-COVERED LAKE FRACTION)
+*       ------------------------------------------------
+
+      DO I=1,N
+
+         IF( ICEMELT ) THEN
+            IF( LHICE(I) .GE. HIMIN ) THEN !* Roughness lengths for the surface (ice/water)
+               Z0M_ICE(I) = Z0ICE
+            ELSE
+               Z0M_ICE(I) = Z0W
+*              ZSNODP(I) = 0.0 !* Remove snow if ice is too thin
+            ENDIF
+         ELSE
+            HICE_ALB(I) = MAX ( LHICE(I) , HIMIN ) !* Minimum ice thickness 
+            Z0M_ICE(I) = Z0ICE
+         ENDIF
+
+         Z0H_ICE(I) = Z0M_ICE(I)
+*        ZSNODP(I) = 0.0
+
+      END DO
+
+*       D.5    Calculate the drag and heat coefficients (ice)
+*       -----------------------------------------------------
+
+      DO I=1,N
+*                               Saturated specific humidity at surface
+         TS_ICE(I)=LTICE(I)
+*        QS_ICE(I)  = (FOQST ( TS_ICE  (I), PS(I) ) + LHML(I))/2.0
+*        DQS_ICE(I) = FODQS ( QS_ICE(I), TS_ICE(I) )
+*        QS_ICE(I)  = QS(I)
+         QS_ICE(I)  = FOQST ( TS_ICE  (I), PS(I) )
+      END DO
+
+*     if(kount.le.1) ZFRV_ICE(I)=ZFRV_AVG(I)
+
+      CALL FLXSURF3( CMU_ICE, CTU_ICE, SCR1, ZFTEMP_ICE, ZFVAP_ICE, ILMO_ICE,
+     $               ZFRV_ICE, ZFCOR, TH, HU, ZZUSL, ZZTSL, VMOD, TS_ICE, 
+     $               QS_ICE, HST_ICE, Z0M_ICE, Z0H_ICE, 
+     $               SCR2, SCR3, SCR4, SCR5, N) 
+
+      CALL DIASURF2(ZUDIAG_ICE, ZVDIAG_ICE, ZTDIAG_ICE, ZQDIAG_ICE,
+     $              N, UU, VV, TS_ICE, QS_ICE,
+     $              Z0M_ICE, Z0H_ICE, ILMO_ICE, ZZUSL,
+     $              HST_ICE, ZFRV_ICE, ZFTEMP_ICE, ZFVAP_ICE,
+     $              ZUN, ZTN, ZDLAT)
+
+*VDIR NODEP
+      DO I=1,N
+
+         ZTSURF_ICE   (I) = TS_ICE(I)
+         ZTSRAD_ICE   (I) = TS_ICE(I)
+
+         IF (.NOT.IMPFLX) CTU_ICE (I) = 0.
+         RHO = PS(I)/(RGASD * ZTDIAG_ICE(I)*(1.+DELTA*ZQDIAG_ICE(I)))
+
+*        FC_ICE(I) = -CPD *RHO*ZALFAT_ICE(I)
+*        FV_ICE(I) = -(CHLC+CHLF)*RHO*ZALFAQ_ICE(I)
+
+         ZALFAT_ICE(I)=-FC_ICE(I)/(CPD *RHO)
+         ZALFAQ_ICE(I)=-FV_ICE(I)/(CHLC+CHLF*RHO)
+*        ZRUNOFFTOT_ICE (I) = (1000.*(ZRAINRATE(I) +ZSNOWRATE(I))
+*     $                     + RHO*ZALFAQ_ICE(I))
+
+         IF (IMPFLX) THEN
+            ZALFAT_ICE   (I) = - CTU_ICE(I) *  TS_ICE(I)
+            ZALFAQ_ICE   (I) = - CTU_ICE(I) *  QS_ICE(I) 
+*           ZRUNOFFTOT_ICE (I) = (1000.*(ZRAINRATE(I) +ZSNOWRATE(I))
+*     $                       + RHO*ZALFAQ_ICE(I))
+         ENDIF
+
+      END DO
+
+*       OPEN WATER + ICE: AGGREGATION
+
+      DO I=1,N
+
+*       LINEAR AGGREGATION (OPEN WATER + ICE):
+
+         ZALFAQ  (I)=ZALFAQ_WAT(I)*(1.-LFICE(I))+ZALFAQ_ICE(I)*LFICE(I) !*ALFAQ
+         ZALFAT  (I)=ZALFAT_WAT(I)*(1.-LFICE(I))+ZALFAT_ICE(I)*LFICE(I) !*ALFAT
+         CTU_AVG (I)=CTU_WAT   (I)*(1.-LFICE(I))+CTU_ICE   (I)*LFICE(I) !*BT
+         FC_AVG  (I)=FC_WAT    (I)*(1.-LFICE(I))+FC_ICE    (I)*LFICE(I) !*FC
+         ZFRV_AVG(I)=ZFRV_WAT  (I)*(1.-LFICE(I))+ZFRV_ICE  (I)*LFICE(I) !*FRV
+         ZFTEMP  (I)=ZFTEMP_WAT(I)*(1.-LFICE(I))+ZFTEMP_ICE(I)*LFICE(I) !*FTEMP
+         FV_AVG  (I)=FV_WAT    (I)*(1.-LFICE(I))+FV_ICE    (I)*LFICE(I) !*FV
+         ZFVAP   (I)=ZFVAP_WAT (I)*(1.-LFICE(I))+ZFVAP_ICE (I)*LFICE(I) !*FVAP
+         HST_AVG (I)=HST_WAT   (I)*(1.-LFICE(I))+HST_ICE   (I)*LFICE(I) !*HST
+         ILMO_AVG(I)=ILMO_WAT  (I)*(1.-LFICE(I))+ILMO_ICE  (I)*LFICE(I) !*ILMO
+         QS      (I)=QS_WAT    (I)*(1.-LFICE(I))+QS_ICE    (I)*LFICE(I) !*QSURF
+         ZSNODP  (I)=ZSNODP    (I) !*SNODP: NO SNOW OVER ICE (YET) AND OPEN WATER
+         ZTSURF  (I)=ZTSURF_WAT(I)*(1.-LFICE(I))+ZTSURF_ICE(I)*LFICE(I) !*TSURF
+         ZQDIAG  (I)=ZQDIAG_WAT(I)*(1.-LFICE(I))+ZQDIAG_ICE(I)*LFICE(I) !*QDIAG		
+         CMU_AVG (I)=CMU_WAT   (I)*(1.-LFICE(I))+CMU_ICE   (I)*LFICE(I) !*BM
+         ZTDIAG  (I)=ZTDIAG_WAT(I)*(1.-LFICE(I))+ZTDIAG_ICE(I)*LFICE(I) !*TDIAG
+         ZVDIAG  (I)=ZVDIAG_WAT(I)*(1.-LFICE(I))+ZVDIAG_ICE(I)*LFICE(I) !*VDIAG
+         ZUDIAG  (I)=ZUDIAG_WAT(I)*(1.-LFICE(I))+ZUDIAG_ICE(I)*LFICE(I) !*UDIAG
+         ZRUNOFFTOT(I)=0.0
+
+*       NON-LINEAR AGGREGATION:
+
+         ZTSRAD(I)=((ZTSRAD_WAT(I))**4.0*(1.-LFICE(I))+(ZTSRAD_ICE(I))**4.0*LFICE(I))**0.25 !*TSRAD
+
+         Z0M_AVG(I) = ALOG(MAX(1.e-10,Z0M_WAT(I)))*(1.-LFICE(I)) !*Z0M
+     +              + ALOG(MAX(1.e-10,Z0M_ICE(I)))*LFICE(I) 
+         Z0M_AVG(I) = EXP( Z0M_AVG(I))
+
+         Z0H_AVG(I) = ALOG(MAX(1.e-10,Z0H_WAT(I)))*(1.-LFICE(I)) !*Z0T
+     +              + ALOG(MAX(1.e-10,Z0H_ICE(I)))*LFICE(I) 
+         Z0H_AVG(I) = EXP( Z0H_AVG(I))
+
+      END DO
+
+      do i=1,N
+         do j=1,INL
+            LLTP(I,J)=LTP(I,J)
+         end do
+      end do
+
+*       FILL THE ARRAYS TO BE AGGREGATED LATER IN S/R AGREGE
+      CALL FILLAGG( BUS,BUSSIZ, PTSURF,PTSURFSIZ, INDX_LAKES, SURFLEN )
+
+      RETURN
+
+1001     FORMAT('AMTVA BEFORE01 ',5(i8,' '),8(e14.8,' '))
+1002     FORMAT('AMTVA BEFORE02 ',5(i8,' '),8(e14.8,' '))
+1003     FORMAT('AMTVA BEFORE03 ',5(i8,' '),8(e14.8,' '))
+1004     FORMAT('AMTVA BEFORE04 ',5(i8,' '),8(e14.8,' '))
+1005     FORMAT('AMTVA BEFORE05 ',5(i8,' '),8(e14.8,' '))
+1006     FORMAT('AMTVA BEFORE06 ',5(i8,' '),8(e14.8,' '))
+1007     FORMAT('AMTVA BEFORE07 ',5(i8,' '),8(e14.8,' '))
+1008     FORMAT('AMTVA BEFORE08 ',5(i8,' '),8(e14.8,' '))
+1009     FORMAT('AMTVA BEFORE09 ',5(i8,' '),8(e14.8,' '))
+1010     FORMAT('AMTVA BEFORE10 ',5(i8,' '),8(e14.8,' '))
+1011     FORMAT('AMTVA BEFORE11 ',5(i8,' '),8(e14.8,' '))
+1012     FORMAT('AMTVA BEFORE12 ',6(i8,' '),15(e14.8,' '))
+1013     FORMAT('AMTVA BEFORE13 ',5(i8,' '),8(e14.8,' '))
+
+
+
+1101     FORMAT('AMTVI AFTER 01 ',5(i8,' '),8(e14.8,' '))
+1102     FORMAT('AMTVA AFTER 02 ',5(i8,' '),8(e14.8,' '))
+1103     FORMAT('AMTVA AFTER 03 ',5(i8,' '),8(e14.8,' '))
+1104     FORMAT('AMTVA AFTER 04 ',5(i8,' '),8(e14.8,' '))
+1105     FORMAT('AMTVA AFTER 05 ',5(i8,' '),8(e14.8,' '))
+1106     FORMAT('AMTVA AFTER 06 ',5(i8,' '),8(e14.8,' '))
+1107     FORMAT('AMTVA AFTER 07 ',5(i8,' '),8(e14.8,' '))
+1108     FORMAT('AMTVA AFTER 08 ',5(i8,' '),8(e14.8,' '))
+1109     FORMAT('AMTVA AFTER 09 ',5(i8,' '),8(e14.8,' '))
+1110     FORMAT('AMTVA AFTER 10 ',5(i8,' '),8(e14.8,' '))
+1111     FORMAT('AMTVA AFTER 11 ',5(i8,' '),8(e14.8,' '))
+1112     FORMAT('AMTVA AFTER 12 ',6(i8,' '),15(e14.8,' '))
+1113     FORMAT('AMTVA AFTER 13 ',5(i8,' '),8(e14.8,' '))
+
+1121     FORMAT('HOSTE AFTER_01 ',1(i8,' '),18(e14.8,' '))
+
+1100 	 FORMAT('AMTV WATER1 ',7(e14.8,' '),4(i8,' '))
+1200	 FORMAT('AMTV WATER2 ',7(e14.8,' '),4(i8,' '))
+865      FORMAT('AMTV OUT1 ',5(i8,' '),7(e14.8,' '))
+
+
+1501     FORMAT('FLAKE BEFORE01 ',5(i8,' '),8(e14.8,' '))
+1502     FORMAT('FLAKE BEFORE02 ',5(i8,' '),8(e14.8,' '))
+1503     FORMAT('FLAKE BEFORE03 ',5(i8,' '),8(e14.8,' '))
+1504     FORMAT('FLAKE BEFORE04 ',5(i8,' '),8(e14.8,' '))
+1505     FORMAT('FLAKE BEFORE05 ',5(i8,' '),8(e14.8,' '))
+1506     FORMAT('FLAKE BEFORE06 ',5(i8,' '),8(e14.8,' '))
+
+1601     FORMAT('FLAKE AFTER_01 ',5(i8,' '),8(e14.8,' '))
+1602     FORMAT('FLAKE AFTER_02 ',5(i8,' '),8(e14.8,' '))
+1603     FORMAT('FLAKE AFTER_03 ',5(i8,' '),8(e14.8,' '))
+1604     FORMAT('FLAKE AFTER_04 ',5(i8,' '),8(e14.8,' '))
+1605     FORMAT('FLAKE AFTER_05 ',5(i8,' '),8(e14.8,' '))
+1606     FORMAT('FLAKE AFTER_06 ',5(i8,' '),8(e14.8,' '))
+
+1609     FORMAT('FLAKEAGG1 ',1(i8,' '),8(e14.8,' '))
+1610     FORMAT('FLAKEAGG2 ',1(i8,' '),8(e14.8,' '))
+
+1621     FORMAT('FLAKE AFTER_01 ',1(i8,' '),18(e14.8,' '))
+
+4604     FORMAT('FLAKEIAFTER 05 ',8(e14.8,' '))
+4605     FORMAT('FLAKEIAFTER 06 ',10(e14.8,' '))
+      CONTAINS
+#include "fintern90.cdk"
+      END

@@ -1,0 +1,517 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P EXTDIAG
+      subroutine extdiag (d,f,v,dsiz,fsiz,vsiz,
+     $                    trnch,icpu,ni,nk)
+*
+#include "impnone.cdk"
+#include "phy_macros_f.h"
+*
+      integer dsiz,fsiz,vsiz,icpu,trnch,ni,nk
+      real d(dsiz),f(fsiz), v(vsiz)
+*
+*
+*Author
+*          B. Bilodeau Feb 2003 - from serdyn5 and phyexe1
+*
+*
+*Revisions
+*001      J.P. Toviessi (Aug 2003) - IBM conversion
+*               - calls to vssqrt routine (from massvp4 library)
+*               - calls to exponen4 (to calculate power function '**')
+*               - calls to optimized routine MFOHR,MFOHRA
+*
+*002      B. Bilodeau (Sep 2003) - exponen4 replaced by vspown1
+*003      A. Glazer (September 2003) - Calculation of TD
+*004      L. Spacek (Aug 2004) - cloud clean-up fn, cck, ccn
+*                                change to fbl, fdc, ftot respectively
+*                                elimination of ISTCOND=2
+*005      B. Dugas (Nov 2005) - Add phis and MOYHR variables for ICTS experiments
+*                               and save LWCRAD/IWCRAD rather than LWC/IWC
+*006      K. Winger (Jun 2006) - Add TSAV for ICTS experiments
+*007      P. Vaillancourt (Jun 2006) - allow output of acc for clb,clt,csb,cstt 
+*                                      and averages for iwv,tlwp,tiwp as timeseries
+*                                    - Move saving of LWCRAD/IWCRAD in diagno_cw_rad.ftn
+*008      S. Valcke and M. Faucher (Jun 2005) - Copy TD in volatile bus
+*009      B. Dugas (AuG 2007) - PR,PC,AE are now defined in the permanent bus
+*010      P. Vaillancourt (Dec 2008) - allow output of accumulated flux variables for cccmarad
+*011      L. Spacek (Jul 2009)  - replace sigm by sigw in order to satisfy stag and nonstag
+*012      Dugas/Winger (Set 2011) - extraction of iwvm,tlwpm,tiwpm depends on moyhr>0
+*
+*
+*Object
+*          to calculate averages and accumulators 
+*          of tendencies and diagnostics
+*
+*Arguments
+*
+*          - Input/Output -
+* F        permanent bus
+*
+*          - Input -
+* D        dynamic bus
+* V        volatile (output) bus
+*
+*          - Input -
+* DSIZ     dimension of d
+* FSIZ     dimension of f
+* VSIZ     dimension of v
+* TRNCH    slice number
+* ICPU     task number
+* N        horizontal running length
+* NK       vertical dimension
+*
+*
+*IMPLICITES
+*
+#include "options.cdk"
+#include "sercmdk.cdk"
+#include "phybus.cdk"
+*
+*
+*MODULES
+*
+      EXTERNAL SERXST
+      EXTERNAL MVZNXST,MZONXST
+*
+*
+*
+**
+*
+      INTEGER I,K,IK,IERGET
+      REAL HEURSER
+*
+      REAL tmp1
+      INTEGER MODP,S1
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+*
+      AUTOMATIC (  P      , REAL , (NI,NK  ) )
+      AUTOMATIC (  WORK2D1, REAL , (NI,NK  ) )
+      AUTOMATIC (  WORK2D2, REAL , (NI,NK  ) )
+      AUTOMATIC (  WORK1D , REAL , (NI     ) )
+*
+
+************************************************************************
+*
+*
+#include "consphy.cdk"
+*
+*     fonction-formule pour faciliter le calcul des indices
+      ik(i,k) = (k-1)*ni + i -1
+
+      S1 = ni*(nk-1)-1
+*
+      call serget ( 'HEURE' , heurser , 1 , ierget  )
+*
+*
+*     EXTRACTION OF LATITUDE, LONGITUDE AND ARRAY OF ONES
+*     (TO VALIDATE ZONAL DIAGNOTICS)
+      do i=1,ni
+         work1d(i) = 1.0
+      end do
+*
+      call mzonxst(f(dlat) , 'LA', trnch,ni,heurser,1.,  -1, icpu)
+      call mzonxst(f(dlon) , 'LO', trnch,ni,heurser,1.,  -1, icpu)
+      call mzonxst(work1d  , 'UN', trnch,ni,heurser,1.,  -1, icpu)
+*
+*
+*     DERIVED SCREEN-LEVEL FIELDS
+      CALL SERXST (v(rhdiag),'RH', trnch,ni, 0.,    1.,  -1      )
+      CALL MZONXST(v(rhdiag),'RH', trnch,ni,heurser,1.,  -1, ICPU)
+      CALL SERXST (v(esdiag),'ED', trnch,ni, 0.,    1.,  -1      )
+      CALL MZONXST(v(esdiag),'ED', trnch,ni,heurser,1.,  -1, ICPU)
+      CALL SERXST (v(tdew)  ,'TW', trnch,ni, 0.,    1.,  -1      )
+      CALL MZONXST(v(tdew)  ,'TW', trnch,ni,heurser,1.,  -1, ICPU)
+*
+*     EXTRACTION OF ACCUMULATED FLUXES
+*
+      call serxst  ( f(eiaf) , 'AR', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(eiaf) , 'AR', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(evaf) , 'AU', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(evaf) , 'AU', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(fcaf) , 'AH', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(fcaf) , 'AH', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(fiaf) , 'AD', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(fiaf) , 'AD', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(fqaf) , 'AW', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(fqaf) , 'AW', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(suaf) , 'S7', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(suaf) , 'S7', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(svaf) , 'S8', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(svaf) , 'S8', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(fsaf) , 'AS', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(fsaf) , 'AS', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(fvaf) , 'AV', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(fvaf) , 'AV', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(ivaf) , 'AB', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(ivaf) , 'AB', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(ntaf) , 'NF', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(ntaf) , 'NF', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(siaf) , 'AI', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(siaf) , 'AI', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(flaf) , 'AG', trnch, ni, 0.,      1.,  -1      )
+      call mzonxst ( f(flaf) , 'AG', trnch, ni, heurser, 1.,  -1, icpu)
+      call serxst  ( f(flusolaf),'AF',trnch,ni, 0.    ,  1.,  -1      )
+      call mzonxst ( f(flusolaf),'AF',trnch,ni, heurser, 1.,  -1, icpu)
+*
+      if (iradia.eq.3) then
+      call serxst  ( f(clbaf),'ACLB',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(clbaf),'ACLB',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(cltaf),'ACLT',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(cltaf),'ACLT',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(cstaf),'ACST',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(cstaf),'ACST',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(csbaf),'ACSB',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(csbaf),'ACSB',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(fsdaf),'AFSD',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(fsdaf),'AFSD',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(fsfaf),'AFSF',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(fsfaf),'AFSF',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(fsiaf),'AFSI',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(fsiaf),'AFSI',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(fsvaf),'AFSV',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(fsvaf),'AFSV',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      call serxst  ( f(parraf),'APAR',trnch,ni,0.,     1.,      -1     )
+      call mzonxst ( f(parraf),'APAR',trnch,ni,heurser,D(PPLUS),-2,icpu)
+      endif
+*
+      if (moyhr.gt.0) then
+      call serxst  ( f(uvsmax),'UX', trnch, ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(uvsavg),'WA', trnch, ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(hrsmax),'HX', trnch, ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(hrsmin),'HN', trnch, ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(husavg),'QV', trnch, ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(insmavg), 'MA',trnch,ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(ttmin+S1),'T5',trnch,ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(ttmax+S1),'T9',trnch,ni, 0.    ,  1.,  -1      )
+      call serxst  ( f(tdiagavg),'TSAV', trnch, ni, 0.,  1.,  -1      )
+      endif
+*
+*     EXTRACTION OF TENDENCIES DUE TO CONVECTION
+*
+      call serxst  ( v( tcond), 'TA', trnch, ni, 0., 1.,        -1)
+      call mzonxst ( v( tcond), 'TA', trnch, ni, heurser, 
+     $               d(pmoins),-2, icpu)
+      call serxst  ( v(hucond), 'QA', trnch, ni, 0.,      1.,   -1)
+      call mzonxst ( v(hucond), 'QA', trnch, ni, heurser, 
+     $               d(pmoins),-2, icpu)
+      call serxst  ( v(qcphytd),'QT', trnch, ni, 0.,      1.,   -1)
+      call mzonxst ( v(qcphytd),'QT', trnch, ni, heurser, 
+     $               d(pmoins),-2, icpu)
+*
+*     EXTRACTION OF PRECIPITATION RATES
+*
+      call serxst (f(tlc)  , 'P1', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(tlc)  , 'P1', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (f(tls)  , 'P2', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(tls)  , 'P2', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (f(tsc)  , 'P3', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(tsc)  , 'P3', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (f(tss)  , 'P4', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(tss)  , 'P4', trnch,ni,heurser,1.,  -1, icpu)
+*
+*     CONVECTIVE AND STRATIFORM PRECIPITATION RATES
+      call serxst (v(rc)   , 'RC', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(v(rc)   , 'RC', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (v(rr)   , 'RR', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(v(rr)   , 'RR', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (v(rt)   , 'RT', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(v(rt)   , 'RT', trnch,ni,heurser,1.,  -1, icpu)
+*
+*     ACCUMULATED PRECIPITATION
+      call serxst (f(pr)   , 'PR', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(pr)   , 'PR', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (f(pc)   , 'PC', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(pc)   , 'PC', trnch,ni,heurser,1.,  -1, icpu)
+      call serxst (f(ae)   , 'AE', trnch,ni, 0.,    1.,  -1      )
+      call mzonxst(f(ae)   , 'AE', trnch,ni,heurser,1.,  -1, icpu)
+*
+*     CLOUDS
+      CALL SERXST (f(ftot) , 'NU', trnch,ni, 0.,    1.,  -1      )
+      CALL MZONXST(f(ftot) , 'NU', trnch,ni,heurser,1.,  -1, ICPU)
+      CALL SERXST (f(fbl)  , 'NJ', trnch,ni, 0.,    1.,  -1      )
+      CALL SERXST (f(qtbl) , 'QB', trnch,ni, 0.,    1.,  -1      )
+*
+
+      if ( iconvec.ge.3) then
+
+*     NUAGES CONVECTIFS
+      CALL SERXST (F(FDC) , 'NC', trnch,ni, 0.,    1.,  -1      )
+      CALL MZONXST(F(FDC) , 'NC', trnch,ni,heurser,1.,  -1, ICPU)
+
+      endif
+*
+*
+      IF ((ISTCOND.GE.10).AND.(ISTCOND.LE.12)) THEN
+         CALL SERXST (F(AIP),        'PE',   TRNCH, NI, 0.,      1.,   -1      )
+         CALL MZONXST(F(AIP),        'PE',   TRNCH, NI, HEURSER, 1.,   -1, ICPU)
+         CALL SERXST (F(ASS_S2L),    'S2L',  TRNCH, NI, 0.,      1.,   -1      )
+         CALL MZONXST(F(ASS_S2L),    'S2L',  TRNCH, NI, HEURSER, 1.,   -1, ICPU)
+         CALL SERXST (F(ALS),        'A2',   TRNCH, NI, 0.,      1.,   -1      )
+         CALL MZONXST(F(ALS),        'A2',   TRNCH, NI, HEURSER, 1.,   -1, ICPU)
+         CALL SERXST (F(ASS),        'A4',   TRNCH, NI, 0.,      1.,   -1      )
+         CALL MZONXST(F(ASS),        'A4',   TRNCH, NI, HEURSER, 1.,   -1, ICPU)
+
+         call serxst (f(ASS_MX)   , 'AMX', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ASS_MX)   , 'AMX', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(TSS_MX)   , 'RMX', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(TSS_MX)   , 'RMX', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(ASS_SND)  , 'SND', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ASS_SND)  , 'SND', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(als_rn1)  , 'RN1', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(als_rn1)  , 'RN1', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(als_rn2)  , 'RN2', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(als_rn2)  , 'RN2', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(als_fr1)  , 'FR1', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(als_fr1)  , 'FR1', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(als_fr2)  , 'FR2', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(als_fr2)  , 'FR2', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(ass_sn1)  , 'sn1', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_sn1)  , 'sn1', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(ass_sn2)  , 'sn2', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_sn2)  , 'sn2', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(ass_sn3)  , 'sn3', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_sn3)  , 'sn3', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(ass_pe1)  , 'pe1', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_pe1)  , 'pe1', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(ass_pe2)  , 'pe2', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_pe2)  , 'pe2', trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(ass_pe2l) , 'pe2l', trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_pe2l) , 'pe2l', trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(sn)       , 'sn',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(sn)       , 'sn',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(rn)       , 'rn',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(rn)       , 'rn',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(azr)      , 'fr',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(azr)      , 'fr',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(aip)      , 'pe',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(aip)      , 'pe',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(ass_s2l)  , 's2l',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass_s2l)  , 's2l',  trnch,ni,heurser,1.,  -1, icpu)
+         call serxst (f(tss_s2l)  ,'rs2l',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(tss_s2l)  ,'rs2l',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(als)      , 'a2',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(als)      , 'a2',  trnch,ni,heurser,1.,  -1, icpu)
+
+         call serxst (f(ass)      , 'a4',  trnch,ni, 0.,    1.,  -1      )
+         call mzonxst(f(ass)      , 'a4',  trnch,ni,heurser,1.,  -1, icpu)
+      ENDIF
+*
+*     EFFECT OF PRECIPITATION EVAPORATION
+      do 28 k=1,nk-1
+      do 28 i=1,ni
+         work2d1(i,k)=min(0.,v(tcond+ik(i,k)))
+28    continue
+*
+      call serxst (work2d1 , 'EP', trnch,ni,0.0,    1.       ,-1     )
+      call mzonxst(work2d1 , 'EP', trnch,ni,heurser,d(pmoins),-2,icpu)
+*
+*     EXTRACTION OF AVERAGED VERT INTEGRATED WATER VAPOR,LWP AND IWP
+*
+      if (moyhr > 0) then
+      call serxst  ( f(iwvm) ,'IWVM',trnch,ni,0.,     1.,      -1      )
+      call mzonxst ( f(iwvm) ,'IWVM',trnch,ni,heurser,d(PPLUS),-2,icpu )
+      call serxst  ( f(tlwpm),'ICRM',trnch,ni,0.,     1.,      -1      )
+      call mzonxst ( f(tlwpm),'ICRM',trnch,ni,heurser,d(PPLUS),-2,icpu )
+      call serxst  ( f(tiwpm),'IIRM',trnch,ni,0.,     1.,      -1      )
+      call mzonxst ( f(tiwpm),'IIRM',trnch,ni,heurser,d(PPLUS),-2,icpu )
+      endif
+*
+*
+*
+*     EXTRACTION OF DYNAMICS VARIABLES
+*     --------------------------------
+*
+*     EXTRACT TIME SERIES AND ZONAL DIAGNOSTICS OF SINGLE-LEVEL FIELDS
+      call mzoniv ( trnch, 1 )
+      call sersetm( 'KA', trnch, 1 )
+*
+*     EXTRACTION OF LOG(SURFACE PRESSURE)
+*
+      CALL SERXST ( D(STPLUS),'!!SF',TRNCH,NI,0.0  ,1.0     ,-1      )
+      CALL MZONXST( D(STPLUS),'!!SF',TRNCH,NI,HEURE,1.0     ,-1,ICPU )
+
+*     EXTRACT TIME SERIES AND ZONAL DIAGNOSTICS ON NK LEVELS
+      call mzoniv ( trnch, nk )
+      call sersetm( 'KA', trnch, nk )
+*
+*     EXTRACTION OF WIND COMPONENTS
+*
+      CALL SERXST ( D(UPLUS),'UU',TRNCH,NI,0.0,1.0,-1 )
+      CALL SERXST ( D(VPLUS),'VV',TRNCH,NI,0.0,1.0,-1 )
+*
+      CALL MVZNXST( D(UPLUS), D(VPLUS),'UU','VV',TRNCH,NI,1.0,-1,ICPU )
+*
+      CALL SERXST ( D(OMEGAP),'WW',TRNCH,NI,0.0,  1.0     ,-1      )
+      CALL MZONXST( D(OMEGAP),'WW',TRNCH,NI,HEURE,1.0     ,-1,ICPU )
+*
+*     TEMPERATURE
+      CALL SERXST ( D(TPLUS), 'TT',TRNCH,NI,0.0  ,1.0     ,-1      )
+      CALL MZONXST( D(TPLUS), 'TT',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU )
+*
+*     POTENTIAL TEMPERATURE
+      DO K=1,NK
+*VDIR NODEP
+         DO I=1,NI
+            P   (I,K) = D(SIGW +IK(I,K))*D(PPLUS+IK(I,1))
+            WORK2D1(I,K) = 1.E-5*P(I,K)
+         END DO
+      END DO
+*
+      CALL VSPOWN1 (WORK2D1,WORK2D1,-CAPPA,NI*NK)
+*
+      DO K=1,NK
+         DO I=1,NI
+            WORK2D1(I,K) = D(TPLUS+IK(I,K))*WORK2D1(I,K)
+         END DO
+      END DO
+*
+      CALL SERXST ( WORK2D1,'TH',TRNCH ,NI ,0.0   ,1.0 ,-1       )
+      CALL MZONXST( WORK2D1,'TH',TRNCH ,NI ,HEURE ,1.0 ,-1 ,ICPU )
+*
+*     DEW POINT TEMPERATURE
+*
+*     FIND DEW POINT DEPRESSION FIRST (ES). SATURATION CALCULATED WITH 
+*     RESPECT TO WATER ONLY (SINCE TD MAY BE COMPARED TO OBSERVED TEPHIGRAM).
+      CALL MHUAES(WORK2D1,D(HUPLUS),D(TPLUS),-1.,P,3,.TRUE.,.FALSE.,NI,NK,NI)
+*
+      DO K=1,NK
+*VDIR NODEP
+         DO I=1,NI
+            WORK2D1(I,K) = MIN(
+     +                         D(TPLUS+IK(I,K)),
+     +                         D(TPLUS+IK(I,K))-WORK2D1(I,K)
+     +                        )
+         END DO
+      END DO
+*
+      CALL SERXST ( WORK2D1, 'TD', TRNCH,NI,0.0  ,1.0,-1      )
+      CALL MZONXST( WORK2D1, 'TD', TRNCH,NI,HEURE,1.0,-1,ICPU )
+*
+*     MOISTURE
+      IF(WET) THEN
+*
+*        ELIMINATE NEGATIVE VALUES
+*VDIR NODEP
+         DO I=1,NI*NK
+            WORK2D1(I,1) = MAX(0.0,D(HUPLUS+IK(I,1)))
+         END DO
+*
+         CALL SERXST ( WORK2D1,'HU',TRNCH,NI,0.0  ,1.0     ,-1      )
+         CALL MZONXST( WORK2D1,'HU',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU )
+*
+*        RELATIVE HUMIDITY
+         MODP = 3
+         tmp1 = 0.0
+         IF (SATUCO) THEN
+            DO K=1,NK
+*VDIR NODEP
+            DO I=1,NI
+               WORK2D2(I,K) = D(SIGW+IK(I,K))*D(PPLUS+IK(I,1))
+
+            END DO
+            END DO
+*
+            CALL MFOHR(WORK2D1,D(HUPLUS), D(TPLUS),
+     +                 TMP1, WORK2D2, MODP,NI,NK,NI)
+*
+         ELSE
+            DO K=1,NK
+            DO I=1,NI
+               WORK2D2(I,K) = D(SIGW+IK(I,K))*D(PPLUS+IK(I,1))
+            END DO
+            END DO
+*
+            CALL MFOHRA(WORK2D1, D(HUPLUS), D(TPLUS),
+     +                  TMP1, WORK2D2, MODP,NI,NK,NI)
+*
+         END IF
+*
+         CALL SERXST ( WORK2D1, 'HR', TRNCH, NI, 0.0   ,1.0, -1      )
+         CALL MZONXST( WORK2D1, 'HR', TRNCH, NI, HEURE ,1.0, -1,ICPU )
+*
+         IF (ISTCOND. GE. 3) THEN
+*
+*           TOTAL CLOUD WATER
+            CALL SERXST (D(QCPLUS),'QC',TRNCH,NI,0.0,  1.0     ,-1     )
+            CALL MZONXST(D(QCPLUS),'QC',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+            IF (ISTCOND. EQ. 5) THEN
+*
+*              SOLID CLOUD WATER AS SEEN BY RADIATION
+               CALL SERXST (F(IWC),'QI',TRNCH,NI,0.0  ,1.0     ,-1     )
+               CALL MZONXST(F(IWC),'QI',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+*              LIQUID CLOUD WATER AS SEEN BY RADIATION
+               CALL SERXST (F(LWC),'QW',TRNCH,NI,0.0,  1.0     ,-1     )
+               CALL MZONXST(F(LWC),'QW',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+            ENDIF
+*
+         ENDIF
+
+*        TIME-AVERAGED LIQUID CLOUD WATER AS SEEN BY RADIATION
+         CALL SERXST (F(LWCRADM),'LWRM',TRNCH,NI,0.0,  1.0     ,-1     )
+         CALL MZONXST(F(LWCRADM),'LWRM',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+*        TIME-AVERAGED SOLID CLOUD WATER AS SEEN BY RADIATION
+         CALL SERXST (F(IWCRADM),'IWRM',TRNCH,NI,0.0,  1.0     ,-1     )
+         CALL MZONXST(F(IWCRADM),'IWRM',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+*        TIME-AVERAGED CLOUD FRACION AS SEEN BY RADIATION
+         CALL SERXST (F(CLDRADM),'CLRM',TRNCH,NI,0.0,  1.0     ,-1     )
+         CALL MZONXST(F(CLDRADM),'CLRM',TRNCH,NI,HEURE,D(PPLUS),-2,ICPU)
+*
+      ENDIF
+*
+*
+*     SURFACE GEOPOTENTIAL FROM DYNAMICS
+      CALL SERXST ( D(PHIS) ,'MF',TRNCH,NI,0.0  ,1.0,-1      )
+      CALL MZONXST( D(PHIS) ,'MF',TRNCH,NI,HEURE,1.0,-1,ICPU )
+*
+*     SURFACE PRESSURE
+      CALL SERXST ( D(PPLUS),'P0',TRNCH,NI,0.0  ,1.0,-1      )
+      CALL MZONXST( D(PPLUS),'P0',TRNCH,NI,HEURE,1.0,-1,ICPU )
+*
+*     MODULUS OF THE SURFACE WIND
+      DO I = 1,NI
+         WORK1D(I) = D(UPLUS+IK(I,NK))*D(UPLUS+IK(I,NK)) +
+     %               D(VPLUS+IK(I,NK))*D(VPLUS+IK(I,NK))
+      END DO
+*
+      call VSSQRT(WORK1D,WORK1D,NI)
+*
+      CALL SERXST ( WORK1D,'VE',TRNCH,NI,0.0  ,1.0,-1      )
+      CALL MZONXST( WORK1D,'VE',TRNCH,NI,HEURE,1.0,-1,ICPU )
+*
+*
+      RETURN
+      END

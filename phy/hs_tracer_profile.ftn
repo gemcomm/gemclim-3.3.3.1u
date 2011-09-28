@@ -1,0 +1,135 @@
+c Version 1.0
+C     computes mixing of passive tracers
+c     this is a crank-nicholson version -- sept 5 1996
+      subroutine hs_tracer_profile (de, depth, iwater)  
+      implicit none
+#include "lakepar.cdk"
+      real dist12,area_1,area_2,cnextra
+      integer az,i_tr,k,i_water,iwater
+
+      parameter (az = 1000) ! length of arrays first dimensioned here
+
+      real de(depth) 
+      real z(az), zhalf(az) ! yz, and yz.5
+      real a(az), b(az), c(az), d(az)  ! arrays for tridia matrix
+      real tnew(az)
+
+      real work1(az), work2(az)  ! set up space arrays for tridia mat
+      real tr_work (depth) 
+
+c z is an array of delz with depth
+c zhalf is array of delz between i and i+1
+c so, zhalf(3) = dist from mid of 3 to mid of 4
+c zhalf = .5*(yz(i)+yz(i+1))
+c here all 1 except for zhalf(1) = .8
+
+c-----------------------------------------------------------------------
+c   0.  Loop through the different tracers  
+c------------------------------------------------------------------------
+
+      do 1 i_tr = 1, num_tra
+
+c-----------------------------------------------------------------------
+c   1.  Place correct tracer into work arrray  
+c------------------------------------------------------------------------
+
+      dist12=surf*0.5+yz*0.5 ! dist for grad t calc between
+
+      do 10 k= 1,depth ! init density, spec_ht, zhalf through col
+        z(k)=yz
+        zhalf(k)=yz
+        if (iwater.eq.1) tr_work(k) = trace (k,i_tr)  ! open water calc
+        if (iwater.eq.0) tr_work(k) = trace_i (k,i_tr)  ! ice calc
+ 10   continue
+
+      z(1)=surf                ! make top slice z = surf
+      zhalf(1)=0.5*(z(1)+z(2)) ! calc zhalf between 1 and 2
+
+c-----------------------------------------------------------------------
+c   2. calculate d array, which includes heating terms
+c      so seperate for ice and water fraction of cell
+c     cnextra is extra term in d array for crank-nicholson
+c------------------------------------------------------------------------
+
+      k = 1   ! top slice
+      area_1 =(area(k) + area(k)) / 2.
+      area_2 =(area(k) + area(k+1)) / 2.
+
+      cnextra = 0.5 * area_2/area(k) * ! for k = 1, top slice in column
+     + ((de(1)/zhalf(1)) * (dt/z(1))*(tr_work(2) - tr_work(1)))
+
+      d(1) = tr_work(1)+cnextra
+
+      do 11 k=2,depth-1           ! loop through water column 
+
+        area_1 =(area(k-1) + area(k)) / 2. 
+        area_2 =(area(k)  + area(k+1)) / 2. 
+
+        cnextra = 0.5 *1./area(k)*
+     +           (((de(k)/zhalf(k))*(dt/z(k))*
+     +           (tr_work(k+1)-tr_work(k)))*area_2 - 
+     +           ((de(k-1)/zhalf(k-1))*(dt/z(k))*
+     +           (tr_work(k)-tr_work(k-1)))*area_1)
+
+        d(k) = tr_work(k)+cnextra
+
+ 11   continue                  
+
+       k = depth  !  bottom slice
+       area_1 =(area(k-1) + area(k)) / 2.
+
+       cnextra = 0.5 * area_1/area(k) *  ! for k = depth
+     + ((de(k-1)/zhalf(k-1))*(dt/z(k))*(tr_work(k)-tr_work(k-1)))
+
+       d(k) = tr_work(k)+cnextra
+
+c-----------------------------------------------------------------------
+c   3. calculate arrays for tridiagonal matrix, top and bot slice seperate
+c------------------------------------------------------------------------
+
+      k = 1  ! top slice
+      area_2 =(area(k) + area(k+1)) / 2.
+
+      b(1) = -0.5 * (de(1)/zhalf(1)) *
+     +        (dt/z(1)) * area_2/area(k)
+      a(1) = 1. - b(1)  ! no factor of 0.5 here, already done
+
+      do 13 k = 2,depth-1  ! all but top and bottom slices
+           
+         area_1 =(area(k-1) + area(k)) / 2.
+         area_2 =(area(k) + area(k+1)) / 2.
+
+         b(k) = -0.5 * (de(k)/zhalf(k)) *
+     +        (dt/z(k))*area_2/area(k)
+         c(k) = -0.5 * (de(k-1)/zhalf(k-1)) *
+     +        (dt/z(k))*area_1/area(k)
+         a(k) = 1. - b(k) - c(k) ! no 0.5 here, already done
+
+ 13   continue
+
+      k=depth  ! bottom slice
+      area_1 =(area(k-1) + area(k)) / 2.
+
+      c(depth) = -0.5 * (de(depth)/zhalf(depth)) *
+     +        (dt/z(depth)) * area_1/area(k)
+      a(depth) = 1. - c(depth)
+
+c-------------------------------------------------------------
+c    4. call matrix solution, and reset temp and density arrays
+c-------------------------------------------------------------
+
+      call hs_tridiag_solve(1,1,depth,c,a,b,d,tnew,work1,work2)
+
+      do 40 k = 1, depth  ! change temps and densities
+          tr_work(k) = tnew(k)
+        if (iwater.eq.1) trace(k,i_tr) = tr_work(k) ! open water calc
+        if (iwater.eq.0) trace_i(k,i_tr) = tr_work(k) ! ice calc
+ 40   continue
+
+
+c-------------------------------------------------------------
+ 1    continue    ! go back and do the next tracer 
+
+      return
+      end
+

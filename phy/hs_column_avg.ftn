@@ -1,0 +1,32 @@
+c   Version 1.0
+c     average water and ice columns for fractional cover
+      subroutine hs_column_avg (depth,t,ti,salty,saltyi,fracprv,dnsty)
+      implicit none
+#include "lakepar.cdk"
+#include "lakes.cdk"
+           integer j
+      real t(INL,2),ti(INL,2),dnsty(INL)
+      real salty (INL,n_trace), saltyi(INL,n_trace)
+      real salt_mx (INL),fracprev,temp,fracprv,
+     +     dnstyw,dnstyi,cpw,cpi,z
+
+      do j=1,depth
+        call hs_density(t(j,1),salty(j,n_trace),dnstyw)
+        call hs_density(ti(j,1),salty(j,n_trace),dnstyi)
+        call hs_specheat(t(j,1),salty(j,n_trace),cpw)
+        call hs_specheat(ti(j,1),saltyi(j,n_trace),cpi)
+        dnstyw=dnstyw+1000.
+        dnstyi=dnstyi+1000.
+        z=yz
+        if (j.eq.1) z=surf
+        temp=((1.-fracprv)*t(j,1)*z*dnstyw*cpw+
+     +    fracprv*ti(j,1)*z*dnstyi*cpi)/
+     +    ((z*dnstyw*cpw+z*dnstyi*cpi)*0.5)
+
+        salt_mx(j) = (1.-fracprv)*salty(j,n_trace) + 
+     +           fracprv*saltyi(j,n_trace)
+        t(j,1)=temp
+        call hs_density (t(j,1),salt_mx(j),dnsty(j))
+      enddo
+      return
+      end

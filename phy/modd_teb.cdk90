@@ -1,0 +1,166 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!
+!revisions
+! v3_32 - Winger & Dugas         - modify OMP Threadprivate code
+!
+!     ###############
+      MODULE MODD_TEB
+!     ###############
+!
+!!****  *MODD_TEB - declaration of surface parameters for urban surface
+!!
+!!    PURPOSE
+!!    -------
+!     Declaration of surface parameters
+!
+!!
+!!**  IMPLICIT ARGUMENTS
+!!    ------------------
+!!      None 
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!    AUTHOR
+!!    ------
+!!	V. Masson   *Meteo France*
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original       01/2004
+!
+!*       0.   DECLARATIONS
+!             ------------
+!
+USE MODD_TYPE_SNOW
+!
+IMPLICIT NONE
+!
+#define ALLOCATES ALLOCATABLE,SAVE
+!
+! General surface: 
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XZS           ! orography                        (m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XCOVER        ! fraction of each ecosystem       (-)
+LOGICAL, ALLOCATES  , DIMENSION(:):: LCOVER        ! GCOVER(i)=T --> ith cover field is not 0.
+!
+! Number of layers
+!
+INTEGER, SAVE                     :: NROOF_LAYER   ! number of layers in roofs
+INTEGER, SAVE                     :: NROAD_LAYER   ! number of layers in roads
+INTEGER, SAVE                     :: NWALL_LAYER   ! number of layers in walls
+!
+! Geometric Parameters:
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XBLD          ! fraction of buildings            (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XCAN_HW_RATIO ! canyon    h/W                    (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XBLD_HEIGHT   ! buildings height 'h'             (m)
+REAL, ALLOCATES  , DIMENSION(:)   :: XWALL_O_HOR   ! wall surf. / hor. surf.          (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XZ0_TOWN      ! roughness length for momentum    (m)
+REAL, ALLOCATES  , DIMENSION(:)   :: XSVF_ROAD     ! road sky view factor             (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XSVF_WALL     ! wall sky view factor             (-)
+!
+! Roof parameters
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XALB_ROOF     ! roof albedo                      (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XEMIS_ROOF    ! roof emissivity                  (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XHC_ROOF      ! roof layers heat capacity        (J/K/m3)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XTC_ROOF      ! roof layers thermal conductivity (W/K/m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XD_ROOF       ! depth of roof layers             (m)
+!
+!
+! Road parameters
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XALB_ROAD     ! road albedo                      (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XEMIS_ROAD    ! road emissivity                  (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XHC_ROAD      ! road layers heat capacity        (J/K/m3)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XTC_ROAD      ! road layers thermal conductivity (W/K/m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XD_ROAD       ! depth of road layers             (m)
+!
+! Wall parameters
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XALB_WALL     ! wall albedo                      (-)
+REAL, ALLOCATES  , DIMENSION(:)   :: XEMIS_WALL    ! wall emissivity                  (-)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XHC_WALL      ! wall layers heat capacity        (J/K/m3)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XTC_WALL      ! wall layers thermal conductivity (W/K/m)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XD_WALL       ! depth of wall layers             (m)
+!
+! anthropogenic fluxes
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XH_TRAFFIC    ! anthropogenic sensible
+!                                                  ! heat fluxes due to traffic       (W/m2)
+REAL, ALLOCATES  , DIMENSION(:)   :: XLE_TRAFFIC   ! anthropogenic latent
+!                                                  ! heat fluxes due to traffic       (W/m2)
+REAL, ALLOCATES  , DIMENSION(:)   :: XH_INDUSTRY   ! anthropogenic sensible                   
+!                                                  ! heat fluxes due to factories     (W/m2)
+REAL, ALLOCATES  , DIMENSION(:)   :: XLE_INDUSTRY  ! anthropogenic latent
+!                                                  ! heat fluxes due to factories     (W/m2)
+!
+! temperatures for boundary conditions
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XTI_BLD       ! building interior temperature    (K)
+REAL, ALLOCATES  , DIMENSION(:)   :: XTI_ROAD      ! road interior temperature        (K)
+!
+! Prognostic variables:
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XWS_ROOF      ! roof water reservoir             (kg/m2)
+REAL, ALLOCATES  , DIMENSION(:)   :: XWS_ROAD      ! road water reservoir             (kg/m2)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XT_ROOF       ! roof layer temperatures          (K)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XT_ROAD       ! road layer temperatures          (K)
+REAL, ALLOCATES  , DIMENSION(:,:) :: XT_WALL       ! wall layer temperatures          (K)
+!
+! Semi-prognostic variables:
+!
+REAL, ALLOCATES  , DIMENSION(:)   :: XT_CANYON     ! canyon air temperature           (K)
+REAL, ALLOCATES  , DIMENSION(:)   :: XQ_CANYON     ! canyon air specific humidity     (kg/kg)
+!
+!
+! Prognostic snow:
+!
+TYPE(SURF_SNOW), SAVE           :: TSNOW_ROOF      ! snow state on roofs: 
+!                                                  ! scheme type/option               (-)
+!                                                  ! number of layers                 (-)
+!                                                  ! snow (& liq. water) content      (kg/m2)
+!                                                  ! heat content                     (J/m2)
+!                                                  ! temperature                      (K)
+!                                                  ! density                          (kg m-3)
+TYPE(SURF_SNOW), SAVE           :: TSNOW_ROAD      ! snow state on roads: 
+!                                                  ! scheme type/option               (-)
+!                                                  ! number of layers                 (-)
+!                                                  ! snow (& liq. water) content      (kg/m2)
+!                                                  ! heat content                     (J/m2)
+!                                                  ! temperature                      (K)
+!                                                  ! density                          (kg m-3)
+!
+!
+!
+!
+! Time-step:
+!
+REAL, SAVE                        :: XTSTEP        ! time step for TEB
+!
+REAL, SAVE                        :: XOUT_TSTEP    ! TEB output writing time step
+!
+!$OMP THREADPRIVATE(XZS,XCOVER,XBLD,XCAN_HW_RATIO,XBLD_HEIGHT,XWALL_O_HOR,&
+!$OMP XZ0_TOWN,XSVF_ROAD,XSVF_WALL,XALB_ROOF,XEMIS_ROOF,XHC_ROOF,XTC_ROOF,&
+!$OMP XD_ROOF,XALB_ROAD,XEMIS_ROAD,XHC_ROAD,XTC_ROAD,XD_ROAD,XALB_WALL,   &
+!$OMP XEMIS_WALL,XHC_WALL,XTC_WALL,XD_WALL,XH_TRAFFIC,XLE_TRAFFIC,        &
+!$OMP XH_INDUSTRY,XLE_INDUSTRY,XTI_BLD,XTI_ROAD,XWS_ROOF,XWS_ROAD,XT_ROOF,&
+!$OMP XT_ROAD,XT_WALL,XT_CANYON,XQ_CANYON,XTSTEP,XOUT_TSTEP,              &
+!$OMP LCOVER,NROOF_LAYER,NROAD_LAYER,NWALL_LAYER,TSNOW_ROOF,TSNOW_ROAD)
+!
+END MODULE MODD_TEB

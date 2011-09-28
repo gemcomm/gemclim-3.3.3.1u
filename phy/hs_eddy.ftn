@@ -1,0 +1,57 @@
+c  Version 1.0
+C     this subroutine computes eddy diffusion profile
+      subroutine hs_eddy (iwater,u2,t,dnsty,de,depth,salty,zlat)
+      implicit none
+#include "lakepar.cdk"
+#include "lakes.cdk"
+      real u2,u,ks,N2,zlat,ws,Po,radmax,z,rad,Ri,deglat,dpdz
+      real t(depth,2), de(depth), dnsty(depth),zhalf
+      real salty(INL,n_trace)
+	integer k,iwater
+
+
+c	write(6,*) "WIND",u2
+      do k=1,depth
+        call hs_density (t(k,1),salty(k,n_trace),dnsty(k))
+      enddo
+      if (iwater.ne.1) then ! if ice fraction, no de just dm
+        do k=1,depth-1
+          de(k)=dm
+        enddo
+        de(depth)=dm
+        return ! exit sbrt if is ice covered 
+      endif ! if ice fraction
+
+      u=amax1(u2,1.0) ! avoid NAN in ks 
+c      zlat=deglat*pi/180.
+
+      ks=6.6*sin(zlat)**0.5*u**(-1.84)
+      ws=0.0012*u2
+      Po=1.0
+      radmax=4.e4 ! limits Ri to 10
+      do k= 1,depth-1
+	  if (k .eq. 1) then 
+	    zhalf=(surf+yz)*0.5
+	  else
+	    zhalf=yz
+	  endif
+        dpdz=(dnsty(k+1)-dnsty(k))/zhalf
+        N2=(dpdz/(1.e3+dnsty(k)))*9.8   
+        z=surf+float(k-1)*yz 
+        if ((ks*z)/ws.gt.40.) then   
+          rad = radmax  ! avoid NAN
+        else
+          rad=1.+40.*N2*(kv*z)**2./(ws**2.*exp(-ks*z))
+          if (rad.gt.radmax) rad=radmax
+        endif
+        rad=amax1(rad,1.0) ! so that Ri lower lim is 0.0
+        Ri=(-1.0+sqrt(rad))/20.0
+        de(k)=dm+kv*ws*z*Po*exp(-ks*z)
+     +        /(1.0+37.0*Ri**2)
+
+
+      enddo
+      de(depth)=dm
+      de(depth-1)=de(depth)  ! necessary for cn solution to work
+      return
+      end
