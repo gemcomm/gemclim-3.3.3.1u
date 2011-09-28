@@ -1,0 +1,797 @@
+
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r output_anal - analysis file output in climate mode
+*
+#include "model_macros_f.h"
+*
+      subroutine output_anal ()
+*
+      implicit none
+*
+*author
+*     Katja Winger - UQAM/RPN Sep 2009
+*
+*revision
+* v3_32 - Winger K.         - Initial version
+* v3_32 - Winger K.         - Only initialize Abusval if it is allocated (Apr 2010)
+*
+*description
+*  This routine writes the fields needed as initial condition to start
+*  a simulation.
+*  The analysis/initial condition files are written in RPN standard file format.
+*  The dynamic fields written are TT,UU,VV,P0,PHIS, and tracers (HU,QC,...)
+*  The physics fields written are I0,I1,I2,I3,I4,I6,I7,I8,I9,GY,SD,TM,DN (and SK if CLASS)
+*
+*  Dates at which to write an analysis file can be specified in 'Out3_anal_S'.
+*  Dates can be specified in form of a list of dates and/or intervals.
+*  Format of dates:      YYYYMMDDhh
+*  Format of intervals: [startdate,enddate,interval]
+*  Format of interval:   Increment followed by unit
+*  Possible units for interval: h,H: hours; d,D: days; m,M: months
+*  Blancks are ignored.
+*  Examples:
+*    Out3_anal_S = '1978030100, 1978060100'
+*    Out3_anal_S = '[1978013000,1978013100,6h]'
+*    Out3_anal_S = '[1978 03 01 00, 2008 06 01 00, 3m]' 
+*    Out3_anal_S = '1978030100,[1978013000,1978013100,6h],1979030100'
+*
+*implicits
+#include "lun.cdk"
+#include "ptopo.cdk"
+#include "glb_ld.cdk"
+#include "itf_phy_buses.cdk"
+#include "vt1.cdk"
+#include "out.cdk"
+#include "out3.cdk"
+#include "geomg.cdk"
+#include "geomn.cdk"
+#include "lctl.cdk"
+#include "grd.cdk" 
+#include "path.cdk"
+#include "glb_pil.cdk"
+#include "cstv.cdk"
+#include "schm.cdk"
+#include "tr3d.cdk"
+#include "clim.cdk"
+*
+**
+      integer  vmmlod, vmmuld, vmmget
+      external vmmlod, vmmuld, vmmget
+      integer  prog_filename,fnom,fstouv,fstfrm,fstecr,longueur
+      external prog_filename,fnom,fstouv,fstfrm,fstecr,longueur
+      integer  newdate, check_date
+      external newdate, incdat
+*
+      real, dimension (:), allocatable :: xpos, ypos
+*
+      integer     i, ii, j, k, n, err
+      integer     bigk
+      character*7 blocxy_S
+      integer     prognum, indx
+      integer     clostep, date, hour
+      real*8      sec_clostep, ONE, OV_day, OV_hour, OV_min
+      parameter ( ONE = 1.0d0, OV_day = ONE/86400.0d0,
+     $            OV_hour = ONE/3600.0d0, OV_min = ONE/60.0d0)
+      integer     ig1, ig2, ig3
+*
+      integer, parameter :: max_anal_steps=745  ! Max # of time steps to be written
+      integer, parameter :: nvars=22            ! # of physics fields to be written
+      integer, save :: avars, anal_steps(max_anal_steps), step_num
+      integer     anal_dates(max_anal_steps), len
+      integer     start, end, inc
+      character*1 ityp
+      integer     nextdate, time, stamp1, stamp2
+      integer     year, month, dayhour
+      real*8      hourr
+      character(len=4), save :: vlist_S(nvars)
+      logical, save :: save_anal_L
+      logical, save :: steps_set = .false.
+      logical, save :: ini_done  = .false.
+*
+      integer     Out_unf_save
+      integer, save :: Out_unf_anal
+*
+      character*4, save :: Abus_var_S(nvars)
+      character*1, save :: Abus_bus_S(nvars)
+      integer,     save :: Abus_top
+      integer,     save :: Abus_offset(nvars)
+      integer,     save :: Abus_idx(nvars)
+      integer,     save :: Abus_addr(nvars)
+      integer,     save :: Abus_stag(nvars)
+      integer,     save :: Abus_mult(nvars)
+      integer,     save :: Abus_shp(nvars)
+      integer,     save :: Abus_mos(nvars)
+      real,        save :: Abus_mul(nvars)
+      real,        save :: Abus_add(nvars)
+      integer,     save :: Abussiz
+      real, save, dimension(:), allocatable :: Abusval
+*
+      integer     mult
+*
+*C    Variables for entry fill_anal
+      integer     offbo,offbb
+      real        F_busper(*)
+      integer     slab
+*
+*C    Variables for entry out_anal_phy
+      integer     irff(100), vtype, offset
+      real        rff(100), lev2d
+      integer     grille_x0,grille_x1,grille_y0,grille_y1
+      integer     GP_ni, GP_nj
+*
+*C    Variables for entry out_anal_dyn
+      integer     key0,key1
+*
+      integer     pnlkey(15),trkey1(Tr3d_ntr)
+      integer     i0,in,j0,jn
+      integer, dimension(:), allocatable :: ind_o
+      real        deg2rad
+      real        ptop(LDIST_SHAPE), wlao(LDIST_SHAPE)
+      real        qx   (LDIST_SHAPE,G_nk),
+     $            hu   (LDIST_SHAPE,G_nk),
+     $            wlnph(LDIST_SHAPE,G_nk)
+      real        hut1,qjt1
+      pointer    (pahu, hut1(LDIST_SHAPE,*)),(paqj, qjt1(LDIST_SHAPE,*))
+*
+      integer     glb1,glb2,glb3,glb4
+      real        xpq(Out_nisg),ypq(Out_njsg)
+**
+*
+      DATA vlist_S /'I0','I1','I2','I3','I4','I6','I7','I8','I9',
+     &              'GY','SD','TM','DN','SK','I5','GR','TE','TN',
+     &              'M9','Q4','R2','LM'/
+**
+*     ---------------------------------------------------------------
+*
+*C    Determine time steps at which to save an analysis file
+*C    Do this only once per job
+      if ( .not. steps_set ) then
+*
+         steps_set = .true.
+*
+*C       Eliminate blanks
+*C       ================
+         j=0
+         do i=1,longueur(Out3_anal_S)
+            if ( Out3_anal_S(i:i) .ne. ' ' ) then
+               j = j + 1
+               Out3_anal_S(j:j) = Out3_anal_S(i:i)
+            endif
+         enddo
+         len = j
+         do i=j+1,longueur(Out3_anal_S)
+            Out3_anal_S(i:i) = ' '
+         enddo
+*
+*C       Read 'Out3_anal_S'
+*C       ==================
+         step_num = 0
+*
+*C       Read the whole string 'Out3_anal_S' in parts
+*C       i: character position in string
+         i = 1
+         do while ( i .le. len )
+*
+*C          Read intervals
+*C          --------------
+*C          If character '[' is found, assume (checked) interval:
+*C          [startdate,enddate,interval]
+*C          Format of startdate and startdate: YYYYMMDDhh
+*C          Format of interval: Increment followed by unit
+            if ( Out3_anal_S(i:i) .eq. '[' ) then
+               i = i + 1                               ! Advance 1 character ('[')
+*
+*C             Read startdate (YYYYMMDDhh)
+               if ( check_date(Out3_anal_S(i:i+9)) .eq. 1 ) goto 100
+               read (Out3_anal_S(i:i+9),'(i10)') start
+               i = i + 11                              ! Advance 11 characters ('YYYYMMDDhh,')
+*
+*C             Read enddate (YYYYMMDDhh)
+               if ( check_date(Out3_anal_S(i:i+9)) .eq. 1 ) goto 100
+               read (Out3_anal_S(i:i+9),'(i10)') end
+               i = i + 11                              ! Advance 11 characters ('YYYYMMDDhh,')
+*
+*C             Read interval (increment and unit)
+*C             Read increment
+               j = i
+               do while ( j .le. len )
+                  if ( index('0123456789', Out3_anal_S(j:j)) .eq. 0 ) exit
+                  j = j + 1                            ! Advance 1 character (1 digit)
+               enddo
+               if ( i .eq. j ) goto 100
+               read (Out3_anal_S(i:j-1),'(i10)') inc
+*C             Read unit
+               ityp  = Out3_anal_S(j:j)
+               i = j + 1                               ! Advance 1 character (unit)
+*
+               i = i + 2                               ! Advance 2 characters ('],')
+*C             Reading of interval is finished
+*
+*C             If unit is in days convert increment into hours
+               if ( ityp .eq. 'd' .or. ityp .eq. 'D' ) then
+                  inc = inc * 24
+                  ityp = 'h'
+               endif
+*
+*C             Calculate all saving dates of this interval when ...
+               nextdate = start
+               select case (ityp)
+*
+*C                ... increment is in hours
+                  case ('h','H') 
+*C                   Convert current saving date into CMC time stamp
+*C                   (to be able to use 'incdat')
+                     date = nextdate / 100
+                     time = (nextdate - date*100) * 1000000
+                     err = newdate (stamp1, date, time,  3)
+*
+*C                   As long as the next calculated saving date is .le. enddate,
+*C                   add it to list of saving dates
+                     do while ( nextdate .le. end )
+                        step_num = step_num + 1
+                        anal_dates(step_num) = nextdate
+*
+*C                      Add increment to calculate next saving date
+                        call incdat (stamp2, stamp1, inc)
+                        err = newdate (stamp2, date, time, -3)
+                        stamp1 = stamp2
+                        nextdate = date*100 + time/1000000
+                     enddo
+*
+*C                ... increment is in months
+                  case ('m','M')
+*C                   As long as the next calculated saving date is .le. enddate,
+*C                   add it to list of saving dates
+                     do while ( nextdate .le. end )
+                        step_num = step_num + 1
+                        anal_dates(step_num) = nextdate
+*
+*C                      Get YYYY, MM, DDhh of current saving date
+                        year    = nextdate / 1000000
+                        month   = (nextdate - year*1000000) / 10000
+                        dayhour = mod (nextdate, 10000)
+*
+*C                      Add increment to calculate next saving date
+                        month = month + inc
+                        year  = year + (month-1) / 12
+                        month = mod(month,12)
+                        if ( month .eq. 0 ) month = 12
+                        nextdate = year*1000000 + month*10000 + dayhour
+                     enddo
+                  case default
+*C                   Bad unit
+                     goto 100
+               end select
+*
+*C          Read single dates
+*C          -----------------
+            else
+*C             If character is not a number or ',' stop reading saving dates
+               if ( index('0123456789,', Out3_anal_S(i:i)) .eq. 0 ) goto 100
+*
+*C             Read next saving date (YYYYMMDDhh)
+               if ( check_date(Out3_anal_S(i:i+9)) .eq. 1 ) goto 100
+               step_num = step_num + 1
+               read (Out3_anal_S(i:i+9),'(i10)') anal_dates(step_num)
+               i = i + 11                              ! Advance 11 characters ('YYYYMMDDhh,')
+            endif
+*
+         end do
+*
+*C       Convert saving dates into time steps
+*C       ====================================
+         anal_steps = 0
+         do i=1,step_num
+            date = anal_dates(i) / 100
+            time = (anal_dates(i) - date*100) * 1000000
+            err = newdate (stamp1, date, time,  3)
+            call difdatr (stamp1, Out3_date, hourr)
+            anal_steps(i) = (3600. / Cstv_dt_8) * hourr
+         enddo
+*
+         if ( step_num .ge. 1 .and. Ptopo_myproc .eq. 0 ) then
+            write (*,*) 'An initial condition file will be saved at time step(s):'
+            write (*,*) anal_steps(1:step_num)
+         endif
+*
+         goto 101
+*
+*C       In case of bad format, no analysis file will be saved
+  100    step_num = 0
+         anal_steps = 0
+         if (Ptopo_myproc .eq. 0) then
+            write (*,*) ''
+            write (*,*) 'Out3_anal_S has bad format. No initial condition file will be saved !!!'
+            write (*,*) ''
+         endif
+*
+  101    continue
+*
+      endif
+*
+*
+*C    Check if an analysis file needs to be saved at the current time step
+*C    ====================================================================
+      save_anal_L = .false.
+      do i=1,step_num
+         if ( anal_steps(i) .eq. 0 ) exit
+         if ( anal_steps(i) .eq. Lctl_step ) then
+            save_anal_L = .true.
+            exit
+         endif
+      enddo
+*
+*
+*C    Initialize Abus (analysis file output bus)
+*C    ===============
+*C    if one or more analysis files will be written in this job
+*C    Do this only once per job
+      if ( save_anal_L .and. .not. ini_done ) then
+         k=0
+         bigk = 1
+         do i=1,P_bper_top
+            do j=1,nvars
+               if (vlist_S(j).eq.peron(i)(1:4)) then
+                  k=k+1
+                  Abus_var_S(k)=peron(i)(1:4)
+                  Abus_bus_S(k)='A'
+                  Abus_offset(k)=bigk
+                  Abus_idx(k)=i
+                  Abus_addr(k)=perpar(i,1)
+                  Abus_stag(k)=perpar(i,4)
+                  Abus_mult(k)=perpar(i,6)*perpar(i,8)
+                  Abus_mos(k)=perpar(i,8)
+                  Abus_mul(k)=1.0
+                  Abus_add(k)=0.0
+                  if (perpar(i,5).gt.p_ni) then
+                     Abus_shp(k)= l_nk
+                  else
+                      Abus_shp(k)= 1
+                  endif
+                  if (peron(i)(1:4).eq.'SD') Abus_mul(k)=100.
+                  bigk = bigk + Abus_shp(k)*Abus_mult(k)
+               endif
+            enddo
+         enddo
+         avars    = k
+         Abussiz  = bigk
+         ini_done = .true.
+      endif
+*
+      if ( save_anal_L ) then
+         allocate(Abusval(l_ni*l_nj*Abussiz))
+         Abusval = 0.
+      endif
+*
+      return
+*
+*
+*     ________________________________________________________________
+*
+*C    Routine to fill Abus (analysis file output bus) with all physics slices
+*     ________________________________________________________________
+*
+      entry fill_anal (F_busper,slab)
+*
+      if ( .not. save_anal_L ) return
+*
+*C    Loop over all physics variables which will be written in analysis file
+      do ii=1,avars
+         offbo= ( ( Abus_offset(ii)-1 ) * l_nj + slab-1 ) * l_ni + p_offi
+         offbb= Abus_addr(ii)
+         do mult=1,Abus_mult(ii)
+            do k=1,Abus_shp(ii)
+               do i=1,p_ni
+                  Abusval( offbo + i ) = F_busper( offbb )
+                  offbb = offbb+1
+               enddo
+               offbo = offbo + l_ni*l_nj
+            enddo
+         enddo
+      enddo
+*
+      return
+*
+*
+*     ________________________________________________________________
+*
+*C    Routine to output physics fields in analysis file
+*     ________________________________________________________________
+*
+      entry out_anal_phy ()
+*
+      if ( .not. save_anal_L ) return
+*
+      if (Lun_out.gt.0) write(Lun_out,7000) Lctl_step
+ 7000 format(/,' WRITING ANALYSIS OUTPUT FOR STEP (',I8,')')
+*
+*
+*C    Open analysis file
+*C    ==================
+*
+*C    Only CPU which writes the block
+      if (Out_blocme.eq.0) then
+*
+*C       Construct analysis file name and ip2 value
+         write(blocxy_S,'(I3.3,"-",I3.3)') Out_myblocx,Out_myblocy
+*
+         clostep = Lctl_step
+         sec_clostep  = dble(clostep)*dble(Out_deet)
+         Out_ip2 = int (dble(Lctl_step) * Out_deet / 3600. + 1.e-12)
+*
+         err = newdate (Out_dateo, date, hour,-3)
+         hour=hour/1000000
+*        Out_unit_S=H or blank:
+         prognum = nint(sec_clostep *OV_hour)
+         if (Out_unit_S.eq.'P') prognum = clostep
+         if (Out_unit_S.eq.'D') prognum = nint(sec_clostep * OV_day )
+         if (Out_unit_S.eq.'M') prognum = nint(sec_clostep * OV_min )
+         if (Out_unit_S.eq.'S') prognum = nint(sec_clostep)
+*
+         Out_prefix_S = 'an'
+         err = prog_filename (Out_filename_S,Out_prefix_S,date,hour,-1,-1,
+     $                        Out_myblocx,Out_myblocy,prognum,Out_ndigits,
+     $                        Out_unit_S)
+         Out_filenamep_S = trim(Out_filename_S)
+         if (Clim_climat_L)
+     $      Out_filenamep_S = trim(Path_output_S)//'/current_last_step/'
+     $                       // blocxy_S // '/' // trim(Out_filenamep_S)
+*
+*
+*C       Open analysis file
+*C       (Out_unf is used in ecris_fst2. The original value is therefore
+*C       saved in Out_unf_save and restored later. The unit number for the analysis file
+*C       will get saved in Out_unf_anal to be used later for the dynamics output.)
+         Out_unf_save = Out_unf
+         Out_unf      = 0
+         err = fnom (Out_unf ,trim( Out_filenamep_S ),'STD+RND',0)
+         err = fstouv(Out_unf ,'RND')
+         Out_unf_anal = Out_unf
+*
+      endif
+*
+*
+*C    Write physic tictac's
+*C    =====================
+*
+*C    Set grid descriptors
+      call ipig(ig1, ig2, ig3,
+     $          Grd_dx, Grd_dy, Grd_nila, Grd_njla, G_ni, G_nj,
+     $          Grd_rot_8, Grd_roule)
+*
+      if (G_lam) ig1=ig1+110
+*
+      grille_x0 = max( 1 + Lam_pil_w - p_nmp, 1 )
+      grille_x1 = min( G_ni, G_ni - Lam_pil_e + p_nmp )
+      grille_y0 = max( 1 + Lam_pil_s - p_nmp, 1 )
+      grille_y1 = min( G_nj, G_nj - Lam_pil_n + p_nmp )
+*
+      call out_sgrid(grille_x0,grille_x1,grille_y0,grille_y1,
+     $               G_periodx, ig1, ig2, 1,'','',
+     $               Geomn_longs, Geomn_latgs)
+*
+      GP_ni = grille_x1 - grille_x0 + 1
+      GP_nj = grille_y1 - grille_y0 + 1
+*
+      allocate (xpos(GP_ni), ypos(GP_nj))
+*
+      do i=1,GP_ni
+         indx = Out_gridi0+(i-1)*Out_reduc
+         xpos(i) = Out_xpos(indx+Out_hx)
+      end do
+      do i=1,GP_nj
+         indx = Out_gridj0+(i-1)*Out_reduc
+         ypos(i) = Out_ypos(indx+Out_hy)
+      end do
+*
+*
+      if (Out_blocme.eq.0) then 
+        err= fstecr (xpos,xpos,-32,Out_unf,Out_dateo,0,0,GP_ni,1,1,
+     $               ig1,ig2,0,'X', '>>',Out_etik_S,Out_gridtyp_S,
+     $               Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $               5, .true.)
+        err= fstecr (ypos,ypos,-32,Out_unf,Out_dateo,0,0,1,GP_nj,1,
+     $               ig1,ig2,0,'X', '^^',Out_etik_S,Out_gridtyp_S,
+     $               Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $               5, .true.)
+      endif
+
+*
+      deallocate (xpos, ypos)
+*
+*
+*C    Write (physics) surface fields
+*C    ==============================
+*
+      if (abs( Out3_2DLev-1.0 ) < 0.000001 ) then
+         lev2d = 1.0 ; vtype = 5
+      else
+         lev2d = 0.0 ; vtype = 2
+      endif
+*
+      Out_npas = Lctl_step
+*
+      do j=1,avars
+         if ( Abus_mult(j).gt.1) then
+*           2D field-multiple arbitrary levels
+            do mult=1,Abus_mult(j)
+               rff(mult)= mult
+               irff(mult)=mult
+            enddo
+            offset = ((Abus_offset(j)-1) * (l_ni*l_nj) ) + 1
+            call ecris_fst2_mos(Abusval(offset),
+     $                          1,l_ni,1,l_nj,rff,Abus_var_s(j),
+     $                          Abus_mul(j),Abus_add(j),Abus_mos(j),Abus_mult(j),
+     $                          irff,Abus_mult(j), Out3_nbitg )
+         else
+*           2d field-single level
+            offset = ((Abus_offset(j)-1) * (l_ni*l_nj) ) + 1
+            call ecris_fst2(Abusval(offset),
+     $                      1,l_ni,1,l_nj,lev2d,Abus_var_s(j),
+     $                      Abus_mul(j),Abus_add(j),vtype,1,1,1,
+     $                      Out3_nbitg )
+         endif
+      end do
+*
+      deallocate(Abusval)
+*
+*C    Restore old unit number
+      Out_unf = Out_unf_save
+*
+      return
+*
+*
+*     ________________________________________________________________
+*
+*C    Routine to output dynamic fields in analysis file
+*     ________________________________________________________________
+*
+      entry out_anal_dyn ()
+*
+      if ( .not. save_anal_L ) return
+*
+*C    Open analysis file
+*C    (Out_unf is used in ecris_fst2. The original value is therefore
+*C    saved in Out_unf_save and restored later. The unit number for the analysis file
+*C    'Out_unf_anal' was already set in entry 'out_anal_phy'.
+      Out_unf_save = Out_unf
+      Out_unf      = Out_unf_anal
+*
+      i0 = 1
+      in = l_ni
+      j0 = 1
+      jn = l_nj
+      deg2rad    = acos( -1.0)/180.
+*
+*
+*C    preparation for out_anal_thm
+*C    ----------------------------
+*
+      key0 = VMM_KEY(pipt1)
+      err = vmmlod (key0,1)
+      err = VMM_GET_VAR(pipt1)
+*
+      do j=1,l_nj
+      do i=1,l_ni
+         ptop (i,j) = geomg_z_8(1) + pipt1(i,j,1)
+         wlao (i,j) = Geomn_latrx(i,j) * deg2rad
+      end do
+      end do
+*
+      pnlkey(1) = VMM_KEY(fit1)
+      pnlkey(2) = VMM_KEY(tt1)
+      pnlkey(3) = VMM_KEY(st1)
+      pnlkey(4) = VMM_KEY(ut1)
+      pnlkey(5) = VMM_KEY(vt1)
+*
+*
+      do k=1,l_nk
+      do j=1,l_nj
+      do i=1,l_ni
+         wlnph (i,j,k) = log ( geomg_z_8(k) + pipt1(i,j,k) )
+      enddo
+      enddo
+      enddo
+      err = vmmlod (pnlkey,5)
+*
+      err = vmmuld(key0,1)
+*
+      err = VMM_GET_VAR(fit1)
+      err = VMM_GET_VAR(tt1)
+      err = VMM_GET_VAR(st1)
+      err = VMM_GET_VAR(ut1)
+      err = VMM_GET_VAR(vt1)
+*     Allocate work space and initialize
+      hu = 0.
+      qx = 0.;
+      pahu = loc(hu)
+
+      key1 = VMM_KEY (trt1)
+      do k=1,Tr3d_ntr
+         trkey1(k) = key1 + k
+      end do
+      err = vmmlod(trkey1,Tr3d_ntr)
+      do n=1,Tr3d_ntr
+         if (Tr3d_name_S(n).eq.'HU') then
+            err = vmmget(trkey1(n),pahu,hut1)
+         endif
+         if (Schm_phyms_L) then
+             if(Schm_wload_L)then
+               if (Tr3d_name_S(n).eq.'QC'.or.
+     $             Tr3d_name_S(n).eq.'QB'.or.
+     $             Tr3d_name_S(n).eq.'QL'.or.
+     $             Tr3d_name_S(n).eq.'QI'.or.
+     $             Tr3d_name_S(n).eq.'QN'.or.
+     $             Tr3d_name_S(n).eq.'QJ'.or.
+     $             Tr3d_name_S(n).eq.'QH'    ) then
+                   err = vmmget(trkey1(n),paqj,qjt1)
+                   do k=1,l_nk
+                   do j=j0,jn
+                   do i=i0,in
+                      qx (i,j,k) = qx (i,j,k) + max(0.0,qjt1(i,j,k))
+                   enddo
+                   enddo
+                   enddo
+               endif
+             endif
+         endif
+      enddo
+*
+*
+*C    Write dynamic tictac's
+*C    ======================
+*
+*C    Set grid descriptors
+      call ipig(ig1, ig2, ig3,
+     $          Grd_dx, Grd_dy, Grd_nila, Grd_njla, G_ni, G_nj,
+     $          Grd_rot_8, Grd_roule)
+*
+      if (G_lam) ig1=ig1+10
+*
+      call out_sgrid(1, g_ni, 1, g_nj,
+     $               G_periodx, ig1, ig2, 1,'','',
+     $               Geomn_longs, Geomn_latgs)
+*
+*
+*C    Only CPU which writes the block
+      if (Out_blocme.eq.0) then
+*
+         glb1 = Out_bloci0 -Out_hx*Out_blocwest
+         glb2 = Out_blocin +Out_hx*Out_bloceast
+         glb3 = Out_blocj0 -Out_hy*Out_blocsouth
+         glb4 = Out_blocjn +Out_hy*Out_blocnorth
+*
+         Out_rgridi0 = max(glb1,Out_gridi0)
+         Out_rgridj0 = max(glb3,Out_gridj0)
+         Out_nisl = (min(Out_gridin,glb2)-Out_rgridi0) / Out_reduc + 1
+         Out_njsl = (min(Out_gridjn,glb4)-Out_rgridj0) / Out_reduc + 1
+*
+         err=fstecr(Out_xpos(Out_gridi0+Out_hx),xpq,-32,Out_unf,Out_dateo,0,0,
+     $              Out_nisg,1,
+     $              1,Out_ig1,Out_ig2,0,'X', '>>',Out_etik_S,Out_gridtyp_S,
+     $              Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $              5, .true.)
+         err=fstecr(Out_ypos(Out_gridj0+Out_hy),ypq,-32,Out_unf,Out_dateo,0,0,
+     $              1, Out_njsg,
+     $              1,Out_ig1,Out_ig2,0,'X', '^^',Out_etik_S,Out_gridtyp_S,
+     $              Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $              5, .true.)
+*
+*C       Write HY record
+         call wrvref  ( Out_unf )
+*
+      endif
+*
+      allocate (ind_o(G_nk+1))
+*
+      do i=1,G_nk
+        ind_o(i) = i
+      enddo
+*
+*
+*C    output of 3-D tracers (QC, HU, ...)
+*C    ===============================
+*
+      call out_anal_tracer (trkey1,l_minx,l_maxx,l_miny,l_maxy,
+     $                      G_nk,ind_o,G_nk)
+*
+*
+*C    output of temperature, surface pressure and surface geopotential
+*C    ===============================
+*
+      call out_anal_thm(fit1,tt1,st1,qx,hut1,wlnph,
+     $                  (l_maxx-l_minx+1)*(l_maxy-l_miny+1),G_nk,
+     $                  ind_o,G_nk)
+*
+*
+*C    output of winds
+*C    ===============================
+*
+      call out_anal_uv (ut1,vt1,l_minx,l_maxx,l_miny,l_maxy,G_nk,
+     $                  ind_o,G_nk)
+*
+      deallocate (ind_o)
+*
+*
+*     --------------------------------------------------------------
+*
+*C    Close analysis-file
+      if (Out_blocme.eq.0) then
+        err = fstfrm(Out_unf)
+        call  fclos(Out_unf)
+      endif
+*
+*C    Restore old unit number
+      Out_unf = Out_unf_save
+*
+      return
+      end
+*
+*
+*     ________________________________________________________________
+*
+*C    Function to check format of dates
+*     ________________________________________________________________
+*
+      integer function check_date (dates)
+      implicit none
+*
+      character*10 dates
+      integer      yyyy,mm,dd,hh
+*
+      integer      i
+*
+      check_date = 0
+*
+*C    Check that all 10 characters are digits
+      do i=1,10
+        if ( index('0123456789', dates(i:i)) .eq. 0 ) check_date = 1
+      enddo
+*
+*C    If all characters are digits check if date makes sense
+*C    Check month
+      if ( check_date .eq. 0 ) then
+        read (dates(5:6),'(i2.2)') mm
+        if ( mm .le. 0 .or. mm .ge. 13 ) check_date = 1
+      endif
+*
+*C    Check day
+      if ( check_date .eq. 0 ) then
+        read (dates(1:4),'(i4)') yyyy
+        read (dates(7:8),'(i2.2)') dd
+        select case (mm)
+          case (02)
+            if ( (mod(yyyy,4) .eq. 0 .and. mod(yyyy,100) .ne. 0 ) .or.
+     $           (mod(yyyy,400) .eq. 0 ) ) then
+              if ( dd .le. 0 .or. dd .ge. 29 ) check_date = 1
+            else
+              if ( dd .le. 0 .or. dd .ge. 28 ) check_date = 1
+            endif
+          case (04,06,09,11)
+            if ( dd .le. 0 .or. dd .ge. 30 ) check_date = 1
+          case default
+            if ( dd .le. 0 .or. dd .ge. 31 ) check_date = 1
+        end select
+      endif
+*
+*C    Check hour
+      if ( check_date .eq. 0 ) then
+        read (dates(9:10),'(i2.2)') hh
+        if ( hh .lt. 0 .or. hh .ge. 24 ) check_date = 1
+      endif
+*
+      return
+      end 

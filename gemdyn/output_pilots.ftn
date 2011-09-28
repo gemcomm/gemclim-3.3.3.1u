@@ -1,0 +1,278 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r output_pilots - pilot file output in climate mode
+*
+#include "model_macros_f.h"
+*
+      subroutine output_pilots (F_trp, DIST_DIM, nk)
+*
+      implicit none
+*
+      integer DIST_DIM, nk
+      real    F_trp(DIST_SHAPE,nk,*)
+*
+*author
+*     Katja Winger - UQAM/RPN Dec 2007
+*
+*revision
+* v3_30 - Winger K.         - Initial version
+* v3_32 - Dugas B.          - Adapt to v3.3.2
+* v3_32 - Dugas/Winger      - Use Level_kind_ip1 instead of Out_kind
+* v3_32 - Winger K.         - Adapt for blocking
+* v3_32 - Winger K.         - Set level of surface geopotential to lowest level  (Jun 2010)
+* v3_33 - Winger K.         - Correct output of surface geopotential (Sep 2011)
+* v3_33 - Winger K.         - Correct output of tracers
+*                             use phyt_name_S instead of h2o_name_S (Sep 2011)
+*
+*description
+*  This routine writes the fields needed for piloting
+*  (providing lateral boundary conditions) a LAM model.
+*  The pilot files are written in RPN standard file format.
+*  The fields written are TT,UU,VV,P0,PHIS, and tracers (HU,QC,...)
+*
+*
+*implicits
+#include "glb_ld.cdk"
+#include "itf_phy_busind.cdk"
+#include "itf_phy_vmm.cdk"
+#include "out.cdk"
+#include "out3.cdk"
+#include "geomg.cdk"
+#include "geomn.cdk"
+#include "lctl.cdk"
+#include "dcst.cdk"
+#include "grd.cdk" 
+#include "path.cdk"
+#include "level.cdk"
+#include "clim.cdk"
+*
+**
+      integer, external :: vmmget,vmmlod
+      integer  prog_filename,fnom,fstouv,fstfrm,fstecr,longueur,fstopc
+      external prog_filename,fnom,fstouv,fstfrm,fstecr,longueur,fstopc
+*
+      integer,    dimension(:), allocatable :: ind_o
+      real,       dimension(:), allocatable :: xpos, ypos
+*
+      integer     key(5)
+      integer     i, j, k, n, err
+      character*1 gridtyp
+      character*8 dumc
+      character*7 blocxy_S
+      integer     prognum, indx, g3, g4
+      integer     clostep, date, hour
+      real*8      sec_clostep, OV_day, OV_hour, OV_min
+      parameter ( OV_day  = 1.0_8/86400.0_8,
+     $            OV_hour = 1.0_8/3600.0_8,
+     $            OV_min  = 1.0_8/60.0_8 )
+      integer     ig1, ig2, ig3
+      integer     pnip1, pnip3, datyp, Out_ni
+*
+      integer     vtype
+      real        lev2d
+      real        prmult, prmult_pngz, pradd_pntt
+**
+*     ---------------------------------------------------------------
+*
+      if ( Out3_pilstep .eq. 0 ) return
+      if ( mod(Lctl_step,Out3_pilstep) .ne. 0 ) return
+*
+      if (.not. Out_debug_L) then
+          err = fstopc('MSGLVL','SYSTEM',.false.)
+CCC       err = fstopc('MSGLVL','INFORM',.false.)
+      endif
+*
+*
+*C    Set grid descriptors
+      call ipig(ig1, ig2, ig3,
+     $          Grd_dx, Grd_dy, Grd_nila, Grd_njla, G_ni, G_nj,
+     $          Grd_rot_8, Grd_roule)
+*
+      call out_sgrid(1, g_ni, 1, g_nj,
+     $               G_periodx, ig1, ig2, 1,'','',
+     $               Geomn_longs, Geomn_latgs)
+*
+*
+*C    Only CPU which writes the block
+      if (Out_blocme.eq.0) then 
+*
+*C       Open output file
+         write(blocxy_S,'(I3.3,"-",I3.3)') Out_myblocx,Out_myblocy
+*
+         clostep = Lctl_step
+         sec_clostep  = dble(clostep)*dble(Out_deet)
+         Out_ip2 = int (dble(Lctl_step) * Out_deet / 3600. + 1.e-12)
+*
+         call newdate (Out_dateo, date, hour,-3)
+         hour=hour/1000000
+*        Out_unit_S=H or blank:
+         prognum = nint(sec_clostep *OV_hour)
+         if (Out_unit_S.eq.'P') prognum = clostep
+         if (Out_unit_S.eq.'D') prognum = nint(sec_clostep * OV_day )
+         if (Out_unit_S.eq.'M') prognum = nint(sec_clostep * OV_min )
+         if (Out_unit_S.eq.'S') prognum = nint(sec_clostep)
+*
+         Out_prefix_S = 'nm'
+         err = prog_filename (Out_filename_S,Out_prefix_S,date,hour,-1,-1,
+     $                        Out_myblocx,Out_myblocy,prognum,Out_ndigits,
+     $                        Out_unit_S)
+         Out_filenamep_S = trim(Out_filename_S)
+         if (Clim_climat_L) 
+     $      Out_filenamep_S = trim(Path_output_S)//'/current_last_step/'
+     $                       // blocxy_S // '/' // trim(Out_filenamep_S)
+*
+*
+*C       Open nm-file
+         if (Out_unf.eq.0) then
+             err = fnom (Out_unf ,trim( Out_filenamep_S ),'STD+RND',0)
+             err = fstouv(Out_unf ,'RND')
+         endif
+*
+*
+*C       Write tictac's
+         allocate (xpos(Out_nisg), ypos(Out_njsg))
+*
+         do i=1,Out_nisg
+            indx = Out_gridi0+(i-1)*Out_reduc
+            xpos(i) = Out_xpos(indx+Out_hx)
+         end do
+         do i=1,Out_njsg
+            indx = Out_gridj0+(i-1)*Out_reduc
+            ypos(i) = Out_ypos(indx+Out_hy)
+         end do
+*
+         err= fstecr (xpos,xpos,-32,Out_unf,Out_dateo,0,0,Out_nisg,1,1,
+     $                Out_ig1,Out_ig2,0,'X', '>>',Out_etik_S,Out_gridtyp_S,
+     $                Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $                5, .true.)
+         err= fstecr (ypos,ypos,-32,Out_unf,Out_dateo,0,0,1,Out_njsg,1,
+     $                Out_ig1,Out_ig2,0,'X', '^^',Out_etik_S,Out_gridtyp_S,
+     $                Out_ixg(1), Out_ixg(2), Out_ixg(3), Out_ixg(4),
+     $                5, .true.)
+*
+         deallocate (xpos, ypos)
+*
+*      
+*C       Write HY record
+         call wrvref ( Out_unf )
+*
+      endif
+*
+*
+*C    Load fields in memory
+      key(1) = VMM_KEY(p_tplus)
+      key(2) = VMM_KEY(p_uplus)
+      key(3) = VMM_KEY(p_vplus)
+      key(4) = VMM_KEY(p_pplus)
+      key(5) = VMM_KEY(p_phis)
+      ERR = VMMLOD(KEY,5)
+      err = VMM_GET_VAR(p_tplus)
+      err = VMM_GET_VAR(p_uplus)
+      err = VMM_GET_VAR(p_vplus)
+      err = VMM_GET_VAR(p_pplus)
+      err = VMM_GET_VAR(p_phis)
+*
+*   
+*C    Write fields
+*
+      datyp = Out_datyp
+*
+      gridtyp = 'Z'
+      if (Out_proj_S.eq.'X') gridtyp = 'X'
+      g3 = 0
+      g4 = 0
+      if (Out_nblocx*Out_nblocy.gt.1) then
+         gridtyp = '#'
+         g3     =  Out_ig3
+         g4     =  Out_ig4
+      endif
+      pnip1 = 0
+      pnip3 = Out_ip3
+      if (pnip3.lt.0) pnip3 = Lctl_step
+*
+      if (Out_nisg.eq.Out_nisl+1) then
+         Out_ni = Out_nisg
+      else
+         Out_ni = Out_nisl
+      end if
+*
+      allocate (ind_o(G_nk+1))
+      do i=1,G_nk
+        ind_o(i) = i
+      enddo
+*
+      Out_npas = Lctl_step
+*
+*C    Write temperature
+      pradd_pntt   = -Dcst_tcdk_8
+      call ecris_fst2(p_tplus,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $     'TT  ',1.0,   pradd_pntt, Level_kind_ip1,G_nk,ind_o,G_nk,
+     $     Out3_nbitg )
+
+*
+*C    Write u-wind
+      prmult =  1.0 / Dcst_knams_8
+      call ecris_fst2(p_uplus,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $     'UU  ',prmult,0.0,        Level_kind_ip1,G_nk,ind_o,G_nk,
+     $     Out3_nbitg )
+
+*
+*C    Write v-wind
+      call ecris_fst2(p_vplus,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb,
+     $     'VV  ',prmult,0.0,        Level_kind_ip1,G_nk,ind_o,G_nk,
+     $     Out3_nbitg )
+
+*
+*C    Write surface pressure
+      lev2d = 1.0 ; prmult = 0.01
+      call ecris_fst2(p_pplus,l_minx,l_maxx,l_miny,l_maxy, lev2d,
+     $     'P0  ',prmult, 0.0,       Level_kind_ip1, 1, 1, 1,
+     $     Out3_nbitg )
+
+*
+*C    Write surface geopotential
+      prmult_pngz  = 0.1 / Dcst_grav_8
+      call ecris_fst2(p_phis,l_minx,l_maxx,l_miny,l_maxy,Geomg_hyb(G_nk),
+     $     'GZ  ',prmult_pngz,0.0,   Level_kind_ip1, 1, 1, 1,
+     $     Out3_nbitg )
+
+*
+*C    Write tracers (specific humidity, mixing ratio of cloud water/ice, ...)
+      if (phyt_ntr.gt.0) then
+         do n=1,phyt_ntr
+            call ecris_fst2(F_trp(:,:,:,n),l_minx,l_maxx,l_miny,l_maxy,
+     $           Geomg_hyb,phyt_name_S(n),
+     $           1.0,0.0, Level_kind_ip1,G_nk, ind_o, G_nk, Out3_nbitg )
+         end do
+      end if
+*
+*
+      deallocate (ind_o)
+*
+*C    Close np-file
+*C    Only CPU which writes the block
+      if (Out_blocme.eq.0) then 
+         err = fstfrm(Out_unf)
+         call  fclos(Out_unf)
+         Out_unf = 0
+      endif
+*
+      err = fstopc('MSGLVL','INFORM',.false.)
+*
+*     ________________________________________________________________
+*
+      return
+      end
