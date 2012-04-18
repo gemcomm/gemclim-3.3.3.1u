@@ -1,0 +1,155 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r Out_create_dirs - Creates/Moves directories for model output
+*
+#include "model_macros_f.h"
+*
+      subroutine out_create_dirs (create_L,move_L)
+      implicit none
+*
+      logical   create_L, move_L
+*
+*AUTHOR   Katja Winger        January 2009
+*
+*REVISION
+* v3_32 - Dugas B.          - Remove empty output directories before
+*                             renaming current_last_step
+* v3_33 - Dugas B.          - Account for possible CLONING in calls from
+*                             either (start/stop)_worl_view, ie. whenever
+*                             (create_L .and. move_L) is False
+* v3_33 - Winger K.         - Let PE 0 remove all empty output directories
+*
+*ARGUMENTS
+*    NAMES      I/O   DESCRIPTION
+*    create_L    I    if .true. create current output structure
+*    move_L      I    if .true. move 'current_last_step' to 'last_step_...'
+*
+#include "clim.cdk"
+#include "path.cdk"
+#include "out.cdk"
+#include "ptopo.cdk"
+#include "lctl.cdk"
+#include "step.cdk"
+#include "rstr.cdk"
+#include "lun.cdk"
+#include <clib_interface.cdk>
+*
+      integer     err, err1
+      integer     x, y, i
+      character*7 blocxy_S,ptopoxy_S
+      character   Lctl_step_S*9
+      character(512) realname_S,workname_S
+*
+c     Only do this in climate mode
+      if (.not. Clim_climat_L) return
+*
+c     Only create the first 'current_last_step' at 'Rstri_sdon=0'
+      if (create_L .and. .not. move_L .and. Rstri_sdon .ne. 0) return
+*
+c     Wait for all processors to be here
+      call rpn_comm_Barrier("grid", err)
+*
+c     Only processor 0 does the work
+      if (Ptopo_myproc .eq. 0) then
+*
+         err1=0
+*
+c        Move existing 'current_last_step' directory to 'last_step_...' (if need be)
+         if (move_L) then
+*
+c           First remove not used / empty output directories
+            do x=0,Ptopo_npex-1
+              do y=0,Ptopo_npey-1
+                if ( x.le.Ptopo_nblocx-1 .and. y.le.Ptopo_nblocy-1 ) cycle
+                write(ptopoxy_S,'(I3.3,"-",I3.3)') x, y
+                workname_S=trim( Path_output_S )//'/current_last_step/'//ptopoxy_S
+                if (clib_realpath ( workname_S, realname_S ) ==  CLIB_OK) then
+                  err = clib_rmdir( trim( realname_S ) )
+                  if (err /= CLIB_OK) print *,'CANNOT REMOVE ',trim( workname_S )
+                end if
+              end do
+            end do
+*
+            ! Do nothing when a CLONE job is about to be launched
+!           if (.not.create_L .and. mod(Rstri_sdon,Step_rsti) == 0 \
+!                             .and. Lctl_step /= Step_total) goto 100
+            if (.not.create_L .and. Lctl_step /= Step_total) goto 100
+
+            write (Lctl_step_S  ,'(I8)') Lctl_step
+c           Get rid of leading blanks
+            do i=1,256
+               if ( Lctl_step_S(i:i) .ne. ' ' ) exit
+            end do
+            Lctl_step_S = Lctl_step_S (i:)
+            err = clib_rename 
+     &            (trim(Path_output_S) // '/current_last_step',
+     &             trim(Path_output_S) // '/last_step_' // Lctl_step_S )
+*
+            if (err .ne. CLIB_OK) then
+               write(Lun_out,'(/a/)') 
+     &               'out_create_dirs: Error renaming current_last_step'
+               err1 = -1
+               goto 100
+            end if
+         end if
+*
+*
+c        Create 'current_last_step' directory including processor subdirectories (if need be)
+         if (create_L) then
+            if (.not.move_L) then ! From the above, Rstri_sdon = 0 and if there
+               ! is such a directory, it is the result of a current CLONE restart
+               err = clib_isdir
+     &               (trim(Path_output_S) // '/current_last_step' )
+            else
+               err = CLIB_ERROR
+            end if
+            if ( err /= CLIB_OK) then
+               err = clib_mkdir 
+     &               (trim(Path_output_S)//'/current_last_step')
+*
+c              Check if 'current_last_step' directory got created
+               err = clib_isdir
+     &               (trim(Path_output_S)//'/current_last_step')
+               if (err .ne. CLIB_OK) then
+                  write(Lun_out,'(/a/)')
+     &                  'out_create_dirs: ',
+     &                  'Error, current_last_step could not get created'
+                  err1 = -1
+                  goto 100
+               endif
+*
+               do x=0,Ptopo_npex-1
+                  do y=0,Ptopo_npey-1
+                     write(blocxy_S,'(I3.3,"-",I3.3)') x, y
+                     err = clib_mkdir 
+     &                     (trim(Path_output_S)//'/current_last_step/'//blocxy_S)
+                  end do
+               end do
+            end if
+         end if
+*
+      end if
+      call rpn_comm_Barrier("grid", err)
+*
+  100 continue
+*
+      call gem_stop( 'out_create_dirs',err1 )
+*
+*     ---------------------------------------------------------------
+*
+      return
+      end
+
