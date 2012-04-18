@@ -1,0 +1,327 @@
+#if defined (DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!
+! Author
+!          K. Winger  (Apr 2006)
+
+! Revisions
+! 001      B. Dugas   (May 2006) - Add documentation
+! 002      P. Vaillancourt (Jun 2006) - Add ACLB,ACLT,ACSB,ACST
+! 003      B. Dugas   (Aug 2007) - PR,PC,PY,PZ,AE added to PERMIS(1)
+! 004      B. Dugas   (Sep 2008) - Add support for PHY_NORMACC
+!                                - Add support for MOYHR variables
+! 005      K. Winger  (Oct 2008) - Add MLTS and MLTS 
+! 006      B. Dugas   (Jan 2009) - Synchronize with PHY 5.0.2
+! 007      B. Dugas   (May 2009) - Add accumulation of total (surf. + base) runoff (CLASS)
+! 008      B. Dugas   (Oct 2009) - Add acc. of VIS flux towards sloping ground (RADSLOPE)
+! 009      K. Winger  (Mar 2010) - Add acc. of surface and base aggregated runoff (TRAF,TDRA)
+! 010      K. Winger  (Mar 2012) - Correct missing TSAV
+!
+! Object   
+!          Current list of valid (accumulator and MOYHR) variables
+!          to be used by the zeracc and seracc management routines.
+!          The names are given for model output (M) and time
+!          series output (T)
+!
+! ***** min/max variables (permis(3,:) = '2') (MOYHR) *****
+!  M   T
+! HRMX --   screen level max relative humidity 
+! HRMN --   screen level min relative humidity
+! T5   --   min air temperature
+! T9   --   max air temperature
+! UVMX --   screen level max wind modulus
+!
+! ***** time averaged variables (permis(3,:) = '1') (MOYHR) *****
+!  M   T
+! QSAV --   screen specific humidity average
+! IMAV --   integrated soil moisture average
+! P0AV --   surface pressure average
+! TSAV --   screen level temperature average
+! UVAV --   screen wind modulus average
+! CA   --   total clouds average
+! CLRM --   total clouds for radiation average
+! AY   --   Surface heat flux (upward) average
+! AZ   --   Surface water vapor flux (upward) average
+! Y2   --   cloud ice water content average
+! IWRM --   cloud ice water for radiation  average
+! IWVM --   integrated water vapor average
+! K2   --   average of shallow convection (ktrsnt) counter
+! Y1   --   cloud liquid water content average
+! LWRM --   cloud liquid water for radiation average
+! QADM --   HU dynamical advection tendency average
+! X4   --   HU vertical diffusion tendency average
+! QXM  --   HU methane oxidation tendency average
+! X7   --   HU shallow convection tendency average
+! TADM --   T advection tendency average
+! X6   --   T shallow convection tendency average
+! T6   --   T solar radiation tendency average
+! X5   --   T vertical diffusion tendency average
+! NOTM --   T non-orographic GW tendency average
+! IIRM --   total IWP for radiation average
+! ICRM --   total LWP for radiation average
+! T7   --   T infrared radiation tendency average
+! X2   --   U vertical diffusion tendency average
+! UG   --   U orographic GW tendency average
+! NOUM --   U non-orographic GW tendency average
+! NOVM --   V non-orographic GW tendency average
+! X3   --   V vertical diffusion tendency average
+! V6   --   V orographic GW tendency average
+! USGW --   average U-component of wind stress from GWD 
+! VSGW --   average V-component of wind stress from GWD
+!
+! Convection/condensation 
+!  M   T
+! X1   --   QC deep convection tendency average
+! W8   --   HU deep convection tendency average
+! W6   --   T  deep convection tendency average
+! W7   --   T  condensation (stratiform) tendency average
+! W9   --   HU condensation (stratiform) tendency average
+! W5   --   QC condensation (stratiform) tendency average
+! 1K   --   T  KF/FCP tendency average
+! 2K   --   HU KF/FCP tendency average
+! 3K   --   QC KF/FCP tendency average
+! 4K   --   average updraft mass flux in KF/FCP
+! 5K   --   average downward mass flux in KF/FCP
+! 6K   --   average CAPE calculated in KF/FCP
+! 0K   --   average of KF/FCP counter
+! 7K   --   average maximum upward velocity in KF/FCP
+! 8K   --   average cloud base height in KF/FCP
+! 9K   --   average cloud top height in KF/FCP
+!
+! ***** accumulator variables (permis(3,:) = '0')*****
+!
+! Radiation
+!  M   T
+! AB   AB   Incoming solar energy flux at TOA
+! ACLB ACLB Net clear sky lw flux at surface
+! ACLT ACLT Net clear sky lw flux at TOA
+! ACSB ACSB Net clear sky solar flux at surface
+! ACST ACST Net clear sky solar flux at TOA
+! AD   AD   IR energy flux towards ground
+! AI   AI   Net IR energy flux at the surface
+! AR   AR   Outgoing IR energy flux at model lid
+! AS   AS   VIS energy flux absorbed by the surface
+! AU   AU   Outgoing VIS energy flux at model lid
+! N4   AF   VIS energy flux towards ground
+! N4SL --   VIS energy flux towards sloping ground
+! N5   --   Soil surf. upward infrared flux
+! N6   --   Soil surf. upward solar flux
+! NF   NF   2-D cloud cover
+! AFSD --   Direct SW downward flux at surface
+! AFSF --   Diffuse SW downward flux at surface
+! AFSI --   Near IR downward flux at surface
+! AFSV --   VIS downward flux at surface
+! APAR --   Photosynthetic active radiation
+!
+! Convection/condensation
+!  M   T
+! A1   --   Liquid convective precipitation
+! A2   --   Liquid grid-scale stratified precipitation
+! A3   --   Solid convective precipitation
+! A4   --   Total solid grid-scale stratified precipitation
+! A8   --   Liquid shallow convective precipitation
+! A9   --   Solid shallow convective precipitation
+! FR   --   Freezing precipitation
+! N2   --   Liquid precipitation (ISBA)
+! N3   --   Solid precipitation at surface
+! PE   --   Refrozen precipitation
+! RN   --   Liquid precipitation
+! SN   --   Snow precipitation
+! PR   PR   Total precipitation
+! PC   PC   Convective precipitation
+! PY   PY   Deep convection precipitation
+! PZ   PZ   Shallow convection precipitation
+! AE   AE   Stratiform precipitation
+! FR3D --   3D freezing precipitation
+! PE3D --   3D refrozen precipitation
+!
+! Micro-Physics (multi-moment condensation)
+!  M   T
+! RN1  RN1  Liquid drizzle
+! RN2  RN2  Liquid rain
+! FR1  FR1  Freezing drizzle
+! FR2  FR2  Freezing rain
+! SN1  SN1  Ice crystals
+! SN2  SN2  Snow
+! SN3  SN3  Graupel
+! PE1  PE1  Ice pellets
+! PE2  PE2  Hail
+! PE2L PE2L Large hail
+! SND  SND  Total unmelted snow
+! AMX  AMX  Mixed pcp
+!
+! Surface processes
+!  M   T
+! AH   AH   Surface heat flux (upward)
+! AG   AG   Heat flux in the ground
+! AW   AW   surface momentum flux
+! AV   AV   Surface water vapor flux (upward)
+! MLTR MLTR Snow melting due to rain
+! MLTS MLTS Snow melting
+! N0   --   Surface runoff
+! N7   --   Soil surface upward water flux
+! O1   --   Base drainage
+! O5   --   Bare ground LE flux
+! O6   --   Direct veg LE flux
+! O7   --   Sublimation from snow
+! O8   --   Vegetation transpiration
+! O9   --   Evaporation from vegetation
+! RFAC --   Total (surf. + base) runoff (CLASS)
+! S7   S7   Zonal momentum flux
+! S8   S8   Meridional momentum flux
+! TDRA TDRA Aggregated base drainage
+! TRAF TRAF Aggregated surface runoff
+!
+#endif
+!
+!
+      INTEGER, PARAMETER :: MNXVAR = 5, AVGVAR = 51, ACCVAR = 70
+      INTEGER, PARAMETER :: NBRACC = MNXVAR + AVGVAR + ACCVAR
+!
+      INTEGER,          SAVE :: LOCAL_PB(NBRACC,2)
+      INTEGER,          SAVE :: step_saved(NBRACC)
+      CHARACTER(LEN=4), SAVE :: permis(3,NBRACC)
+!
+      DATA  LOCAL_PB / NBRACC*0,NBRACC*-1 /
+!
+      DATA  PERMIS /          \
+           'HRMX','--'  ,'2', \
+           'HRMN','--'  ,'2', \
+           'T5'  ,'--'  ,'2', \
+           'T9'  ,'--'  ,'2', \
+           'UVMX','--'  ,'2', \
+           'QSAV','--'  ,'1', \
+           'IMAV','--'  ,'1', \
+           'P0AV','--'  ,'1', \
+           'TSAV','--'  ,'1', \
+           'UVAV','--'  ,'1', \
+           'CA'  ,'--'  ,'1', \
+           'CLRM','--'  ,'1', \
+           'AY'  ,'--'  ,'1', \
+           'AZ'  ,'--'  ,'1', \
+           'Y2'  ,'--'  ,'1', \
+           'IWRM','--'  ,'1', \
+           'IWVM','--'  ,'1', \
+           'K2'  ,'--'  ,'1', \
+           'Y1'  ,'--'  ,'1', \
+           'LWRM','--'  ,'1', \
+           'QADM','--'  ,'1', \
+           'X4'  ,'--'  ,'1', \
+           'QXM' ,'--'  ,'1', \
+           'X7'  ,'--'  ,'1', \
+           'TADM','--'  ,'1', \
+           'X6'  ,'--'  ,'1', \
+           'T6'  ,'--'  ,'1', \
+           'X5'  ,'--'  ,'1', \
+           'NOTM','--'  ,'1', \
+           'IIRM','--'  ,'1', \
+           'ICRM','--'  ,'1', \
+           'T7'  ,'--'  ,'1', \
+           'X2'  ,'--'  ,'1', \
+           'UG'  ,'--'  ,'1', \
+           'NOUM','--'  ,'1', \
+           'NOVM','--'  ,'1', \
+           'X3'  ,'--'  ,'1', \
+           'V6'  ,'--'  ,'1', \
+           'USGW','--'  ,'1', \
+           'VSGW','--'  ,'1', \
+           'X1'  ,'--'  ,'1', \
+           'W8'  ,'--'  ,'1', \
+           'W6'  ,'--'  ,'1', \
+           'W7'  ,'--'  ,'1', \
+           'W9'  ,'--'  ,'1', \
+           'W5'  ,'--'  ,'1', \
+           '1K'  ,'--'  ,'1', \
+           '2K'  ,'--'  ,'1', \
+           '3K'  ,'--'  ,'1', \
+           '4K'  ,'--'  ,'1', \
+           '5K'  ,'--'  ,'1', \
+           '6K'  ,'--'  ,'1', \
+           '0K'  ,'--'  ,'1', \
+           '7K'  ,'--'  ,'1', \
+           '8K'  ,'--'  ,'1', \
+           '9K'  ,'--'  ,'1', \
+           'AB'  ,'AB'  ,'0', \
+           'ACLB','ACLB','0', \
+           'ACLT','ACLT','0', \
+           'ACSB','ACSB','0', \
+           'ACST','ACST','0', \
+           'AD'  ,'AD'  ,'0', \
+           'AI'  ,'AI'  ,'0', \
+           'AR'  ,'AR'  ,'0', \
+           'AS'  ,'AS'  ,'0', \
+           'AU'  ,'AU'  ,'0', \
+           'N4'  ,'AF'  ,'0', \
+           'N4SL','--'  ,'0', \
+           'N5'  ,'--'  ,'0', \
+           'N6'  ,'--'  ,'0', \
+           'NF'  ,'NF'  ,'0', \
+           'AFSD','AFSD','0', \
+           'AFSF','AFSF','0', \
+           'AFSI','AFSI','0', \
+           'AFSV','AFSV','0', \
+           'APAR','APAR','0', \
+           'A1'  ,'--'  ,'0', \
+           'A2'  ,'--'  ,'0', \
+           'A3'  ,'--'  ,'0', \
+           'A4'  ,'--'  ,'0', \
+           'A8'  ,'--'  ,'0', \
+           'A9'  ,'--'  ,'0', \
+           'FR'  ,'--'  ,'0', \
+           'N2'  ,'--'  ,'0', \
+           'N3'  ,'--'  ,'0', \
+           'PE'  ,'--'  ,'0', \
+           'RN'  ,'--'  ,'0', \
+           'SN'  ,'--'  ,'0', \
+           'PR'  ,'PR'  ,'0', \
+           'PC'  ,'PC'  ,'0', \
+           'PY'  ,'PY'  ,'0', \
+           'PZ'  ,'PZ'  ,'0', \
+           'AE'  ,'AE'  ,'0', \
+           'FR3D','--'  ,'0', \
+           'PE3D','--'  ,'0', \
+           'RN1' ,'RN1' ,'0', \
+           'RN2' ,'RN2' ,'0', \
+           'FR1' ,'FR1' ,'0', \
+           'FR2' ,'FR2' ,'0', \
+           'SN1' ,'SN1' ,'0', \
+           'SN2' ,'SN2' ,'0', \
+           'SN3' ,'SN3' ,'0', \
+           'PE1' ,'PE1' ,'0', \
+           'PE2' ,'PE2' ,'0', \
+           'PE2L','PE2L','0', \
+           'SND' ,'SND' ,'0', \
+           'AMX' ,'--'  ,'0', \
+           'AH'  ,'AH'  ,'0', \
+           'AG'  ,'AG'  ,'0', \
+           'AW'  ,'AW'  ,'0', \
+           'AV'  ,'AV'  ,'0', \
+           'MLTR','MLTR','0', \
+           'MLTS','MLTS','0', \
+           'N0'  ,'--'  ,'0', \
+           'N7'  ,'--'  ,'0', \
+           'O1'  ,'--'  ,'0', \
+           'O5'  ,'--'  ,'0', \
+           'O6'  ,'--'  ,'0', \
+           'O7'  ,'--'  ,'0', \
+           'O8'  ,'--'  ,'0', \
+           'O9'  ,'--'  ,'0', \
+           'RFAC','--'  ,'0', \
+           'S7'  ,'S7'  ,'0', \
+           'S8'  ,'S8'  ,'0', \
+           'TDRA','--'  ,'0', \
+           'TRAF','--'  ,'0'  /

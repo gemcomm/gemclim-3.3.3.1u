@@ -1,0 +1,296 @@
+#if defined (DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer,
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer
+!version 3 or (at your option) any later version that should be found at:
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software;
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec),
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!
+!     ***********************************************************
+!     DO NOT ADD TO THE NAMELIST VARIABLES THAT ARE SET BY THE  *
+!     DYNAMICS VIA A CALL TO PHY_OPT, SUCH AS: CLIMAT, COUPLING *
+!     DATE, DELT, LIN_V4D, PTOP_NML AND WET.                    *
+!                                                               *
+!     PLEASE KEEP THE LIST IN STRICT ALPHABETICAL ORDER.        *
+!                                                               *
+!     ***********************************************************
+!
+#endif
+!
+      namelist /physics_cfgs/ advectke
+      namelist /physics_cfgs/ agregat
+      namelist /physics_cfgs/ as2
+      namelist /physics_cfgs/ beta2
+      namelist /physics_cfgs/ bkgalb
+      namelist /physics_cfgs/ chauf
+      namelist /physics_cfgs/ class_ig
+      namelist /physics_cfgs/ convec
+      namelist /physics_cfgs/ cortm
+      namelist /physics_cfgs/ dbgmem
+      namelist /physics_cfgs/ diffuw
+      namelist /physics_cfgs/ drag
+      namelist /physics_cfgs/ drylaps
+      namelist /physics_cfgs/ dzsedi
+      namelist /physics_cfgs/ eponge
+      namelist /physics_cfgs/ etrmin2
+      namelist /physics_cfgs/ evap
+      namelist /physics_cfgs/ facdifv
+      namelist /physics_cfgs/ factdt
+      namelist /physics_cfgs/ fluvert
+      namelist /physics_cfgs/ fomic
+      namelist /physics_cfgs/ ggeo
+      namelist /physics_cfgs/ gwdrag
+      namelist /physics_cfgs/ hc2
+      namelist /physics_cfgs/ hf2
+      namelist /physics_cfgs/ hines_flux_filter
+      namelist /physics_cfgs/ hm2
+      namelist /physics_cfgs/ icelac
+      namelist /physics_cfgs/ icemelt
+      namelist /physics_cfgs/ iheatcal
+      namelist /physics_cfgs/ impflx
+      namelist /physics_cfgs/ inilwc
+      namelist /physics_cfgs/ iwf
+      namelist /physics_cfgs/ kfcdepth
+      namelist /physics_cfgs/ kfcdet
+      namelist /physics_cfgs/ kfcdlev
+      namelist /physics_cfgs/ kfcmom
+      namelist /physics_cfgs/ kfcpcp
+      namelist /physics_cfgs/ kfcrad
+      namelist /physics_cfgs/ kfctimea
+      namelist /physics_cfgs/ kfctimec
+      namelist /physics_cfgs/ kfctrig4
+      namelist /physics_cfgs/ kfctriga
+      namelist /physics_cfgs/ kfctrigl
+      namelist /physics_cfgs/ kfctriglat
+      namelist /physics_cfgs/ kkl2
+      namelist /physics_cfgs/ kntrad
+      namelist /physics_cfgs/ kticefrac
+      namelist /physics_cfgs/ lakes
+      namelist /physics_cfgs/ limsnodp
+      namelist /physics_cfgs/ lmetox
+      namelist /physics_cfgs/ longmel
+      namelist /physics_cfgs/ ltran0
+      namelist /physics_cfgs/ moyhr
+      namelist /physics_cfgs/ my_ccntype
+      namelist /physics_cfgs/ my_dblmom_c
+      namelist /physics_cfgs/ my_dblmom_g
+      namelist /physics_cfgs/ my_dblmom_h
+      namelist /physics_cfgs/ my_dblmom_i
+      namelist /physics_cfgs/ my_dblmom_r
+      namelist /physics_cfgs/ my_dblmom_s
+      namelist /physics_cfgs/ my_diagon
+      namelist /physics_cfgs/ my_dzsedi
+      namelist /physics_cfgs/ my_full_version
+      namelist /physics_cfgs/ my_iceon
+      namelist /physics_cfgs/ my_initn
+      namelist /physics_cfgs/ my_rainon
+      namelist /physics_cfgs/ my_sedion
+      namelist /physics_cfgs/ my_snowon
+      namelist /physics_cfgs/ my_warmon
+      namelist /physics_cfgs/ nmos
+      namelist /physics_cfgs/ non_oro
+      namelist /physics_cfgs/ non_oro_pbot
+      namelist /physics_cfgs/ nsloflux
+      namelist /physics_cfgs/ owflux
+      namelist /physics_cfgs/ parsol
+      namelist /physics_cfgs/ pbl_ricrit
+      namelist /physics_cfgs/ pcptype
+      namelist /physics_cfgs/ phy_pck_version
+      namelist /physics_cfgs/ qcfc11
+      namelist /physics_cfgs/ qcfc12
+      namelist /physics_cfgs/ qch4
+      namelist /physics_cfgs/ qco2
+      namelist /physics_cfgs/ qn2o
+      namelist /physics_cfgs/ radfiles
+      namelist /physics_cfgs/ radfix
+      namelist /physics_cfgs/ radfltr
+      namelist /physics_cfgs/ radia
+      namelist /physics_cfgs/ radnivl
+      namelist /physics_cfgs/ radslope
+      namelist /physics_cfgs/ rmscon
+      namelist /physics_cfgs/ satuco
+      namelist /physics_cfgs/ schmsol
+      namelist /physics_cfgs/ schmsol_lev
+      namelist /physics_cfgs/ schmurb
+      namelist /physics_cfgs/ shlcvt
+      namelist /physics_cfgs/ simisccp
+      namelist /physics_cfgs/ snoalb_anl
+      namelist /physics_cfgs/ snowmelt
+      namelist /physics_cfgs/ stcond
+      namelist /physics_cfgs/ stomate
+      namelist /physics_cfgs/ stratos
+      namelist /physics_cfgs/ taufac
+      namelist /physics_cfgs/ tdiaglim
+      namelist /physics_cfgs/ triglat
+      namelist /physics_cfgs/ ts_flxir
+      namelist /physics_cfgs/ tsconfc
+      namelist /physics_cfgs/ typsol
+      namelist /physics_cfgs/ vamin
+      namelist /physics_cfgs/ vege_fields
+      namelist /physics_cfgs/ water_qs
+      namelist /physics_cfgs/ water_z0m
+      namelist /physics_cfgs/ water_z0h
+      namelist /physics_cfgs/ z0dir
+      namelist /physics_cfgs/ z0min2
+      namelist /physics_cfgs/ z0tlat
+      namelist /physics_cfgs/ zta
+      namelist /physics_cfgs/ zua
+!
+      namelist /physics_cfgs_p/ advectke
+      namelist /physics_cfgs_p/ agregat
+      namelist /physics_cfgs_p/ as2
+      namelist /physics_cfgs_p/ beta2
+      namelist /physics_cfgs_p/ bkgalb
+      namelist /physics_cfgs_p/ chauf
+      namelist /physics_cfgs_p/ class_ig
+      namelist /physics_cfgs_p/ convec
+      namelist /physics_cfgs_p/ cortm
+      namelist /physics_cfgs_p/ dbgmem
+      namelist /physics_cfgs_p/ diffuw
+      namelist /physics_cfgs_p/ drag
+      namelist /physics_cfgs_p/ drylaps
+      namelist /physics_cfgs_p/ dzsedi
+      namelist /physics_cfgs_p/ etrmin2
+      namelist /physics_cfgs_p/ evap
+      namelist /physics_cfgs_p/ facdifv
+      namelist /physics_cfgs_p/ factdt
+      namelist /physics_cfgs_p/ fluvert
+      namelist /physics_cfgs_p/ fomic
+      namelist /physics_cfgs_p/ ggeo
+      namelist /physics_cfgs_p/ gwdrag
+      namelist /physics_cfgs_p/ hc2
+      namelist /physics_cfgs_p/ hf2
+      namelist /physics_cfgs_p/ hines_flux_filter
+      namelist /physics_cfgs_p/ hm2
+      namelist /physics_cfgs_p/ icelac
+      namelist /physics_cfgs_p/ icemelt
+      namelist /physics_cfgs_p/ iheatcal
+      namelist /physics_cfgs_p/ impflx
+      namelist /physics_cfgs_p/ inilwc
+      namelist /physics_cfgs_p/ iwf
+      namelist /physics_cfgs_p/ kfcdepth
+      namelist /physics_cfgs_p/ kfcdet
+      namelist /physics_cfgs_p/ kfcdlev
+      namelist /physics_cfgs_p/ kfcmom
+      namelist /physics_cfgs_p/ kfcpcp
+      namelist /physics_cfgs_p/ kfcrad
+      namelist /physics_cfgs_p/ kfctimea
+      namelist /physics_cfgs_p/ kfctimec
+      namelist /physics_cfgs_p/ kfctrig4
+      namelist /physics_cfgs_p/ kfctriga
+      namelist /physics_cfgs_p/ kfctrigl
+      namelist /physics_cfgs_p/ kfctriglat
+      namelist /physics_cfgs_p/ kkl2
+      namelist /physics_cfgs_p/ kntrad
+      namelist /physics_cfgs_p/ kticefrac
+      namelist /physics_cfgs_p/ lakes
+      namelist /physics_cfgs_p/ limsnodp
+      namelist /physics_cfgs_p/ lmetox
+      namelist /physics_cfgs_p/ longmel
+      namelist /physics_cfgs_p/ ltran0
+      namelist /physics_cfgs_p/ moyhr
+      namelist /physics_cfgs_p/ my_ccntype
+      namelist /physics_cfgs_p/ my_dblmom_c
+      namelist /physics_cfgs_p/ my_dblmom_g
+      namelist /physics_cfgs_p/ my_dblmom_h
+      namelist /physics_cfgs_p/ my_dblmom_i
+      namelist /physics_cfgs_p/ my_dblmom_r
+      namelist /physics_cfgs_p/ my_dblmom_s
+      namelist /physics_cfgs_p/ my_diagon
+      namelist /physics_cfgs_p/ my_dzsedi
+      namelist /physics_cfgs_p/ my_full_version
+      namelist /physics_cfgs_p/ my_iceon
+      namelist /physics_cfgs_p/ my_initn
+      namelist /physics_cfgs_p/ my_rainon
+      namelist /physics_cfgs_p/ my_sedion
+      namelist /physics_cfgs_p/ my_snowon
+      namelist /physics_cfgs_p/ my_warmon
+      namelist /physics_cfgs_p/ nmos
+      namelist /physics_cfgs_p/ non_oro
+      namelist /physics_cfgs_p/ non_oro_pbot
+      namelist /physics_cfgs_p/ nsloflux
+      namelist /physics_cfgs_p/ owflux
+      namelist /physics_cfgs_p/ parsol
+      namelist /physics_cfgs_p/ pbl_ricrit
+      namelist /physics_cfgs_p/ pcptype
+      namelist /physics_cfgs_p/ phy_pck_version
+      namelist /physics_cfgs_p/ qcfc11
+      namelist /physics_cfgs_p/ qcfc12
+      namelist /physics_cfgs_p/ qch4
+      namelist /physics_cfgs_p/ qco2
+      namelist /physics_cfgs_p/ qn2o
+      namelist /physics_cfgs_p/ radfiles
+      namelist /physics_cfgs_p/ radfix
+      namelist /physics_cfgs_p/ radfltr
+      namelist /physics_cfgs_p/ radia
+      namelist /physics_cfgs_p/ radslope
+      namelist /physics_cfgs_p/ rmscon
+      namelist /physics_cfgs_p/ satuco
+      namelist /physics_cfgs_p/ schmsol
+      namelist /physics_cfgs_p/ schmsol_lev
+      namelist /physics_cfgs_p/ schmurb
+      namelist /physics_cfgs_p/ shlcvt
+      namelist /physics_cfgs_p/ simisccp
+      namelist /physics_cfgs_p/ snoalb_anl
+      namelist /physics_cfgs_p/ snowmelt
+      namelist /physics_cfgs_p/ stcond
+      namelist /physics_cfgs_p/ stomate
+      namelist /physics_cfgs_p/ stratos
+      namelist /physics_cfgs_p/ taufac
+      namelist /physics_cfgs_p/ tdiaglim
+      namelist /physics_cfgs_p/ triglat
+      namelist /physics_cfgs_p/ ts_flxir
+      namelist /physics_cfgs_p/ tsconfc
+      namelist /physics_cfgs_p/ typsol
+      namelist /physics_cfgs_p/ vamin
+      namelist /physics_cfgs_p/ vege_fields
+      namelist /physics_cfgs_p/ water_qs
+      namelist /physics_cfgs_p/ water_z0m
+      namelist /physics_cfgs_p/ water_z0h
+      namelist /physics_cfgs_p/ z0dir
+      namelist /physics_cfgs_p/ z0min2
+      namelist /physics_cfgs_p/ z0tlat
+      namelist /physics_cfgs_p/ zta
+      namelist /physics_cfgs_p/ zua
+!
+      namelist /physics_2/ agregat
+      namelist /physics_2/ chauf
+      namelist /physics_2/ convec
+      namelist /physics_2/ drag
+      namelist /physics_2/ evap
+      namelist /physics_2/ fluvert
+      namelist /physics_2/ icemelt
+      namelist /physics_2/ inilwc
+      namelist /physics_2/ kfcdepth
+      namelist /physics_2/ kfcdet
+      namelist /physics_2/ kfcdlev
+      namelist /physics_2/ kfcmom
+      namelist /physics_2/ kfcrad
+      namelist /physics_2/ kfctimea
+      namelist /physics_2/ kfctimec
+      namelist /physics_2/ kfctrig4
+      namelist /physics_2/ kfctriga
+      namelist /physics_2/ kticefrac
+      namelist /physics_2/ longmel
+      namelist /physics_2/ satuco
+      namelist /physics_2/ schmsol
+      namelist /physics_2/ shlcvt
+      namelist /physics_2/ snowmelt
+      namelist /physics_2/ stcond
+      namelist /physics_2/ stomate
+      namelist /physics_2/ typsol
+!
+      namelist /physics_simplified/ lin_kph
+      namelist /physics_simplified/ lin_lsc
+      namelist /physics_simplified/ lin_pbl
+      namelist /physics_simplified/ lin_sgo
+!

@@ -1,0 +1,795 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P INISURF
+**
+*
+#include "phy_macros_f.h"
+      SUBROUTINE INISURF1( E, ESIZ, F, FSIZ, D, DSIZ, NI, NK)
+*
+#include "impnone.cdk"
+*
+      INTEGER NI, NK
+      INTEGER ESIZ, FSIZ, DSIZ
+      REAL E(ESIZ), F(FSIZ), D(DSIZ)
+*
+*
+*Author
+*       Stephane Belair (February 1999)
+*
+*
+*Revision
+* 001   S. Belair (Mar 1999)
+*            New variable names
+*
+* 002   S. Belair (May 1999)
+*            Special treatment for the snow in ISBA
+* 003   N. Brunet (Jul 1999)
+*            add several treatments on geophysical fields
+* 004   S. Belair (Sept. 1999)
+*            New subroutine for coherence (soil and vegetation
+*            fields)
+* 005   S. Belair (Feb 2000)
+*            Fix bug for the coherence between the soil texture
+*            and the mask MG.
+*            Sea ice and glaciers temperature is also affected by
+*            the filtering of mountains
+*            Code clean up
+* 006   B. Bilodeau (Nov 2000)
+*            Change units of factor prcor (multiply by "grav")
+* 007   B. Bilodeau (Jan 2001)
+*            New comdeck phybus.cdk. Change dimensions of a few
+*            arrays in the entry bus.  Automatic arrays.
+* 008   B. Bilodeau and S. Belair (May 2000) - Adaptation for vegetation 
+*            in the southern hemisphere
+* 009   B. Dugas (June 2000) - Initialize ALNOSNO for Force-Restore
+*            and modify call to CALCALB. Modify TGLACIER coherence test.
+* 010   D. Talbot and B. Bilodeau (Oct 2001) - Add DHDX, DHDY and DHDXDY
+* 011   Y. Delage (June 2004) - Add parameters for CLASS
+* 012   B. Bilodeau (June 2004) - Call to lacs1
+* 013   A. Lemonsu (June 2005) - Add case for urban covers
+* 014   B. Bilodeau (Mar 2007) - Remove MONTAGN
+* 015   L.Tong, A. Plante (may 2007) - Add ice line
+* 016   R. McTaggard-Cowan (Aug 2007) - BugFix relating to the availability
+*                                       of VEGF with lakes in climate mode
+* 017   V. Fortin (???? 2007) - Correct test for tbase<-0.5 
+* 018   F. Lemay, P. Vaillancourt, A. Zadra (Oct 2007) - Initialize 
+*            glaciers roughness length with total roughness (as in soil 
+*            component)
+* 019   B. Dugas (Feb 2008) - Change call to lacs2
+* 020   L. Duarte  (Aug 2008) - Added initialisation for cmai 
+* 021   L. Duarte  (Dec 2008) - Implement variable number of soil layers for CLASS
+* 022   L. Duarte  (Feb 2009) - Removed BDEPTH
+*                             - Initialize SDEPTH with SDEPTHEN (if available)
+* 023   K. Winger  (Mar 2009) - Add coherence checks for sand, clay, sdepth, wsoil, isoil
+* 024   R. McTaggart-Cowan (Apr 2009) - Treat snow on all surface types
+* 025   J.P. Toviesi (June 2009) - Add radslope options
+* 026   L. Duarte  (Dec 2009) - Implement CCCma vegetation fields
+*                             - Add tuiles.cdk and totfract for this purpose
+* 027   A. Martynov           - Add 1D interactive lakes
+* 028   B. Dugas (Nov 2011) - Replace lacs2 by lacs3
+* 029   K. Winger  (Nov 2011) - Make sure to keep organic matter (sand = -2)
+*
+*Object
+*       Transfer and initialize geophysical fields for the
+*       surface schemes
+*
+*
+*Arguments
+*
+*       - Input/Ouput -
+* F        field for permanent physics variables
+* FSIZ     dimension of F
+* E        field for entry variables
+* ESIZ     dimension of E
+* NI       horizontal dimension
+*
+*
+**************************************************************
+*NOTE: ***** This subroutine expects snow depth in cm.
+*            The snow depth is converted in metre (in this s/r)
+*            when the 'entry variables' are transfered to the
+*            permanent variables.
+***************************************************************
+*
+#include "nclassvg.cdk"
+*
+**
+#include "lakes.cdk"
+#include "classlvls.cdk"
+#include "nbvarsurf.cdk"
+#include "consphy.cdk"
+#include "isbapar.cdk"
+#include "surfacepar.cdk"
+*
+#include "options.cdk"
+*
+#include "phybus.cdk"
+#include "himin.cdk"
+      SAVE HIMIN 
+*
+*
+*                           the initial value of rugosity
+*                           over water and ice
+*
+      REAL Z0ICE, Z0SEA
+      PARAMETER (Z0ICE = 0.001)
+      PARAMETER (Z0SEA = 0.001)
+*
+*
+*
+*
+#include "leads.cdk"
+* 
+      REAL ALMIN, TAUF, TAUDAY
+*
+*
+      DATA ALMIN   / 0.50  /
+      DATA TAUF    / 0.24  /
+      DATA TAUDAY  / 24.   /
+*
+      SAVE ALMIN, TAUF, TAUDAY
+*
+*********************************************************************
+*
+*
+*
+      EXTERNAL INICOVER,CALCCOVF,INICOVERURB,INITOWN,INIMOS
+      EXTERNAL INISOILI
+      EXTERNAL CALCALB1, COHERENCE
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (  ALDATD     , REAL , (NCLASS))
+      AUTOMATIC (  D2DATD     , REAL , (NCLASS))
+      AUTOMATIC (  RSMINDATD  , REAL , (NCLASS))
+      AUTOMATIC (  LAIDATD    , REAL , (NCLASS))
+      AUTOMATIC (  VEGDATD    , REAL , (NCLASS))
+      AUTOMATIC (  CVDATD     , REAL , (NCLASS))
+      AUTOMATIC (  RGLDATD    , REAL , (NCLASS))
+      AUTOMATIC (  GAMMADATD  , REAL , (NCLASS))
+*
+************************************************************************
+*
+#include "icelvls.cdk"
+*
+      REAL prcor, diff
+      REAL sumcovf
+      INTEGER I, J, K, M, IM
+      IM(I,M)=(M-1)*NI+I
+*
+#include "tuiles.cdk"
+      REAL totfract
+*
+****
+*
+*
+       call calccovf(e,esiz,f,fsiz,0,ni)
+*
+       if (ischmurb .EQ. 1) call inicoverurb(e,esiz,f,fsiz,0,ni)
+*
+*
+*
+*
+*                         Several treatments on geophysical 
+*                         fields valid for both ISBA and FCREST
+*
+*                         The water temperature (TM) is decreased
+*                         for points where the filtering of mountains
+*                         lead to an icrease of the water level
+*                         (old subroutine MODTMTP of GEM's dynamic library)
+
+*
+      IF ( drylaps ) THEN
+         prcor = grav/cpd
+      ELSE
+         prcor = grav*stlo
+      END IF
+*
+*
+*
+*VDIR NODEP
+      DO i=0,ni-1
+*
+         IF (cortm) THEN
+*           MF and MT units are meters
+            diff = (e(mf+i) - e(mt+i)) * prcor
+            IF (diff .GT. 0.) e(twateren+i) = e(twateren+i) - diff
+         END IF
+*
+*
+         IF (ischmsol .EQ. 1) THEN
+             IF (nint(e(veginden+i)) .EQ. 25) e(veginden+i) = 4.
+             IF (nint(e(veginden+i)) .EQ. 26) e(veginden+i) = 10.
+         END IF
+*
+      END DO
+*
+*
+*                        Other consistency tests ...
+*
+*VDIR NODEP
+      DO i=0,nsurf*ni-1
+        e(snodpen +i  ) = MAX( 0. , e(snodpen+i ) )
+      END DO
+*
+*
+*VDIR NODEP
+      DO i=0,ni-1
+*
+        e(tglacen+i     ) = MIN( TRPL, e(tglacen+i     ))
+        e(tglacen+i+ni  ) = MIN( TRPL, e(tglacen+i+ni  ))
+        
+*
+      END DO
+*
+*
+*
+*                           From the "entry" to the "permanent" bus
+*
+*========================================================================
+*          for variables common to all surface schemes
+*========================================================================
+*
+*
+*VDIR NODEP
+      DO i=0,ni-1
+        f(alvis   +i+(indx_soil   -1)*ni) = e(alen     +i      )
+        f(alvis   +i+(indx_glacier-1)*ni) = e(alen     +i      )
+        f(alvis   +i+(indx_water  -1)*ni) = e(alen     +i      )
+        f(alvis   +i+(indx_ice    -1)*ni) = e(alen     +i      )
+        f(alvis   +i+(indx_agrege -1)*ni) = e(alen     +i      )
+*
+        if (schmurb.ne.'NIL') then
+        f(alvis   +i+(indx_urb    -1)*ni) = e(alen     +i      )
+        endif
+*
+        f(dlat    +i                    ) = e(dlaten   +i      )
+        f(dlon    +i                    ) = e(dlonen   +i      )
+        f(glacier +i                    ) = e(glacen   +i      )
+        f(mg      +i                    ) = e(mgen     +i      )
+*       
+*
+*       --- snodp deja en metres
+        f(snodp   +i+(indx_soil   -1)*ni) = e(snodpen  +i+(indx_soil   -1)*ni)
+        f(snodp   +i+(indx_glacier-1)*ni) = e(snodpen  +i+(indx_glacier-1)*ni)
+        f(snodp   +i+(indx_water  -1)*ni) = 0.0
+        f(snodp   +i+(indx_ice    -1)*ni) = e(snodpen  +i+(indx_ice    -1)*ni)
+*
+        f(twater  +i                    ) = e(twateren +i      )
+        f(tsrad   +i                    ) = e(tsoilen  +i      )
+        f(z0      +i+(indx_soil   -1)*ni) = e(z0en     +i      )
+        f(z0      +i+(indx_glacier-1)*ni) = e(z0en     +i      )
+        f(z0      +i+(indx_water  -1)*ni) = z0sea
+        f(z0      +i+(indx_ice    -1)*ni) = z0ice
+        f(z0      +i+(indx_agrege -1)*ni) = e(z0en     +i      )
+        f(z0t     +i+(indx_soil   -1)*ni) = e(z0en     +i      )
+        f(z0t     +i+(indx_glacier-1)*ni) = e(z0en     +i      )
+        f(z0t     +i+(indx_water  -1)*ni) = z0sea
+        f(z0t     +i+(indx_ice    -1)*ni) = z0ice
+        f(z0t     +i+(indx_agrege -1)*ni) = e(z0en     +i      )
+        f(lhtg    +i                    ) = e(lhtgen   +i      )
+        f(icedp   +i                    ) = e(icedpen  +i      )
+        f(tglacier+i                    ) = e(tglacen  +i      )
+        f(tglacier+i +   ni             ) = e(tglacen  +i +  ni)
+        f(glsea   +i                    ) = e(glseaen  +i      )
+        f(glsea0  +i                    ) = e(glseaen  +i      )
+*       Mask for the lakes
+        f(ml      +i                    ) = e(vegfen   +i +2*ni)
+        if(icelac) then
+        f(iceline +i                    ) = e(icelinen +i      )
+        else
+        f(iceline +i                    ) = 1.
+        endif
+*
+*       transvidage des variables necessaires au blocage orographique
+        f(dhdx   +i) = e(dhdxen   + i)
+        f(dhdy   +i) = e(dhdyen   + i)
+        f(dhdxdy +i) = e(dhdxdyen + i)
+*
+      END DO
+*
+*VDIR NODEP
+      DO i=1,nclass*ni
+        f(vegf+i-1)  = e(vegfen+i-1)
+      END DO
+*
+      DO K=1,NL
+         DO I=0,NI-1
+            f( tmice +i + (k-1)*ni ) = e( tmicen +i + (k-1)*ni )
+            f( tmice +i + (k-1)*ni ) = min(tcdk, f( tmice +i + (k-1)*ni ))
+         END DO
+      END DO
+*
+*     Special cases
+*
+      call lacs3( f, fsiz, climat, ilakes.gt.0, ni )
+*
+*VDIR NODEP
+      do i=0,ni-1
+*       no snow allowed in the absence of marine ice
+        if (f(icedp+i).lt.himin) then
+           f(snodp+i+(indx_ice -1)*ni) = 0.0   
+        endif
+      end do
+*
+*VDIR NODEP
+      DO i=0,ni-1
+*       For force-restore scheme only : if no radiation scheme 
+*       is used, then surface IR emissivity is set to 0.
+        IF (iradia.EQ.0) THEN
+           f(epstfn+i) = 0.
+        ELSE
+           f(epstfn+i) = stefan
+        END IF
+      END DO
+*
+*========================================================================
+*                               FOR FCREST ONLY
+*========================================================================
+*
+      IF ((schmsol.EQ.'FCREST').OR.(schmsol.EQ.'fcrest')) THEN
+*
+*
+*VDIR NODEP
+*        Calculate the albedo for the FORCE-RESTORE 
+*        scheme after saving original value in ALNOSNO.
+         DO i=0,ni-1
+            f(vegindx +i    ) = e(veginden +i)
+            f(tsoil   +i)     = e(tsoilen  +i      )
+            f(tsoil   +i + ni)= e(tsoilen  +i +  ni)
+            f(wsoil   +i    ) = e(hs       +i)
+            f(wsoil   +i +ni) = e(hs       +i)
+            f(alnosno +i)     = e(alen     +i)
+         END DO
+*
+         CALL calcalb1 (f(alnosno),f(vegindx),
+     +                  f(snodp+(indx_soil-1)*ni), 
+     +                  f(alvis+(indx_soil-1)*ni), ni)
+*
+*
+         CALL coherence( f, fsiz, ni )
+*
+*
+      END IF
+*
+*=========================================================================
+*                                      FOR ISBA ... FOR ISBA ... FOR ISBA
+*=========================================================================
+*
+*
+      IF ((schmsol.EQ.'ISBA').OR.(schmsol.EQ.'isba')) THEN
+*
+*
+*
+*VDIR NODEP
+        DO i=0,ni-1
+*
+          f(tsoil   +i)     = e(tsoilen  +i      )
+          f(tsoil   +i + ni)= e(tsoilen  +i +  ni)
+          f(wsoil +i   ) = e(wsoilen  +i     )
+          f(wsoil +i+ni) = e(wsoilen  +i + ni)
+          f(wveg  +i   ) = e(wvegen   +i     )
+          f(isoil +i   ) = e(isoilen  +i     )
+          f(wsnow +i   ) = e(wsnowen  +i     )
+          f(resa  +i   ) = 50.
+          f(slope +i   ) = 0.01
+        END DO
+*
+*
+*                     Special operations for the snow variables
+* 
+*                     CAREFUL HERE about the units:
+*                     "snoro" is the relative density of snow, 
+*                         i.e., rho_ice / rho_water (no units)
+*                     "snoma" is the snow water equivalent in 
+*                         mm (i.e., kg / m2)
+*                     "snoal" is the snow albedo determined from
+*                         the snow age
+*
+*                     NOTE that "snoag" is in hours ... (tauday also)
+*
+*
+*VDIR NODEP
+        DO i=0,ni-1
+          f(snoro + i) = MAX(100.,e(snoroen+i)) / rauw
+          f(snoma + i) = rauw * f(snoro+i) * f(snodp+i+(indx_soil-1)*ni)
+        END DO
+*
+*
+*                     For the ALBEDO, there are two possibilities:
+*
+*                     1) if switch "snoalb_anl" is true, then the "I6"
+*                        record in the starting standard file (SNOALEN)
+*                        contains the snow albedo
+*        
+*                     2) if switch "snoalb_anl" is false, then we
+*                        use the snow age (SNOAGEN) to derive the 
+*                        snow albedo
+*
+        IF (snoalb_anl) THEN
+*
+          DO i=0,ni-1
+            f(snoal + i)  =  e(snoalen + i)
+          END DO
+*
+        ELSE
+*
+*                          snow albedo is determined from the
+*                          snow age according to two different 
+*                          expressions depending if the snow pack
+*                          is melting or not
+*
+*VDIR NODEP
+          DO i=0,ni-1
+            IF (f(tmoins+ im(i,nk)).LT.0.) THEN
+              f(snoal   + i)  = ansmax - todry*e(snoagen+i)/tauday
+            ELSE
+              f(snoal   + i)  = (ansmax-almin) * 
+     1                          EXP( -tauf*e(snoagen+i)/tauday )
+     1                          + almin
+            END IF
+            f(snoal   + i)  = MAX( f(snoal+i) , almin )
+            f(snoal   + i)  = MIN( f(snoal+i) , ansmax )
+          END DO
+*
+        END IF
+*
+*
+*                          Initialize the parameters that depend 
+*                          on vegetation  
+*
+        call inicover( f, fsiz, 0, ni )
+*
+*
+*
+*                           Sand and clay fractions of the soil
+*                           are taken as simple averages of the 
+*                           first 3 layers
+*
+*VDIR NODEP
+        DO i=0,ni-1
+          f(sand + i ) = (  e(sanden + i) 
+     1                    + e(sanden + i + ni)
+     1                    + e(sanden + i + 2*ni) ) / 3.
+          f(clay + i ) = (  e(clayen + i) 
+     1                    + e(clayen + i + ni)
+     1                    + e(clayen + i + 2*ni) ) / 3.
+        END DO
+*
+*
+*                           Make sure the entry fields are 
+*                           coherent ...
+*
+        CALL coherence( f, fsiz, ni )
+*
+*
+*                           Initialize the soil characteristics
+*                           using the soil texture 
+*
+        CALL inisoili( f, fsiz, ni )
+*
+*
+      END IF
+*
+*=======================================================================
+*                               FOR CLASS 
+*======================================================================
+*
+*
+      IF (schmsol.EQ.'CLASS') THEN
+*
+*
+        DO k=1,nmos+1
+           DO i=0,ni-1
+
+              f(wveg  +i+(k-1)*ni ) =  e(wvegen   +i )
+              f(iveg  +i+(k-1)*ni ) =  e(ivegen   +i )
+              f(tveg  +i+(k-1)*ni ) =  e(tvegen   +i )
+              f(snoden+i+(k-1)*ni ) =  e(snodenen +i )
+              f(snoma +i+(k-1)*ni ) =  e(snomaen  +i )
+              f(snoal +i+(k-1)*ni ) =  e(snoalen  +i )
+              f(tsno  +i+(k-1)*ni ) =  e(tsnoen   +i )
+              f(veggro+i+(k-1)*ni ) =  e(veggroen +i )
+              f(tpond +i+(k-1)*ni ) =  e(tponden  +i )
+              f(zpond +i+(k-1)*ni ) =  e(zponden  +i )
+              f(tbase +i+(k-1)*ni ) =  e(tbaseen  +i )
+              f(wsnow +i+(k-1)*ni ) =  e(wsnowen  +i )
+              f(cmai  +i+(k-1)*ni ) =  0.0
+
+           END DO
+        END DO
+*
+*
+*                          Initialize the parameters that depend
+*                          on vegetation
+*
+        if (vege_fields.ne.'CCCMA') then
+          if (nmos.gt.0) then
+             call inimos( f, fsiz, e, esiz, 0, ni )
+          else
+             call inicover( f, fsiz, 0, ni )
+          end if
+
+        else
+          DO i=0,ni-1
+          DO J=0,class_ic-1
+            f(fcanmx + i + j*ni)=  e(fcanmxen + i + j*ni) * fveg(j+1)
+            f(alvsc  + i + j*ni)=  e(alvscen  + i + j*ni)
+            f(alirc  + i + j*ni)=  e(alircen  + i + j*ni)
+            f(laimax + i + j*ni)=  e(laimaxen + i + j*ni)
+            f(laimin + i + j*ni)=  e(laiminen + i + j*ni)
+            f(vegma  + i + j*ni)=  e(vegmaen  + i + j*ni)
+            f(rootdp + i + j*ni)=  e(rootdpen + i + j*ni)
+            f(zoln   + i + j*ni)=  e(zolnen   + i + j*ni)
+          ENDDO
+*         initialization for urban and desert
+          f(fcanmx + i + class_ic*ni)=  e(fcanmxen + i + class_ic*ni)
+          f(alvsc  + i + class_ic*ni)=  e(alvscen  + i + class_ic*ni)
+          f(alirc  + i + class_ic*ni)=  e(alircen  + i + class_ic*ni)
+          f(zoln   + i + class_ic*ni)=  e(zolnen   + i + class_ic*ni)
+
+          f(stomr  + i       )=  200.   !! range : 150-500 s/m
+          f(stomr  + i +   ni)=  125.   !! range : 90 -130
+          f(stomr  + i + 2*ni)=   85.   !! range : 80 - 90
+          f(stomr  + i + 3*ni)=  100.
+
+          f(qa50   + i       )=  30.    !! sometimes 50. is better for all 4
+          f(qa50   + i +   ni)=  40.
+          f(qa50   + i + 2*ni)=  30.
+          f(qa50   + i + 3*ni)=  30.
+
+          f(vpda   + i       )=  0.65        !! 0.65 in bartlett's runs
+          f(vpda   + i +   ni)=  0.50        !! 0.60
+          f(vpda   + i + 2*ni)=  0.50        !! 0.50
+          f(vpda   + i + 3*ni)=  0.50        !! 0.50
+
+          f(vpdb   + i       )=  1.05        !! 1.05 in bartlett's runs
+          f(vpdb   + i +   ni)=  0.60        !! 0.5
+          f(vpdb   + i + 2*ni)=  1.00        !! 0.1
+          f(vpdb   + i + 3*ni)=  1.00        !! 0.1
+
+          DO J=0,class_ic-1
+            f(psiga  + i + j*ni)=  100.      !! 100. according to bartlett
+            f(psigb  + i + j*ni)=  5.        !! 5.   according to bartlett
+          ENDDO
+
+          f(sdepth + i ) =  0.
+          totfract       =  0.
+          DO J=0,class_ic
+            f(sdepth + i)=f(sdepth + i) +
+     $                    e(rootdpen + i + j*ni) * e(fcanmxen + i + j*ni)
+            totfract=totfract + e(fcanmxen + i + j*ni)
+          ENDDO
+          f(sdepth + i)=f(sdepth + i) / totfract
+          ENDDO
+        endif
+*
+*
+        DO J=1,class_ig
+           DO i=0,ni-1
+              if (e(tsoilen+ i + (j-1)*ni) > -5.0) then
+                 f(tsoil + i +(j-1)*ni) = e(tsoilen+ i + (j-1)*ni)
+              else
+                 f(tsoil + i +(j-1)*ni) = f(tsoil  + i + (j-2)*ni)
+              endif
+              if (e(wsoilen+ i + (j-1)*ni) > -5.0) then
+                 f(wsoil + i +(j-1)*ni) = e(wsoilen+ i + (j-1)*ni)
+              else
+                 f(wsoil + i +(j-1)*ni) = f(wsoil  + i + (j-2)*ni)
+              endif
+              if (e(isoilen+ i + (j-1)*ni) > -5.0) then
+                 f(isoil + i +(j-1)*ni) = e(isoilen+ i + (j-1)*ni)
+              else
+                 f(isoil + i +(j-1)*ni) = f(isoil  + i + (j-2)*ni)
+              endif
+              if (e(sanden + i + (j-1)*ni) > -5.0) then
+                 f(sand  + i +(j-1)*ni) = e(sanden + i + (j-1)*ni)
+              else
+                 f(sand  + i +(j-1)*ni) = f(sand   + i + (j-2)*ni)
+              endif
+              if (e(clayen + i + (j-1)*ni) > -5.0) then
+                 f(clay  + i +(j-1)*ni) = e(clayen + i + (j-1)*ni)
+              else
+                 f(clay  + i +(j-1)*ni) = f(clay   + i + (j-2)*ni)
+              endif
+              f(orgm  + i +(j-1)*ni) = 0.
+           end do
+        END DO
+*
+*  This do loop no longer implies that the number of soil layers (class_IG) is 3
+        do i=0,ni-1
+           DO J=0,class_ig-1
+              f(wsoil +i +j*ni)= max(0.04,f(wsoil +i +j*ni))
+           END DO
+          f(xdrain+i) = 1.0 - f(covf +i + 22*ni)
+          if (e(sdepthen+i) > -5.0) then
+            DO K=1,nmos+1
+              f(sdepth+i+(k-1)*ni) = e(sdepthen+i)
+            END DO
+          endif
+        end do
+*
+*                           Make sure the entry fields are
+*                           coherent ...
+*
+        do i=0,ni-1
+           if(f(tbase+i).lt.-0.5)then
+              f(tbase+i)=f(tsoil + 2*ni +i)
+           endif
+*
+*          In case of glaciers (-4) or water (-1) set sand, clay and
+*          depth to bedrock to values of typical loamy soils
+*          
+           if (f(sand+i) .lt. -3.5 .or. nint(f(sand+i)) .eq. -1) then
+              do j=0,class_ig-1
+                 f(sand+i+j*ni) = 35.
+                 f(clay+i+j*ni) = 35.
+              enddo
+              f(sdepth+i)       = 0.45
+           end if
+*
+*          Over pure water set sand, clay, wsoil, isoil to 0.0
+*
+           if (f(mg+i) .lt. critmask) then
+              do j=0,class_ig-1
+                 f(sand  + i+j*ni) = 0.0
+                 f(clay  + i+j*ni) = 0.0
+              end do
+              do j=0,class_ig*(nmos+1)-1
+                 f(wsoil + i+j*ni) = 0.0
+                 f(isoil + i+j*ni) = 0.0
+              end do
+*
+           else
+*
+*             Make sure there is sand, clay and bdepth where
+*             MG > critmask
+*             If sand is not flagged (i.e. -2 for organic matter) and
+*             no sand and clay are found attribute to these points
+*             characteristics of typical loamy soils
+*
+              do j=0,class_ig-1
+                 if ( f(sand+i+j*ni) .gt. -0.5 .and.
+     &                f(sand+i+j*ni)+f(clay+i+j*ni) .lt. critexture ) then
+                   f(sand+i+j*ni) = 35.
+                   f(clay+i+j*ni) = 35.
+                 end if
+              end do
+*
+              if ( f(sdepth+i) .lt. 0.1 ) f(sdepth+i)    = 0.45
+*
+*             Make sure there is soil water where
+*             MG > critmask
+*
+              do j=0,class_ig*(nmos+1)-1
+                if (f(wsoil+i+j*ni)+f(isoil+i+j*ni).lt.critwater) then
+                  if (f(tsoil+i+j*ni).lt.TCDK) then
+                    f(isoil+i+j*ni)    = 0.30
+                    f(wsoil+i+j*ni)    = 0.04
+                  else
+                    f(isoil+i+j*ni)    = 0.04
+                    f(wsoil+i+j*ni)    = 0.30
+                  end if
+                end if
+                f(wsoil+i+j*ni)= max(0.04,f(wsoil+i+j*ni))
+              end do
+*
+           end if
+        end do
+*
+        CALL coherence ( f, fsiz, ni )
+*
+*
+      END IF
+*
+*========================================================================
+*                       FOR 1D interactive lakes only
+*========================================================================
+*
+*
+      IF (ilakes > 0 .and. ilakes.ne.3) then
+*
+         DO i=0,ni-1
+            f(lakect       +i ) = 1.0
+            f(lakefice     +i ) = 1.0
+            f(lakehice     +i ) = 1.0
+            f(lakehml      +i ) = 1.0
+            f(laketbot     +i ) = 1.0
+            f(laketice     +i ) = 1.0
+            f(laketwml     +i ) = 1.0
+            f(laketmnw     +i ) = 1.0
+            f(frv_li       +i ) = 1.0
+            f(frv_lw       +i ) = 1.0
+*
+            if (e(ldepthen +i).lt.30) then
+               f(lakedepth +i ) = 100.0
+            else
+               f(lakedepth +i ) = e(ldepthen+i)
+            endif
+*
+            f(lakedepth    +i ) = max(3.0,f(lakedepth +i)/10.0)
+*
+            if (e(ltranspen+i ).gt.0.0) then
+               f(laketransp+i ) = e(ltranspen + i)
+            else
+               f(laketransp+i ) = ltran0
+            endif
+         end do
+*
+         DO i=0,ni*INL-1
+            f(laketp       +i )=1.0
+         end do
+*
+      elseif (ilakes == 3) then ! LAKES=FLAKE
+*
+         DO i=0,ni-1
+            f(lakect       +i ) = 0.0
+            f(lakefice     +i ) = 0.0
+            f(lakehice     +i ) = 0.0
+            f(lakehml      +i ) = 0.0
+            f(laketbot     +i ) = 0.0
+            f(laketice     +i ) = 0.0
+            f(laketransp   +i ) = 0.0
+            f(laketwml     +i ) = 0.0
+            f(laketmnw     +i ) = 0.0
+            f(frv_li       +i ) = 0.0
+            f(frv_lw       +i ) = 0.0
+*
+            if (e(ldepthen +i ).lt.30) then
+               f(lakedepth +i ) = 100.0
+            else
+               f(lakedepth +i ) = e(ldepthen+i)
+            endif
+*
+            f(lakedepth    +i )= max(3.0,f(lakedepth +i)/10.0)
+*
+            if (e(ltranspen+i ).gt.0.0) then
+               f(laketransp+i ) = e(ltranspen + i)
+            else
+               f(laketransp+i ) = ltran0
+            endif
+*
+         end do
+*
+         DO i=0,ni*INL-1
+            f(laketp   +i )=0.0
+         end do
+*
+      endif
+*
+*
+*========================================================================
+*                             for TEB only
+*========================================================================
+*
+       if (ischmurb .EQ. 1) CALL initown(e,esiz,f,fsiz,d,dsiz,ni,nk)
+*
+*========================================================================
+*                             for slope only
+*========================================================================
+*VDIR NODEP
+
+      if (radslope) then
+         call radcons(f,fsiz, e, esiz, ni) 
+      endif
+*
+
+
+*
+      RETURN
+      END

@@ -1,0 +1,46 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!COMMON BLOCK /CLEFCON/
+!          contains various physics constants
+!
+! ANEMO    anemometer; initialized in CLEMUL2.
+! CLPCG    ALOG((1.0-POURCG)/POURCG) where POURCG is set to 0.9;
+!          initialized in PHYDEBU.
+! CLEFC1   =3.75/1.75; initialized in PHYDEBU.
+! CLEFC4   =4.5; initialized in PHYDEBU.
+! CLEFC6   =4.85; initialized in PHYDEBU.
+! CLEFC7   =1.0-0.125*CLEFC6; initialized in PHYDEBU.
+! CLEFC8   =6.5; initialized in PHYDEBU.
+! CLEFCB   =0.4; initialized in PHYDEBU.
+! CLEFAE   =3.0*CLEFC4/CLEFC8; initialized in PHYDEBU.
+! ETRMIN   =1.0 E-4; initialized in PHYDEBU.
+! Z0MIN    =1.5 E-5; roughness length initialized in PHYDEBU.
+!
+#endif
+!     DIVERSES CONSTANTES PHYSIQUES
+!
+      INTEGER, PARAMETER :: LAMINAR=1,TURBULENT=-1
+      INTEGER PBL_NK
+      REAL, PARAMETER :: BLCONST_CK=0.516,BLCONST_CE=0.14,BLCONST_CU=3.75,BLCONST_CW=0.2
+      REAL ANEMO, ETRMIN
+      REAL CLPCG, Z0MIN
+      REAL CLEFC1,CLEFC4,CLEFC6,CLEFC7,CLEFC8,CLEFCB,CLEFAE
+      COMMON / CLEFCON / ANEMO, ETRMIN, CLPCG, Z0MIN
+      COMMON / CLEFCON / CLEFC1,CLEFC4,CLEFC6,CLEFC7
+      COMMON / CLEFCON / CLEFC8,CLEFCB,CLEFAE
+      COMMON / CLEFCONI/ PBL_NK
+
