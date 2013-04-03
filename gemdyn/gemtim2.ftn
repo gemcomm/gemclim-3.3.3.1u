@@ -1,0 +1,229 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r gemtim2 - Print out date and cpu statistics
+*
+#include "model_macros_f.h"
+*
+      subroutine gemtim2( unf, ModStep_L, Step_Done,Step_rsti )
+*
+      implicit none
+*
+      logical ModStep_L
+      integer unf, Step_Done,Step_rsti
+*
+*author
+*     B. Dugas
+*
+*revision
+* v2_30 - Dugas B.       - initial version
+* v3_11 - Dugas B.       - Adapt to AIX envvironment
+* v3_12 - Dugas B.       - Call f_get_my_resident_time under AIX and
+*                          Load-Leveller. Return modified Step_rsti
+* v3_20 - Dugas B.       - Only change Step_rsti when Used is greater than 0. 
+* v3_22 - Lee V.         - add max residual memory 
+* v3_30 - Dugas B.       - Rename Step_Restart to Step_rsti
+*                          and broadcast its value
+* v3_33 - Dugas B.       - Activate ModStep_L mode for generic environments
+*                          using SYSTEM_CLOCK calls, and general printouts
+*                          using calls to DATE_AND_TIME and DTIME
+*                        - For AIX, Used0 >= 30 and substract a day
+*                          to the maxJour calculation
+*
+*object
+*     
+*     1) Provide for run-time accounting information.
+*     2) (Only if ModStep_L is TRUE) Step_rsti will be modified so as to
+*        use the maximum amount of allocated cpu time. This re-calculation
+*        is done once per simulated day.
+*     3) On systems not using the (AIX) Load-Leveller scheduler, the hard
+*        wall-clock time limit is retreived from the 'HardTimeLimit'
+*        environment variable (assumed to be in units of seconds)
+*
+*arguments
+* unf           I  - standard out unit number (> 0 only for process 0)
+* ModStep_L     I  - Do we want to modify Step_rsti
+* Step_Done     I  - Number of timesteps done in current job
+* Step_rsti    I/O - maximum number of timesteps to be done in one job
+**
+#include "cstv.cdk"
+      real           :: spJour
+      real,     save :: Jour=0.
+      logical,  save :: timini_L=.false.
+      integer,  save :: ppJour=999999, Used0=30
+      integer,  save :: HardLim=-1 ! Hard time limit in seconds
+      integer        :: maxJour,Hold_Rsti,ierr,Used
+      character(11)  :: Heure_S,Jour_S
+#if defined (AIX)
+      integer        :: SoftLim
+      character      :: date_S*8 ,time_S*10
+      real           :: users    ,systs
+      real,     save :: user0=0.0,syst0=0.0
+      integer, external :: get_max_rss
+*----------------------------------------------------------------
+*
+      if (ModStep_L .and. unf.gt.0) then
+*
+        if (Step_Done.eq.1) then
+*
+*           Determine the amount of time spent at startup (Used0)
+*           as well as the number of timesteps per days (ppJour)
+*           and finally initialise a number of days counter
+*
+            call f_get_my_resident_time( Used0,HardLim,SoftLim )
+            ppJour  = nint( 86400. / Cstv_dt_8 )
+            Used0   = max( Used0, 30 )
+*
+         else if (mod( Step_Done,ppJour ).eq.1) then
+*
+            call f_get_my_resident_time( Used,HardLim,SoftLim )
+*
+*           HardLim is to hold the time allocated to the current
+*           job, assuming we spend the same number of seconds before
+*           and after it. Then Used becomes the time used since the
+*           first call to f_get_my_resident_time, spJour is the number
+*           of CPU seconds per simulated days in the current job and
+*           maxJour is the maximum number of days we can do in it
+            HardLim = HardLim - 2*Used0
+            Used    = max( 0, Used    -   Used0 )
+            Jour    = Jour    +   1.
+            spJour  = Used    /   Jour 
+*
+            if (spJour.ne.0) then
+               maxJour = ( HardLim / spJour )
+               maxJour = maxJour - 1 ! Substract an extra day for safety
+*
+*              Re-define Step_rsti to reflect maxJour
+               Hold_Rsti = Step_rsti
+               Step_rsti = maxJour*ppJour
+*
+               if (Hold_Rsti.ne.Step_rsti) write(unf,1001) Step_rsti
+*
+            endif
+*
+         endif
+*
+      endif
+*
+      if (ModStep_L) \
+      call RPN_COMM_bcast( Step_rsti,1,"MPI_INTEGER",0,"grid",ierr )
+      if (unf.le.0) return
+*
+      call date_and_time( date_S,time_S )
+      jour_S  = date_S(1:4)//'/'//date_S(5:6)//'/'//date_S(7:8)//' '
+      heure_S = time_S(1:2)//'h'//time_S(3:4)//'m'//time_S(5:6)//'s, '
+*
+      call setrteopts('cpu_time_type=total_usertime')
+      call cpu_time( users )
+*
+      call setrteopts('cpu_time_type=total_systime')
+      call cpu_time( systs )
+*
+      if (timini_L)  write(unf,1000)
+     +    ' At '//jour_S//heure_S, users-user0, systs-syst0,get_max_rss()
+*
+ 1000    format(/A,'User Time (sec) : ',f10.6,
+     +            ' Sys  Time (sec) : ',f10.6,
+     +           ', Mem (Kbytes/PE) : ',i10)
+*
+      user0 = users
+      syst0 = systs
+#else
+      integer,  save :: stimei,irate
+      integer        :: stimec
+      real, external :: dtime
+      character(11)  :: Date_S,Time_S, HardLim_S
+      real           :: ra(2),UserT, TotalT,SystT
+      equivalence      (ra(1),UserT),(ra(2),SystT)
+!----------------------------------------------------------------
+
+      if (Step_Done == 0 .and. unf > 0 ) then ! called in set_world_view
+
+          totalt = dtime( ra ) ! First "initialization" call to dtime
+          call system_clock( stimei,irate ) ! Get the initial time
+          call getenvc( 'HardTimeLimit', HardLim_S ) ! Hard time limit
+
+          if (HardLim_S /= ' ') read( HardLim_S,'(BN,I10)',err=100) HardLim
+
+          HardLim = HardLim - 2*Used0 ! Account for start & end processing
+
+      else if (HardLim > 0) then ! called at the beginning of
+                                 ! the time loop in gem_run
+
+         if (Step_Done == 1) then
+
+            ! Adjust Used0 with initial model run time and reset stimei
+
+            call system_clock( stimec )
+
+            Used0  = Used0 + ( dble( stimec - stimei ) / irate )
+            stimei = stimec
+            ppJour = nint( 86400. / Cstv_dt_8 )
+          
+         else if (mod( Step_Done,ppJour ) == 1) then
+
+            call system_clock( stimec )
+
+            ! HardLim is to hold the time allocated to the current job,
+            ! assuming we spend the same number of seconds before and
+            ! after it. Then Used becomes the time used since the first
+            ! call to system_clock, spJour is the number of CPU seconds
+            ! per simulated days in the current job and maxJour
+            ! is the maximum number of days we can do in it
+
+            Used    = ( dble( stimec - stimei ) / irate )
+            Used    = max( 0., Used - Used0 )
+            Jour    = Jour +   1.
+            spJour  = Used /   Jour 
+
+            if (ModStep_L) then
+
+               maxJour = ( HardLim / spJour )
+               maxJour = maxJour - 1 ! Substract an extra day for safety
+
+               ! Re-define Step_rsti to reflect maxJour
+               Hold_Rsti = Step_rsti
+               Step_rsti = maxJour*ppJour
+
+               if (Hold_Rsti /= Step_rsti) write(unf,1001) Step_rsti
+
+            end if
+
+         end if
+
+      end if
+
+      if (ModStep_L) \
+      call RPN_COMM_bcast( Step_rsti,1,"MPI_INTEGER",0,"grid",ierr )
+      if (unf <= 0) return
+
+  100 call date_and_time( Date_S, Time_S )
+      TotalT = dtime( ra )
+
+      Jour_S  = Date_S(1:4)//'/'//Date_S(5:6)//'/'//Date_S(7:8)//' '
+      Heure_S = Time_S(1:2)//'h'//Time_S(3:4)//'m'//Time_S(5:6)//'s, '
+
+      if (timini_L) write(unf,1000) ' At '//Jour_S//Heure_S, UserT,SystT
+      call flush( unf )
+
+ 1000 format(/A,'User Time (sec) : ',f7.2,', Sys  Time (sec) : ',f7.2)
+#endif
+      timini_L = .true.
+*
+*----------------------------------------------------------------
+ 1001 format(/  ' In GEMTIM2, Step_rsti reset to ',I6) 
+*
+      return
+      end subroutine GEMTIM2

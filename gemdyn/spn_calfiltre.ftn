@@ -1,0 +1,78 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!***s/r spn_calfiltre2 - define the spectral nudging filter
+#include "model_macros_f.h"
+      subroutine spn_calfiltre2( nis,njs )
+!
+      USE MODD_SPN
+      IMPLICIT NONE
+!
+      integer nis,njs
+!
+!author
+!     Minwei Qian 
+!
+!revision
+! v3_32 - Qian M.        - Initial version
+! v3_33 - Qian & Dugas   - Version 2.0 (which uses global "collection and distribution")
+!                        - Renamed to spn_calfiltre2 following the change in arguments
+! v3_33 - Dugas B.       - Version 3.0, where the nudging coefficienta are applied in a
+!                          2D wave manner so that fxy(:,:) replaces fxx(:) and fyy(:)
+!                        - Account for possible scale differences in x and y
+!
+!object
+!     Define the Spectral nudging filter
+!
+#include "grd.cdk"
+#include "dcst.cdk"
+#include "glb_pil.cdk"
+#include "lam.cdk"
+
+      integer i,j,ii,jj
+
+      real(8) SDX,DX,CONST, X,Y,YtoX, R,F, WavMax
+!----------------------------------------------------------------------
+       DX = Grd_dx*Dcst_pi_8*Dcst_rayt_8/360.
+      SDX = max( 1.0_8*Lam_spn_half_respon, DX/4. )
+
+      ! Y to X Scale transformation 
+      YtoX = Grd_dy/(Grd_dx*1.0_8)
+
+      ! Maximum wave number
+      WavMax = max( YtoX*(njs-1), 1.0_8*(nis-1) )
+
+      fxy = 0. ; jj = -1
+      CONST = ( SDX*1000. / DX ) / WavMax
+
+      ! Define fxy(r) = exp( -[(SDX/DX)*r]**4 ), with r=[0,1]
+      ! So that if r << DX/SDX => fxy = 1 and
+      !         if r >> DX/SDX => fxy = 0
+
+      do j=0,njs-1
+          Y = YtoX * j
+          do i=0,nis-1
+             X = i
+             R = sqrt(  X*X + Y*Y )
+             F = CONST * R
+             F = exp( -(F*F*F*F) )
+             fxy(i+Lam_pil_w,j+Lam_pil_s) = F
+          enddo
+      enddo
+
+      return
+!----------------------------------------------------------------------
+      end subroutine spn_calfiltre2
+

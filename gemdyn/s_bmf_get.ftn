@@ -1,0 +1,242 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r s_bmf_get - read bmf file and interpolate results
+*
+#include "model_macros_f.h"
+*
+      Integer FUNCTION s_bmf_get( nom,time1,time2,r4,
+     +                            imin,imax,jmin,jmax,kmin,kmax,
+     +                            F_nk,F_ni,F_nj,F_x_8,F_y_8,F_type )
+*
+      implicit none
+*
+      character nom*4
+      integer   time1,time2,imin,imax,jmin,jmax,kmin,kmax
+      real      r4( imin:imax , jmin:jmax , kmin:kmax )
+*
+      character F_type
+      integer   F_ni,F_nj,F_nk
+      real*8    F_x_8(F_ni),F_y_8(F_nj)
+*
+*author 
+*     Bernard Dugas, Feb 2004 (wrap around bmf_get for r4 data)
+*
+*revision
+* v3_12 - Dugas B.             - Initial version
+* v3_33 - Dugas B.             - Add diagnostics
+*
+*object
+*     Reads data from a bmf file and (optionally) interpolates it
+*     to a final model grid. The input data is assumed 1) to be
+*     of equivalent or lower resolution and 2) to be correctly
+*     oriented. Extrapolations are not supported.
+*
+*arguments
+* nom         variable name                                    character*4
+* time1       timestamp 1 (yyymmdd)                            integer
+* time2       timestamp2 (hhmmsscc)                            integer
+* r4          final destination array (dtyp=41)                real
+* (ijk)min    Size of destination array (lower bounds)         integer
+* (ijk)max    Size of destination array (upper bounds)         integer
+*
+* F_ni        (optional) first dimension of array on bmf file  integer
+* F_nj        (optional) second dimension of array on bmf file integer
+* F_nk        (optional) third dimension of array on bmf file  integer
+* F_x         (optional) input positions of data points in x   real
+* F_y         (optional) input positions of data points in y   real
+* F_type      (optional) final destination grid (P, U or V)    character*1
+*
+*notes:  If F_ni or F_nj are .LE. 0, the last five arguments are
+*        ignored and the routine only performs a call to bmf_get
+*
+*implicits
+#include "glb_ld.cdk"
+#include "geomg.cdk"
+#include "lctl.cdk"
+#include "lun.cdk"
+*
+*modules
+      integer  bmf_get
+      external bmf_get,grid_to_grid_coef,grid_to_grid_interp
+*
+*local arguments
+      real(8)  meanf,varf,minf,maxf
+      integer i,j,k,kk, ier, nip,njp, nid,njd
+      real,   dimension (:,:,:), allocatable :: r4s,r4d
+      real*8, dimension (:), allocatable :: x_8,y_8
+      integer,dimension (:), allocatable :: indxx,indxy
+      real*8, dimension (:), allocatable :: cxa,cxb,cxc,cxd,
+     +                                      cya,cyb,cyc,cyd
+*
+*     ---------------------------------------------------------------
+*
+      if (F_ni.eq.0 .or. F_nj.eq.0) then
+*
+*         read the data and return. No interpolation is called for.
+*
+         s_bmf_get = bmf_get( nom,time1,time2,-1,r4,-1,
+     +                        imin,imax,jmin,jmax,kmin,kmax )
+*
+         if (Lctl_debug_L) then
+            kk = kmax-kmin+1
+            call glbstat( r4, nom, imin,imax,jmin,jmax,kk, 
+     +                        1,G_ni, 1,G_nj, kmin,kmax )
+         endif
+*
+         return
+*
+      else
+*
+*         read the data with the "assumed" reduced dimensions.
+*
+         allocate( r4s(F_ni, F_nj, F_nk) )
+*
+         ier = bmf_get( nom,time1,time2,-1,r4s,-1,
+     +                  1,F_ni, 1,F_nj, 1,F_nk )
+*
+         if (ier.ne.0) then
+            s_bmf_get = ier
+            deallocate( r4s )
+            return
+         endif
+*
+         if (Lun_debug_L) then
+            do k=1,F_nk
+               meanf=r4s(1,1,k) ; varf=r4s(1,1,k)*r4s(1,1,k)
+               minf =r4s(1,1,k) ; maxf=r4s(1,1,k)
+               do i=2,F_ni*F_nj
+                  minf =min( minf,r4s(i,1,k)*1.0_8 )
+                  maxf =max( maxf,r4s(i,1,k)*1.0_8 )
+                  meanf=meanf+r4s(i,1,k)
+                  varf =varf +r4s(i,1,k)*r4s(i,1,k)
+               enddo
+               meanf=meanf/(F_ni*F_nj)
+               varf =varf /(F_ni*F_nj)
+               varf =varf-meanf*meanf
+               write(Lun_out,1000) nom,F_ni,F_nj,k,F_nk,meanf,varf,minf,maxf
+            enddo
+         endif
+*
+         nip = l_ni+1
+         njp = l_nj+1
+*
+         allocate(   x_8(nip),           y_8(njp),
+     +               cxa(nip),cxb(nip),  cya(njp),cyb(njp),
+     +               cxc(nip),cxd(nip),  cyc(njp),cyd(njp),
+     +             indxx(nip),         indxy(njp) )
+*
+*         define the x and y destination grid positions
+*
+         if (F_type.eq.'U') then
+*
+            nid = l_niu
+            njd = l_nj
+*
+            do i=1,nid
+               x_8(i) = Geomg_xu_8(i)
+            enddo
+            do j=1,njd
+               y_8(j) = Geomg_y_8(j)
+            enddo
+*
+         else if (F_type.eq.'V') then
+*
+            nid = l_ni
+            njd = l_njv
+*
+            do i=1,nid
+               x_8(i) = Geomg_x_8(i)
+            enddo
+            do j=1,njd
+               y_8(j) = Geomg_yv_8(j)
+            enddo
+*
+         else if (F_type.eq.'P' .or. F_type.eq.' ') then
+*
+            nid = l_ni
+            njd = l_nj
+*
+            do i=1,nid
+               x_8(i) = Geomg_x_8(i)
+            enddo
+            do j=1,njd
+               y_8(j) = Geomg_y_8(j)
+            enddo
+*
+         endif
+*
+*         perform x- and y-direction interpolation setups
+*     
+         call grid_to_grid_coef( x_8,nid, F_x_8,F_ni,
+     +                           indxx,cxa,cxb,cxc,cxd,'CUB_LAG' )
+         call grid_to_grid_coef( y_8,njd, F_y_8,F_nj,
+     +                           indxy,cya,cyb,cyc,cyd,'CUB_LAG' )
+*
+         allocate( r4d(nid,njd,F_nk) )
+*
+         if (min( F_nk,kmax )-max( 1,kmin ).gt.0) then
+*
+!$omp parallel do shared( nid,njd,f_ni,f_nj )
+            do k=max( 1,kmin ),min( F_nk,kmax )
+*
+*               perform the interpolation level by level (with OpenMP)
+*
+               call grid_to_grid_interp(
+     +              r4d(1,1,k),nid, njd,
+     +              r4s(1,1,k), F_ni,F_nj,indxx,indxy,  
+     +              cxa,cxb,cxc,cxd,cya,cyb,cyc,cyd,'CUB_LAG' )
+*
+               do j=1,njd
+                  do i=1,nid
+                     r4(i,j,k) = r4d(i,j,k)
+                  enddo
+               enddo
+*     
+            enddo
+!$omp end parallel do
+*
+         else
+*
+*            perform only one level interpolation (no OpenMP)
+*
+            k = max( 1,kmin )
+*
+            call grid_to_grid_interp(
+     +           r4d(1,1,k),nid, njd,
+     +           r4s(1,1,k), F_ni,F_nj,indxx,indxy,  
+     +           cxa,cxb,cxc,cxd,cya,cyb,cyc,cyd,'CUB_LAG' )
+*
+            do j=1,njd
+               do i=1,nid
+                  r4(i,j,k) = r4d(i,j,k)
+               enddo
+            enddo
+*
+         endif
+*
+         deallocate( r4d,x_8,indxx,cxa,cxb,cxc,cxd,
+     +               r4s,y_8,indxy,cya,cyb,cyc,cyd )
+*
+      endif
+
+      s_bmf_get = 0
+*
+ 1000 format(1x,A,4I5,' Min: ',1pe14.7,' Max: ',1pe14.7,
+     $                ' Mean: ',1pe14.7,' Variance: ',1pe21.14)
+*
+      return
+      end
+*

@@ -1,0 +1,184 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r trans_clean - launches Um_xfer.sh during a job run
+*
+#include "model_macros_f.h"
+*
+      subroutine trans_clean
+*
+      implicit none
+*
+*author   
+*     Katja Winger
+*
+*revision
+* v3_11 - Winger K.         - initial version, Dec. 2002
+* v3_12 - Winger K.         - Use GETENVC
+* v3.20 - Winger K.         - Different behavior following P_clim_clima_L
+* v3.30 - Winger K.         - Verify the length of the environement variables
+* v3_32 - Winger K.         - Use <clib_interface.cdk> and r.monitor
+* v3_33 - Dugas B.          - Account for Clim_allin1_L
+*
+*implicits
+#include "cstv.cdk"
+#include "ptopo.cdk"
+#include "path.cdk"
+#include "step.cdk"
+#include "lctl.cdk"
+#include "rstr.cdk"
+#include "glb_ld.cdk"
+#include "clim.cdk"
+#include "modconst.cdk"
+#include <clib_interface.cdk>
+*
+*modules
+**
+*
+      INTEGER, EXTERNAL :: fnom
+*
+      integer slen_exp, slen_exec, slen_rep, slen_jobn, slen_mod
+      integer, parameter :: len_exp=128, len_exec=512, len_job=4096
+      character(len=len_exp)  exper
+      character(len=len_exec) execdir
+      character(len=len_job)  job
+*
+      integer i, j, err, unc
+      integer steps, rest, cpus
+      character Lctl_step_S*9, Rstri_sdon_S*9, cpus_S*3, Step_total_S*9
+      character model*10
+*
+      logical doit_L
+      integer yy,mo,dd,hh,mm,ss,sign
+      character(len=16)  :: datev_S
+      real(8)            :: dayfrac
+      real(8), parameter :: sec_in_day=86400.0_8
+*
+*     ---------------------------------------------------------------
+*
+      doit_L = .false.
+      if (Clim_allin1_L) then
+         ! always save output at end of month if Clim_allin1_L
+         dayfrac = dble(Lctl_step) * Cstv_dt_8 / sec_in_day
+         dayfrac = nint( dayfrac*1000000,8 ) / 1000000._8
+         call incdatsd( datev_S,Mod_runstrt_S,dayfrac )
+         call prsdate( yy,mo,dd,hh,mm,ss,sign, datev_S )
+         if (dd == 1 .and. hh == 0 .and. \
+             mm == 0 .and. ss == 0) doit_L = .true.
+      endif
+*
+* If Step_cleanup = 0 we may not have anything to do
+      if (Step_cleanup == 0 .and. .not.doit_L) return
+*
+      err = 0
+*
+      steps = Step_cleanup
+      if (Clim_climat_L) then
+        rest = mod(Rstri_sdon,steps)
+      else
+        rest = mod(Lctl_step,steps)
+      end if
+      if (rest == 0 .or. doit_L) then
+*
+* wait for all processors to be here
+         call rpn_comm_Barrier("grid", err)
+
+** move 'current_last_step' to 'last_step_*'
+** and recreate 'current_last_step'
+*
+         call out_create_dirs(.true.,.true.)
+*
+*
+         err = 0
+*
+* only one process should launch Um_xfer.sh
+         if (Ptopo_myproc .eq. 0) then
+
+** get current working directory
+*
+            err = clib_getcwd (execdir)
+            slen_exec = len_trim( execdir )
+            execdir = execdir(1:slen_exec-20)
+            do i=len_trim(execdir),1,-1
+               if ( execdir(i:i) .eq. '/' ) exit
+            end do
+            exper = execdir(i+1:)
+*
+* get number of cpus
+            cpus = Ptopo_npex*Ptopo_npey
+*
+* convert integer to character
+            write (Lctl_step_S  ,'(I8)') Lctl_step
+            write (cpus_S       ,'(I3)') cpus
+            write (Step_total_S ,'(I8)') Step_total
+            Step_total_S = adjustl( Step_total_S )
+*
+* get real string lengths
+            slen_exp  = len_trim( exper   )
+            slen_exec = len_trim( execdir )
+*
+* check if names are longer than string lenghs
+            if ( slen_exp .ge. len_exp ) then
+              print *,' ERROR in trans_clean.f !!!'
+              print *,' Your experiment name is longer than its string lengh.'
+              print *,' Raise value for parameter len_exp in trans_clean.ftn. '
+              call qqexit(1)
+            end if
+            if ( slen_exec .ge. len_exec ) then
+              print *,' ERROR in trans_clean.f !!!'
+              print *,' The name of your EXECDIR is longer than its string lengh.'
+              print *,' Raise value for parameter len_exec in trans_clean.ftn. '
+              call qqexit(1)
+            end if
+*
+* call Um_xfer.sh         
+            job=
+     &    ' echo " cd '      // trim( execdir ) // ' ;' //
+     &    ' export EXECDIR=' // trim( execdir ) // ' ;' //
+     &    ' export TMPDIR='  // trim( execdir ) // '/xfer_tmpdir ;' //
+     &    ' mkdir -p '       // trim( execdir ) // '/xfer_tmpdir ;' //
+     &    ' Climat_output '  // trim( exper   ) // 
+     &    ' -job '           // trim( exper   ) //
+     &    ' -endstepno '     // trim( Lctl_step_S ) // 
+     &    ' -npe '           // cpus_S  //
+     &    ' -status CL  " | /bin/ksh ;' //
+     &    ' /bin/rmdir '     // trim( execdir ) // '/xfer_tmpdir'
+*
+            write (6,*)
+            write (6,*) 'cleanup job: '
+            write (6,*) trim(job)
+            write (6,*)
+*
+            unc = 0
+            err = fnom( unc, '../../bin/cleanup.tmp','FTN+FMT+R/W',0 )
+            if ( err .ne. 0 ) goto 100
+            write ( unc,'(a)', err=100) trim( job )
+            call fclos( unc )
+            err = clib_rename ( '../../bin/cleanup.tmp', '../../bin/cleanup')
+            if ( err .ne. CLIB_OK ) goto 100
+*
+         end if
+*
+* wait for all processors to be here
+         call rpn_comm_Barrier("grid", err)
+*
+      end if
+*
+  100 call gem_stop( 'trans_clean',err )
+*
+*     ---------------------------------------------------------------
+*
+      return
+      end

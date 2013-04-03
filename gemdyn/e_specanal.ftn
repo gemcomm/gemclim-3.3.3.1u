@@ -1,0 +1,762 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r e_specanal - extraction of analysis levels
+*
+#include "model_macros_f.h"
+*
+      subroutine e_specanal
+      implicit none
+*
+*author 
+*    Michel Desgagne - RPN - May 2002 - new entry program  v3_00
+*
+*revision
+* v3_01 - Lee V.            - new ip1 encoding (kind=5 -- unnormalized)
+* v3_02 - Lee V.            - correction to storage of ip1 in NA, in-lined sort
+* v3_12 - Winger K.         - add TD and HR as possible humidity variables
+* v3_12 - Dugas/Winger      - add support for Pil_allin1 mode
+* v3_20 - Pellerin P.       - MEC option (off-line mode)
+* v3_30 - Lee V.            - new LAM I/O  (BCS and 3DF pilot files)
+* v3_31 - Lee V.            - check for invalid HY field
+* v3_31 - Lee V.            - correction for LAM, BMF and BCS switches
+* v3_31 - Lee V.            - add for Schm_offline_L, correction of resolution
+*                             in creation of low res grid  (pick centre pt for dx)
+* v3_32 - Dugas B.          - insure the latest changes are compatible with Pil_allin1 mode
+* v3_33 - Winger/Dugas      - corriger incoherence nja,nja0 p/r a ygv_8
+**
+#include "e_anal.cdk"
+#include "e_fu.cdk"
+#include "e_option.cdk"
+#include "e_grids.cdk"
+#include "e_mta.cdk"
+#include "e_topo.cdk"
+#include "bmf.cdk"
+#include "ptopo.cdk"
+#include "e_cdate.cdk"
+#include "e_schm.cdk"
+#include "pilot.cdk"
+#include "hgc.cdk"
+#include "e_grdc.cdk"
+#include "grd.cdk"
+#include "offline.cdk"
+#include "path.cdk"
+*
+      integer   fstinf, fstinl, fstprm, fstluk, fnom, fstouv,
+     $          read_decode_hyb, e_pilotf, gdgaxes_plus,
+     $          e_ac_posi, ezqkdef, ezgdef_fmem, gdll
+      external  fstinf, fstinl, fstprm, fstluk, fnom, fstouv,
+     $          read_decode_hyb, e_pilotf, gdgaxes_plus,
+     $          e_ac_posi, ezqkdef, ezgdef_fmem, gdll
+*
+      integer  dte, det, ipas, p1, p2, p3, g1, g2, g3, g4, bit, gdid,
+     $         dty, swa, lng, dlf, ubc, ex1, ex2, ex3, kind, err,ip1mode
+      integer  ip1x,ip2x,ip3x
+      character*1   typ, grd, blk_S
+      character*4   var, search_S(10)
+      character*12  lab
+      real      x1,lev,difsig,dx,dy
+      real      coin_lat(4),coin_lon(4),difmin,c
+      real*8    Cstv_pisrf_8, Cstv_tstr_8,xyz1(3),xyz2(3)
+*
+      real, dimension(:,:), allocatable :: latd,lond,lats,lons
+      real, dimension(:),   allocatable :: topp,levm
+      real, dimension(:), save, pointer :: xpx,xpxu,ypx,ypxv
+      character, save :: grd0
+      integer, save :: nia0,nja0,ig1a0,ig2a0,ig3a0,ig4a0,nka0
+      data nia0,nja0,ig1a0,ig2a0,ig3a0,ig4a0,nka0 / 7*-1 /
+      data grd0 / ' ' /
+*
+      parameter (difsig = 1.e-5)
+      integer list(2000), i, j, k, l, m, n, ier,numi,numj,sgid,dgid
+      integer is,js,jn,iw,ie,jw,njw,niw,nis,njs,dimgx,dimgy,niai,njai
+      logical done
+      data done /.false./
+      save done
+*
+      real*8 ONE_8, CLXXX_8
+      real*8 orr, deg2rad_8
+      parameter( ONE_8   = 1.0 )
+      parameter( CLXXX_8 = 180.0 )
+      parameter(Cstv_pisrf_8=100000.0,Cstv_tstr_8=200.0)
+      integer key,ni1,nj1,nk1,nka,yy,mo,dd,hh,mm,ss,dum,nvar
+*
+* ---------------------------------------------------------------------
+*
+      write (6, 1001)
+      deg2rad_8 = acos( -ONE_8 )/CLXXX_8
+*
+      if (LAM) then
+         ier = e_pilotf (datev,'UU',' ',' ',-1,-1,-1)
+         if (ier.lt.0) ier = e_pilotf (datev,'UT1',' ',' ',-1,-1,-1)
+         nvar=5
+         if (E_Schm_offline_L) nvar=3
+      else
+         e_fu_anal = 0
+         if (fnom (e_fu_anal ,trim(Path_input_S)//'/ANALYSIS','RND+OLD',0).lt.0) stop
+         if (fstouv(e_fu_anal ,'RND').lt.0) stop
+      endif
+      ip1mode = +1
+*
+*                     Check moisture variable and find out if it is
+*                     given by 'HU' (for sigma/eta/hybrid levels) or
+*                     'ES', 'HR', 'HU' or 'TD' for pressure levels
+*
+      vh = 'HU'
+      key = fstinf (e_fu_anal,ni1,nj1,nk1,datev,' ',-1,-1,-1,' ',vh)
+*
+      if ( key .lt. 0 ) then
+        vh = 'ES'
+        key = fstinf (e_fu_anal,ni1,nj1,nk1,datev,' ',-1,-1,-1,' ',vh)
+*
+        if ( key .lt. 0 ) then
+          vh = 'TD'
+          key = fstinf (e_fu_anal,ni1,nj1,nk1,datev,' ',-1,-1,-1,' ',vh)
+*
+          if ( key .lt. 0 ) then
+            vh = 'HR'
+            key = fstinf (e_fu_anal,ni1,nj1,nk1,datev,' ',-1,-1,-1,' ',vh)
+*
+            if ( key .lt. 0 ) then
+              write(6,*) 'No moisture variables are found in analysis'
+              write(6,*) 'Either ES, HR, HU or TD must be in the analysis file.'
+              call e_arret('e_specanal')
+            endif
+*
+          endif
+        endif
+      endif
+*
+*                      Check temperature variable and find
+*                      out if it is given by 'TT' or 'VT'
+      search_S(1) = 'VT'
+      search_S(2) = 'TT'
+      call check_FST_fld (vt,key,search_S,2,e_fu_anal,datev)
+*
+      if ( key .lt. 0 ) then
+         write(6,*) 'No temperature variables are found in analysis'
+         write(6,*) 'Either TT or VT must be in the analysis file.'
+         call e_arret('e_specanal')
+      endif
+*
+*     Get the information on the temperature field from the analysis
+*     ig1a,ig2a,ig3a,ig4a are the grid descriptors for the TT/VT field
+*
+      err = fstprm ( key, dte, det, ipas, nia, nja, k, bit, dty, 
+     $     ip1a,ip2a,ip3a, tva, var, labanl, grda, ig1a,ig2a,ig3a,ig4a,
+     $     swa,lng, dlf, ubc, ex1, ex2, ex3 )
+*
+      call convip (ip1a, lev, kind,-1, blk_S, .false.)
+*
+      anal_sigma = .false.
+      anal_eta   = .false. 
+      anal_hyb   = .false.
+      anal_pres  = .false.
+      anal_ecmwf = .false.
+*
+      if (kind .eq. 3) then
+         print*,' ===> Analysis on ECMWF coordinates... maybe.'
+         anal_ecmwf = .true.
+         anal_hav(2) = 5
+      endif
+      if (kind .eq. 2) then
+         print*,' ===> Analysis on PRESSURE vertical coordinates.'
+         anal_pres = .true.
+         anal_hav(2) = 4
+      endif
+      if (kind .eq. 5) then
+         ip1mode=2
+         key = read_decode_hyb (e_fu_anal, 'HY', -1, -1, ' ',-1,
+     $                                          ptopa,prefa,rcoefa)
+         if (key .lt. 0) then
+            stop
+         endif
+         print*,' ===> Analysis on HYBRID vertical coordinates.'
+         anal_hyb  = .true.
+         anal_hav(2) = 1
+      endif
+      if (kind .eq. 1) then      
+         key = fstinf ( e_fu_anal, ni1,nj1,nk1,datev,' ',-1,-1,-1, 
+     $                                                    ' ', 'HY' )
+         if (key .lt. 0) then
+            key = fstinf ( e_fu_anal, ni1,nj1,nk1,datev,' ',-1,-1,-1, 
+     $                                                    ' ', 'PT' )
+            if (key .ge. 0) then
+               anal_eta = .true.
+               anal_hav(2) = 2
+               rcoefa   = 1.0
+               prefa    = 800.0
+               allocate( topp(ni1*nj1),stat=err )
+               err = fstluk(topp, key, ni1,nj1,nk1)
+               ptopa = topp(1)
+               do i = 2, ni1*nj1
+                  if (abs(topp(i)-ptopa).gt.difsig) then
+                     write(6,900)
+     $                    'ERROR: PT in ETA analysis is not uniform',
+     $                    'ERROR: TOPP(',i,')=',topp(i),' ptopa=',ptopa
+                     call e_arret('e_specanal')
+                  endif
+               end do
+               deallocate( topp,stat=err )
+               print*,' ===> Analysis on ETA vertical coordinates.'
+            else
+               print*,' ===> Analysis on SIGMA vertical coordinates.'
+               anal_sigma = .true.
+               anal_hav(2) = 3
+            endif
+         else
+            key = read_decode_hyb (e_fu_anal, 'HY', -1, -1, ' ',-1,
+     $                                          ptopa,prefa,rcoefa)
+            if (key.lt.0) stop
+            print*,' ===> Analysis on HYBRID vertical coordinates.'
+            anal_hyb = .true.
+            anal_hav(2) = 1
+         endif
+      endif
+*
+      if (( anal_sigma .or. anal_eta .or. anal_hyb .or. anal_ecmwf) .and. 
+     $     ( VH .ne. 'HU' )) then
+         write(6,*) 'ERROR: Moisture variable(VH) must be HU '
+         write(6,*) 'when analysis is on sigma/eta/hybrid.'
+         call e_arret('e_specanal')
+      endif
+*
+
+      if (.not.e_Schm_offline_L) then
+         print *,'Levels searched: fstinl on var=',var
+*
+         if (anal_ecmwf) then
+            key  = fstinl ( e_fu_anal, ni1, nj1, nk1, datev, labanl,ip1a, 
+     $                           ip2a, -1, tva, var, list, nka, lvmax)
+         else
+            key  = fstinl ( e_fu_anal, ni1, nj1, nk1, datev, labanl, -1, 
+     $                           ip2a, ip3a, tva, var, list, nka, lvmax)
+         endif
+      else
+         ip1a=Offline_ip1a
+         key  = fstinl ( e_fu_anal, ni1, nj1, nk1, datev, labanl, ip1a,
+     $                     ip2a, ip3a, tva, var, list, nka, lvmax)
+         write (6,130)
+         write (6,101) ip1a
+         write (6,201) var
+         write (6,130)
+      endif
+*
+      LV = nka
+      GET_LEVELS : do k = 1, nka
+         ier = fstprm (list(k), dte, det, ipas, ni1, nj1, nk1, bit, dty,
+     x              ip1a, ip2a, ip3a, tva, var, labanl, grd, g1, g2, g3,
+     x                           g4, swa, lng, dlf, ubc, ex1, ex2, ex3 )
+
+         if (nia.ne.ni1 .or. nja.ne.nj1) then
+            write(6,*)':  LEVEL ',ip1a,' DIMENSION MISMATCH'
+            call e_arret( 'e_specanal')
+         elseif (grda.ne.grd .or. ig1a.ne.g1 .or. ig2a.ne.g2 .or.
+     x         ig3a .ne.g3  .or. ig4a .ne.g4) then
+            write(6,*)':  LEVEL ',ip1a,' GRID MISMATCH'
+            call e_arret( 'e_specanal')
+         endif
+         call convip (ip1a, lev, kind, -1, blk_S, .false.)
+         if ( (((anal_sigma).or.(anal_eta)).and. (kind.ne.1)) .or.
+     $        (( anal_ecmwf               ).and. (kind.ne.3)) .or.
+     $        (( anal_pres                ).and. (kind.ne.2)) .or.
+     $        (( anal_hyb                 ).and.((kind.ne.1)
+     $                                      .and.(kind.ne.5)))) then
+            write(6,*)':  LEVEL ',ip1a,' LEVEL INCONSISTENCY'
+            call e_arret( 'e_specanal')
+         elseif (anal_ecmwf) then
+            rna(k) = ip3a
+            na(k)  = ip1a
+         else
+            rna(k) = lev
+            na(k)  = ip1a
+         endif
+      enddo GET_LEVELS
+*
+      if ( .not. (anal_hyb.or.anal_eta).and.(.not.E_Schm_offline_L) ) then
+            if (.not.Pil_bmf_L) 
+     $ print *, 'WARNING: Pil_BMF_L set to TRUE if analysis is NOT HYB or ETA'
+            Pil_bmf_L = .true.
+      endif
+*
+      if ( (anal_pres) ) then
+           if ( (lv.lt.16) ) then
+                 write(6,*)': NEED 16 OR MORE PRESSURE LEVELS. ',
+     x                        lv, ' levels found'
+                 call e_arret('e_specanal')
+           endif
+           if ( (lv.gt.35) ) then
+                 write(6,*)': GREATER THAN 35 PRESSURE LEVELS: ',
+     x                        lv, ' levels found'
+                 write(6,*)': WARNING, TT on pressure levels are NOT USED '
+                 write(6,*)': WARNING, TT on pressure levels are DERIVED  '
+                 write(6,*)': and maybe WRONG if too many pressure levels '
+           endif
+      endif
+*
+*     Sort levels in ascending order (originally done in e_sortr)
+
+      if (lv.ne.1) then
+         n = lv
+         do i = 1, n-1
+         k = i
+         do j = i+1, n
+            if (rna(k) .gt. rna(j))  k=j
+         enddo
+         if (k .ne. i) then
+            x1     = rna(k)
+            m      = na(k)
+            rna(k) = rna(i)
+            na(k)  = na(i)
+            rna(i) = x1
+            na(i)  = m
+         endif
+         enddo
+
+*        eliminate levels that are redundant in LISTE
+         i = 1
+         do j=2,n
+            if (rna(i) .ne. rna(j)) then
+                i = i+1
+                if (i .ne. j) then
+                    rna(i) = rna(j)
+                     na(i) =  na(j)
+                endif
+            endif
+         enddo
+         lv = i
+
+      endif
+*
+      print*, ' ANALYSIS LEVELS FOUND ARE:'
+      do k=1,lv
+         write(6,801) rna(k),k,na(k)
+      end do 
+      if (glhybanl.or.gletaanl.or.glsiganl) then
+          if (rna(lv).ne.1.0) then
+              write(6,*)'**************************************'
+              write(6,*)'WARNING: NO topography level found!!!!'
+              write(6,*)'**************************************'
+          endif
+      endif
+*
+      glhybanl = anal_hyb
+      gletaanl = anal_eta
+      glsiganl = anal_sigma
+      glecmanl = anal_ecmwf
+*
+      write(6,*) 'nia     =',nia,'  nja =',nja
+      write(6,*) 'glhybanl=', glhybanl
+      write(6,*) 'gletaanl=', gletaanl
+      write(6,*) 'glsiganl=', glsiganl
+      write(6,*) 'glecmanl=', glecmanl
+*
+      if (glhybanl.or.gletaanl.or.glsiganl) then
+          if (rna(lv).ne.1.0) then
+              write(6,*)'**************************************'
+              write(6,*)'WARNING: NO topography level found!!!!'
+              write(6,*)'**************************************'
+          endif
+      endif
+*
+      LAM_CASE : if (LAM           .and.
+     $                (Pil_allin1_L .or.
+     $                 .not. (done  .or. Pil_bmf_L))
+     $               ) then
+*
+         NEW_ARRAY :
+     $   if ( ig1a0.ne.ig1a .or.
+     $        ig2a0.ne.ig2a .or. nia0.ne.nia   .or.
+     $        ig3a0.ne.ig3a .or. nja0.ne.nja   .or.
+     $        ig4a0.ne.ig4a .or. grd0.ne.grd ) then
+*
+            if (grd.ne.'A' .and. grd.ne.'B' .and.
+     $          grd.ne.'G' .and. grd.ne.'L' .and.
+     $          grd.ne.'Z') then
+               write(6,4000) grd
+               call e_arret('e_specanal')
+            endif
+*
+            niai = nia ; njai = nja
+*
+            if (nia0 < nia) then
+               if (associated( xpx )) deallocate( xpx,stat=err )
+               allocate( xpx(nia),stat=err )
+            endif
+*              
+            if (nja0 < nja) then
+               if (associated ( ypx )) then
+                  deallocate( ypx,stat=err )
+               endif
+               allocate( ypx(nja),stat=err )
+            endif
+*              
+            gdid = ezqkdef( ni1,nj1,
+     $                      grd, ig1a,ig2a,ig3a,ig4a, e_fu_anal )
+*
+            if (gdid.lt.0) then
+               write(6,4001)
+               call e_arret('e_specanal')
+            else
+               xpx = -999.
+               ypx = -999.
+               ier = gdgaxes_plus( gdid, xpx,ypx, ni1,nj1,
+     $                             grd, ig1a,ig2a,ig3a,ig4a )
+               if (ier.lt.0) then
+                  write(6,4002)
+                  call e_arret('e_specanal')
+               endif
+            endif
+*
+*           xpx,ypx are in degrees from tic tacs.
+*
+*           Check if the analysis grid is not global.
+*           If LAM, its rotation must be the same.
+*
+            NOT_ALLIN1 : if (.not.Pil_allin1_L .or. Pil_dx > 0.0) then
+*
+               if (Hgc_ig1ro.ne.g1.or.Hgc_ig2ro.ne.g2.or.
+     %             Hgc_ig3ro.ne.g3.or.Hgc_ig4ro.ne.g4) then
+                  sgid = ezgdef_fmem(nia,nja, 'Z','E',g1,g2,g3,g4,xpx,ypx)
+                  allocate( lats(nia,nja),lons(nia,nja),stat=err )
+                  err = gdll (sgid,lats,lons)
+                  print *,'Analysis has a rotation different to model grid'
+* Obtain grid rotation from analysis and calculate geographical lat lons
+                  do j=1,nja
+                  do i=1,nia
+                     lons(i,j)=amod(lons(i,j) + 360.,360.0)
+                  enddo
+                  enddo
+                  dimgx=nia
+                  dimgy=nja
+                  dx = xpx(nia/2)-xpx(nia/2-1)
+                  dy = ypx(nja/2)-ypx(nja/2-1)
+                  print *,'Chosen Pil_dx=',Pil_dx
+                  print *,'DX found:', dx,' DX target:', Grd_dx
+                  print *,'DY found:', dy,' DY target:', Grd_dy
+                  print *,'Now to create new low res grid'
+                  print *,'Recalc new xpx,ypx:'
+                  print *,'orig: xpx(1),xpx(',nia,')=',xpx(1),xpx(nia)
+                  print *,'orig: ypx(1),ypx(',nja,')=',ypx(1),ypx(nja)
+                  if (Pil_dx.gt.0.0) then
+* Create new xpx,ypx parameters in the same resolution as the analysis
+* but on the target grid:
+                      if (Pil_dx.le.dx)     dx=Pil_dx
+                      if (Pil_dx.le.Grd_dx) dx=Grd_dx
+                      if (Pil_dx.le.dy)     dy=Pil_dx
+                      if (Pil_dx.le.Grd_dy) dy=Grd_dy
+                  endif
+                  nia = (xfi(nifi) - xfi(1))/dx + 13
+                  nja = (yfi(njfi) - yfi(1))/dy + 13
+* Create new xpx
+                  if (niai < nia) then
+                     deallocate( xpx     ,stat=err )
+                     allocate(   xpx(nia),stat=err )
+                  endif
+                  xpx(1)= xfi(1)- dx*5.0
+                  do i=1,nia-1
+                     xpx(i+1)= xpx(i) + dx
+                  enddo
+* Create new ypx 
+                  if (njai < nja) then
+                     deallocate( ypx     ,stat=err )
+                     allocate  ( ypx(nja),stat=err )
+                  endif
+                  ypx(1)= yfi(1)-dy*5.0
+                  do i=1,nja-1
+                     ypx(i+1)= ypx(i) + dy
+                  enddo
+*
+                  print *,'DX to be used:', dx
+                  print *,'DY to be used:', dy
+                  print *,'xfi(1),xfi(',nifi,')=',xfi(1),xfi(nifi)
+                  print *,'xpx(1),xpx(',nia,')=',xpx(1),xpx(nia)
+                  print *,'yfi(1),yfi(',njfi,')=',yfi(1),yfi(njfi)
+                  print *,'ypx(1),ypx(',nja,')=',ypx(1),ypx(nja)
+* Now check to see if the target domain is within the source domain
+* by comparing geographical coordinates
+                  dgid = ezgdef_fmem(nia,nja,'Z','E',Hgc_ig1ro,Hgc_ig2ro,
+     $                   Hgc_ig3ro, Hgc_ig4ro,xpx,ypx)
+                  allocate( latd(nia,nja),lond(nia,nja),stat=err )
+                  err  = gdll (dgid,latd,lond)
+* Verify if the four corners of the destination grid is in the source grid
+*
+                  coin_lat(1)=latd(1,1)
+                  coin_lon(1)=lond(1,1)
+                  coin_lat(2)=latd(nia,1)
+                  coin_lon(2)=lond(nia,1)
+                  coin_lat(3)=latd(nia,nja)
+                  coin_lon(3)=lond(nia,nja)
+                  coin_lat(4)=latd(1,nja)
+                  coin_lon(4)=lond(1,nja)
+                  do k=1,4
+                     coin_lon(k)=amod(coin_lon(k) + 360.,360.0)
+                     call llacar(xyz1,coin_lon(k),coin_lat(k),1,1)
+                     difmin=9999999.
+                     numi=1
+                     numj=1
+                     do j=1,dimgy
+                     do i=1,dimgx
+                        call llacar (xyz2,lons(i,j),lats(i,j),1,1)
+                        xyz2(1) = xyz1(1)-xyz2(1)
+                        xyz2(2) = xyz1(2)-xyz2(2)
+                        xyz2(3) = xyz1(3)-xyz2(3)
+                        c = sqrt( xyz2(1)**2 + xyz2(2)**2 + xyz2(3)**2 )
+                        if ( c .lt. difmin ) then
+                             difmin= c
+                             numi = i
+                             numj = j
+                        endif
+                     enddo
+                     enddo
+                     if (numi.eq.1.or.numj.eq.1) then
+                     write(6,*)'Abort: Insufficient coverage from Analysis'
+                        call e_arret('e_specanal')
+                     else 
+                        print *,'numi=',numi,' numj=',numj
+                     endif
+                  enddo
+               endif
+*
+            endif NOT_ALLIN1
+*
+* create U,V target grid
+            if (nia0 < nia) then
+               if (associated( xpxu )) deallocate( xpxu,stat=err )
+               allocate( xpxu(nia-1),stat=err )
+            endif
+            if (nja0 < nja) then
+               if (associated( ypxv )) deallocate( ypxv,stat=err )
+               allocate( ypxv(nja-1),stat=err )
+            endif
+*              
+            do i=1,nia-2
+               xpxu(i)= 0.5 * ( xpx(i) + xpx(i+1) )
+            enddo
+            xpxu(nia-1) = ( xpx(nia-1) + xpx(nia) )
+*
+            do i=1,nja-2
+               ypxv(i)= 0.5 * ( ypx(i) + ypx(i+1) )
+            enddo
+            ypxv(nja-1) = ( ypx(nja-1) + ypx(nja) )
+*
+            if (e_ac_posi( xpx,ypx,nia,nja,Pil_hblen+Pil_pil,Pil_bcs_hollow_L ).eq.0) then
+*
+               if (.not.(Pil_bmf_L .or. E_intwind_mta_L)) then
+                  if (nia0 /= -1) call hpdeallc( paygv_8,err,0 )
+                  call hpalloc( paygv_8, nja-1, err,8 )
+                  do j=1,nja-1
+                     ygv_8(j)  = ypxv(j) * deg2rad_8
+                  enddo
+               endif
+*
+               dstf_gid = ezgdef_fmem( e_grdc_ni, e_grdc_nj , 'Z', 'E', 
+     $                       Hgc_ig1ro, Hgc_ig2ro, Hgc_ig3ro, Hgc_ig4ro,
+     $                       xpx(e_grdc_gid), ypx(e_grdc_gjd) )
+               dstu_gid = ezgdef_fmem( e_grdc_ni, e_grdc_nj , 'Z', 'E',
+     $                       Hgc_ig1ro, Hgc_ig2ro, Hgc_ig3ro, Hgc_ig4ro,
+     $                       xpxu(e_grdc_gid), ypx(e_grdc_gjd) )
+               dstv_gid = ezgdef_fmem( e_grdc_ni, e_grdc_nj , 'Z', 'E',
+     $                       Hgc_ig1ro, Hgc_ig2ro, Hgc_ig3ro, Hgc_ig4ro,
+     $                       xpx(e_grdc_gid), ypxv(e_grdc_gjd) )
+*
+            else
+*
+               write(6,*)' Abort: Insufficient coverage in Analysis'
+               call e_arret('e_specanal')
+*
+            endif
+*
+            nia0 = niai
+            nja0 = njai
+*
+            grd0  = grd 
+            ig1a0 = ig1a
+            ig2a0 = ig2a
+            ig3a0 = ig3a
+            ig4a0 = ig4a
+*
+         endif NEW_ARRAY
+*
+         if ((anal_hyb .or. anal_eta) .and. nka0.ne.nka) then
+*
+            allocate( levm(nka),stat=err )
+*
+            if (E_Schm_offline_L) then
+               do k=1,nka
+                  levm(k) = rna(k)
+               enddo
+            else
+               do k=1,nka
+                  levm(k) = rna(k) + (1.-rna(k))*ptopa/prefa
+               enddo
+            endif
+*
+            call genab ( pia, pibb, levm, ptopa, rcoefa, LV)
+*
+            do i=1,LV
+               pib(i) = pibb(i)*Cstv_pisrf_8
+               z_8(i) = pia(i) + pib(i)
+            enddo
+*
+            deallocate( levm,stat=err )
+*
+            nka0 = nka
+*
+         endif
+*
+         done = .true.
+*
+      endif LAM_CASE
+*
+ 101  format ('|',2x,'   Off-line Mode: Only One Level Used:',1x,I5,10x,'|')
+ 130  format ('|',9('-'),'+',5('-'),'+',8('-'),'+',8('-'),'+',5('-'),
+     $        '+',5('-'),'+',10('-'),'|')
+ 201  format ('|',2x,'   Search First Infos on Variable:',1x,A3,16x,'|')
+ 801  format (' LEVEL anal = ',d15.8,2X,' k = ',i4,' IP1= ',I8)
+ 900  format (a/a,i5,a,e14.7,a,e14.7,a/'   >>>>> ABORT <<<<<')
+ 1001 format(/,'EXTRACTION OF ANALYSIS LEVELS (S/R E_SPECANAL)',/40('-'))
+ 1002 format(' DATE = ', 6i5 , 7a4 , i10 )
+ 4000 format(/,'UNSUPPORTED ANALYSIS GRID ',A,' (S/R E_SPECANAL)',/40('-'))
+ 4001 format(/,'ERROR DEFINING ANALYSIS GRID (S/R E_SPECANAL)',/40('-'))
+ 4002 format(/,'CANNOT DEFINE LON LATS in ANALYSIS (S/R E_SPECANAL)',/40('-'))
+*
+* ---------------------------------------------------------------------
+*
+      return
+      end
+
+      subroutine check_FST_fld (vh,key,search_S,n,unf,datev)
+      implicit none
+      integer key,n,unf,datev
+      character*(*) vh,search_S(n)
+*
+      integer maxl
+      parameter (maxl=5000)
+      integer i, liste(maxl), ni1, nj1, nk1, nka, dkey
+
+      integer fstinl
+
+      key = -1
+      do i=1,n
+         vh   = search_S(i)
+         dkey = fstinl ( unf, ni1, nj1, nk1, datev, ' ', -1, -1, -1, 
+     $                                    ' ', vh, liste, nka, maxl)
+         if (nka.gt.1) then
+            key = liste(nka/2)
+            goto 555
+         endif
+      end do
+
+      do i=1,n
+         vh   = search_S(i)
+         dkey = fstinl ( unf, ni1, nj1, nk1, datev, ' ', -1, -1, -1, 
+     $                                    ' ', vh, liste, nka, maxl)
+         if (nka.gt.0) then
+            key = liste(1)
+            goto 555
+         endif
+      end do
+*
+ 555  return
+      end
+
+      Integer Function gdgaxes_plus( gdid, xpx,ypx, ni1,nj1,
+     $                               grd, ig1a,ig2a,ig3a,ig4a )
+
+      implicit  none
+
+*          Adds support for type A, B and L input grids to the
+*     GDGAXES EzScint function which already supported G and Z grids
+*       *** and should be removed if/when GDGAXES is updated ***
+
+      character grd
+      integer   gdid, ni1,nj1, ig1a,ig2a,ig3a,ig4a
+      real      xpx(ni1),ypx(nj1)
+
+      integer   i,j
+      real      xlat0,xlon0,dlat0,dlon0
+      real*8    rg2,span
+
+      integer   gdgaxes
+      external  gdgaxes
+
+      if (gdid.gt.0 .and. (grd.eq.'Z' .or. grd.eq.'G')) then
+
+          gdgaxes_plus = gdgaxes( gdid, xpx,ypx )
+
+      else
+
+         if (grd.eq.'L') then
+
+            call cigaxg( grd, xlat0,xlon0,dlat0,dlon0,
+     +                        ig1a, ig2a, ig3a, ig4a  )
+
+         else if (grd.eq.'A' .or. grd.eq.'B') then
+
+            if (ig2a.eq.0) then
+               if (ig1a.eq.0 .or. ig1a.eq.2) then
+                  xlat0 = -90.
+               else if (ig1a.eq.1) then
+                  xlat0 =  0.0
+               end if
+               rg2 = +1.
+            else if (ig2a.eq.1) then
+               if (ig1a.eq.0 .or. ig1a.eq.1) then
+                  xlat0 = +90.
+               else if (ig1a.eq.2) then
+                  xlat0 =  0.0
+               end if
+               rg2 = -1.
+            end if
+
+***       account for the different 'A' and 'B' grid
+***       offsets and define the latitude delta.                      
+
+            span = 180.*rg2
+            if (ig1a.ne.0) span = 90.*rg2
+
+            xlon0 = 0.
+
+            if (grd.eq.'A') then
+               dlat0 = span/nj1
+               dlon0 = 360d0/ni1
+               xlat0 = xlat0+0.5d0*dlat0
+            else if (grd.eq.'B') then
+               dlat0 = span/(nj1-1)
+               dlon0 = 360d0/(ni1-1)
+            end if
+
+         else
+
+            gdgaxes_plus = -1
+            return
+
+         endif
+
+         do  j=1,nj1
+            ypx(j) = xlat0+(j-1)*dble( dlat0 )
+         end do
+
+         do  i=1,ni1
+            xpx(i) = xlon0+(i-1)*dble( dlon0 )
+         end do
+
+         gdgaxes_plus = 0
+
+      endif
+
+      return
+      end

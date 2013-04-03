@@ -1,0 +1,82 @@
+!---------------------------------- LICENCE BEGIN -------------------------------
+! GEM - Library of kernel routines for the GEM numerical atmospheric model
+! Copyright (C) 1990-2010 - Division de Recherche en Prevision Numerique
+!                       Environnement Canada
+! This library is free software; you can redistribute it and/or modify it 
+! under the terms of the GNU Lesser General Public License as published by
+! the Free Software Foundation, version 2.1 of the License. This library is
+! distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+! without even the implied warranty of MERCHANTABILITY or FITNESS FOR A 
+! PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+! You should have received a copy of the GNU Lesser General Public License
+! along with this library; if not, write to the Free Software Foundation, Inc.,
+! 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+!---------------------------------- LICENCE END ---------------------------------
+
+!**s/r spn_main -  Control of the dynamical timestep of the model
+!
+#include "model_macros_f.h"
+!
+      subroutine spn_main
+!
+      implicit none
+!
+!author 
+!     Minwei Qian (CCRD) & Bernard Dugas (MRB)
+!
+!revision
+! v3_33 - Qian & Dugas      - initial version
+!
+!object
+!
+!arguments
+!       none
+!
+!implicits
+#include "glb_ld.cdk"
+#include "lun.cdk"
+#include "lctl.cdk"
+#include "lam.cdk"
+#include "ldnh.cdk"
+#include "trp.cdk"
+#include "ptopo.cdk"
+!
+      integer offseti
+!
+!*
+!     ---------------------------------------------------------------
+      if ( Lctl_step > 2 .and. Lam_spn_nudging_S /= ' ') then
+
+         offseti = trp_22n0-1
+
+         if (Lun_debug_L) write(Lun_out,1000)
+!
+         if ( index( Lam_spn_nudging_S,'t' ) > 0 )         \
+              call spn_fld( ldnh_minx,ldnh_maxx,           \
+              ldnh_miny,  ldnh_maxy,ldnh_ni,ldnh_nj,       \
+              trp_12smin, trp_12smax, G_nk-1,    trp_12sn, \
+              G_ni, G_nj, trp_22min , trp_22max, trp_22n,  \
+              offseti,    Ptopo_npex, Ptopo_npey, 't' )
+!
+         if ( index( Lam_spn_nudging_S,'u' ) > 0 )         \
+              call spn_fld( ldnh_minx,ldnh_maxx,           \
+              ldnh_miny,  ldnh_maxy,ldnh_ni,ldnh_nj,       \
+              trp_12smin, trp_12smax, G_nk-1,    trp_12sn, \
+              G_ni, G_nj, trp_22min , trp_22max, trp_22n,  \
+              offseti,    Ptopo_npex, Ptopo_npey, 'u' )
+!
+         if ( index( Lam_spn_nudging_S,'v' ) > 0 )         \
+              call spn_fld( ldnh_minx,ldnh_maxx,           \
+              ldnh_miny,  ldnh_maxy, ldnh_ni,ldnh_nj,      \
+              trp_12smin, trp_12smax, G_nk-1,    trp_12sn, \
+              G_ni, G_nj, trp_22min , trp_22max, trp_22n,  \
+              offseti,    Ptopo_npex, Ptopo_npey, 'v' )
+!
+      endif
+!
+ 1000 format( \
+           /,'CONTROL OF SPECTRAL NUDGING: (S/R SPN_MAIN)', \
+           /,'==========================================='/)
+!
+      return
+      end

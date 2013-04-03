@@ -1,0 +1,266 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!**s/r spn_fld - parallel spectral nudging
+#include "model_macros_f.h"
+      subroutine spn_fld( \
+                        Minx, Maxx, Miny, Maxy, Nil, Njl, \
+                        Minz, Maxz, Nk, Nkl, Gni, Gnj, \
+                        Minij, Maxij, L_nij, L_nij0, \
+                        F_npex1, F_npey1,Fld_S )
+
+      USE MODD_SPN
+      implicit none
+
+      integer  Minx, Maxx, Miny, Maxy, Nil, Njl 
+      integer  Minz, Maxz, Nk, Nkl, Gni, Gnj 
+      integer  Minij, Maxij, L_nij, L_nij0 
+      integer  F_npex1, F_npey1 
+      character (len=1) Fld_S
+
+!author
+!     Minwei Qian 
+!
+!revision
+! v3_32 - Qian M.           - Initial version (using global "collection and distribution" to
+!                             do 2D Fourier Transform)
+! v3_32 - Dugas B.          - OpenMP version
+! v3_33 - Qian M.           - Nudging exclude piloting zone
+!                           - Using "transpose" instead of global "collection and distributuion"
+!                             for 2D Fourier Transform (inspired by "sol_fft8_lam.ftn").
+!               Reference: Abdessamad Qaddouri and Vivian Lee (2010). "The Elliptic Solvers
+!                          in the Canadian Limited Area Forecasting Model GEM-LAM"
+! v3_33 - Dugas B.          - nudging coefficient applied in a 2D manner
+!                             so that fxy(:,:) replaces fxx(:) and fyy(:)
+!                           - remove trimming in Y direction
+!
+!arguments
+!  Name        I/O                 Description
+!----------------------------------------------------------------
+! Minx         I    - minimum index on X (ldnh_nj)
+! Maxx         I    - maximum index on X (ldnh_maxx)
+! Miny         I    - minimum index on Y (ldnh_miny)
+! Maxy         I    - maximum index on Y (ldnh_maxy)
+! Nil          I    - number of points on local PEy for I (ldnh_ni)
+! Njl          I    - number of points on local PEy for J (ldnh_nj)
+! Minz         I    - minimum index on local PEx for K (trp_12smin)
+! Maxz         I    - maximum index on local PEx for K (trp_12smax)
+! Nk           I    - G_nk-1 points in Z direction globally
+! Nkl          I    - number of points on local PEx for K (trp_12sn)
+! Gni          I    - number of points in X direction globally (G_ni)
+! Gnj          I    - number of points in Y direction globally (G_nj)
+! Minij        I    - minimum index on local PEy for I (trp_22min)
+! Maxij        I    - maximum index on local PEy for I (trp_22max)
+! L_nij        I    - number of points on local PEy for I (trp_22n)
+! L_nij0       I    - global offset of the first I element on PEy
+! F_npex1      I    - number of processors in X
+! F_npey1      I    - number of processors in Y
+! Fld_S        I    - name of variable to treat (either of 't','u','v')
+
+!object
+!     Spectral nudging of the variable whose name is in Fld_S
+
+#include "ptopo.cdk"
+#include "glb_ld.cdk"
+#include "glb_pil.cdk"
+
+#include "vt1.cdk"
+#include "nest.cdk"
+
+!modules
+      external ffft8, rpn_comm_transpose
+
+      real(8) fdwfft(Miny:Maxy,Minz :Maxz ,Gni+2+F_npex1)
+      real(8)   fdg2(Minz:Maxz,Minij:Maxij,Gnj+2+F_npey1)
+
+      integer, external :: vmmlod,vmmget,vmmuld
+      integer  err(3),key(2),nvar
+
+      integer i,  j, k
+      integer ii,jj,kk
+
+      if (Fld_S.eq.'t') then
+
+         key( 1) = VMM_KEY(tt1)
+         key( 2) = VMM_KEY(nest_t)
+         nvar    = 2
+
+         err(1) = vmmlod(key,nvar)
+         err(2) = VMM_GET_VAR(tt1)
+         err(3) = VMM_GET_VAR(nest_t)
+
+         Ldiff3D (Minx:Maxx,Miny:Maxy,1:Nk) \
+         = nest_t(Minx:Maxx,Miny:Maxy,1:Nk) \
+         -    tt1(Minx:Maxx,Miny:Maxy,1:Nk)
+
+      elseif (Fld_S.eq.'u') then
+
+         key( 1) = VMM_KEY(ut1)
+         key( 2) = VMM_KEY(nest_u)
+         nvar    = 2
+
+         err(1) = vmmlod(key,nvar)
+         err(2) = VMM_GET_VAR(ut1)
+         err(3) = VMM_GET_VAR(nest_u)
+
+         Ldiff3D (Minx:Maxx,Miny:Maxy,1:Nk) \
+         = nest_u(Minx:Maxx,Miny:Maxy,1:Nk) \
+         -    ut1(Minx:Maxx,Miny:Maxy,1:Nk)
+
+      elseif (Fld_S.eq.'v') then
+
+         key( 1) = VMM_KEY(vt1)
+         key( 2) = VMM_KEY(nest_v)
+         nvar    = 2
+
+         err(1) = vmmlod(key,nvar)
+         err(2) = VMM_GET_VAR(vt1)
+         err(3) = VMM_GET_VAR(nest_v)
+
+         Ldiff3D (Minx:Maxx,Miny:Maxy,1:Nk) \
+         = nest_v(Minx:Maxx,Miny:Maxy,1:Nk) \
+         -    vt1(Minx:Maxx,Miny:Maxy,1:Nk)
+
+      endif
+
+
+      ! do transpose from (i,j,k) to (j,k,i)
+      call rpn_comm_transpose \
+           ( Ldiff3D, Minx, Maxx, Gni, (Maxy-Miny+1), \
+                       Minz, Maxz, Nk,  fdwfft, 1, 2 )
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! projection ( wfft = x transposed * g )
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!$omp parallel
+!$omp do
+      do i= 1,Gni               ! trimming in X
+         do k= Minz, nkl
+            do j= njl+1-pil_n,Maxy
+               fdwfft(j,k,i)=0.
+            enddo
+         enddo
+         do k= Minz, nkl
+            do j= Miny, pil_s
+               fdwfft(j,k,i)=0.
+            enddo
+         enddo
+         do k= Nkl+1,Maxz
+            do j= Miny,Maxy
+               fdwfft(j,k,i)=0.
+            enddo
+         enddo
+
+         do k= Minz, 0
+            do j= Miny,Maxy
+               fdwfft(j,k,i)=0.
+            enddo
+         enddo
+      enddo
+!$omp enddo
+
+!$omp do
+      do k=1,Nkl                ! do forward fft in X direction
+         call qcfft8( fdwfft(1+pil_s,k,1+Lam_pil_w), \
+                      (Maxy-Miny+1)*(Maxz-Minz+1),1, \
+                      (Maxy-Miny+1-pil_s-pil_n), -1 )
+      enddo
+!$omp enddo
+
+!$omp single
+      ! do transpose from (j,k,i) to (k,i,j)
+      call rpn_comm_transpose \
+           ( fdwfft, Miny,  Maxy,  Gnj, (Maxz-Minz+1), \
+                     Minij, Maxij, Gni, fdg2, 2, 2 )
+      call setscqr( Gnj-Lam_pil_s-Lam_pil_n,'QCOS' )
+!$omp end single
+
+!$omp do
+      do k=1,L_nij              ! do forward fft in Y direction	
+         call qcfft8( fdg2(1,k,1+Lam_pil_s), \
+                      (Maxz-Minz+1)*(Maxij-Minij+1),1, \
+                      (Maxz-Minz+1), -1 )
+      enddo
+!$omp enddo
+
+!$omp do
+      do jj=1,G_nj+2          ! do filter in Y direction
+         do ii=1,L_nij
+            do kk=Minz,Maxz
+               fdg2(kk,ii,jj)=fdg2(kk,ii,jj)*fxy(ii+L_nij0,jj)
+            enddo
+         enddo
+      enddo
+!$omp enddo
+
+!$omp do
+      do k=1,L_nij              ! do backward fft in Y direction
+         call qcfft8( fdg2(1,k,1+Lam_pil_s), \
+                      (Maxz-Minz+1)*(Maxij-Minij+1),1, \
+                      (Maxz-Minz+1), +1 )
+      enddo
+!$omp enddo
+
+!$omp single
+      ! do backward transpose from (k,i,j) to (j,k,i)
+      call rpn_comm_transpose \
+           ( fdwfft, Miny,  Maxy,  Gnj, (Maxz-Minz+1), \
+                     Minij, Maxij, Gni, fdg2, -2, 2 )
+      call setscqr( Gni-Lam_pil_w-Lam_pil_e,'QCOS' )
+!$omp end single
+
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      ! inverse projection ( r = x * w )
+      !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!$omp do
+      do k=1, Nkl               ! do backward fft in X direction
+         call qcfft8( fdwfft(1+pil_s,k,1+Lam_pil_w), \
+                      (Maxy-Miny+1)*(Maxz-Minz+1),1, \
+                      (Maxy-Miny+1-pil_s-pil_n), +1 )
+      enddo
+!$omp enddo
+!$omp end parallel
+
+      ! do backward transpose from (j,k,i) to (i,j,k)
+      call rpn_comm_transpose \
+           ( Ldiff3D, Minx, Maxx, Gni, (Maxy-Miny+1), \
+                       Minz, Maxz, Nk,  fdwfft, -1, 2 )
+
+      if (Fld_S.eq.'t') then                ! apply t spectral nudging tendency
+         do kk=2,Nk
+            tt1(1:l_ni,1:l_nj,kk) = \
+            tt1(1:l_ni,1:l_nj,kk) + \
+            prof(kk)*SNGL(Ldiff3D(1:l_ni,1:l_nj,kk))
+         enddo
+      elseif (Fld_S.eq.'u') then            ! apply u spectral nudging tendency
+         do kk=2,Nk
+            ut1(1:l_ni,1:l_nj,kk) = \
+            ut1(1:l_ni,1:l_nj,kk) + \
+            prof(kk)*SNGL(Ldiff3D(1:l_ni,1:l_nj,kk))
+         enddo
+      elseif (Fld_S.eq.'v') then            ! apply v spectral nudging tendency
+         do kk=2,Nk
+            vt1(1:l_ni,1:l_nj,kk) = \
+            vt1(1:l_ni,1:l_nj,kk) + \
+            prof(kk)*SNGL(Ldiff3D(1:l_ni,1:l_nj,kk))
+         enddo
+      endif
+
+      err = vmmuld(key,nvar)
+
+      return
+      end subroutine spn_fld

@@ -1,0 +1,214 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r slabsym - symmetrical boundary conditions for theoretical
+*               cases
+*
+#include "model_macros_f.h"
+*
+      subroutine slabsym ()
+      implicit none
+*author 
+*     Gravel              - spring 2003 (after MC2 v_4.9.3)
+*
+*revision
+* v3_11 - Gravel             - initial version
+* v3_30 - Lee V              - changed t0=> t1,nest is after t02t1
+*
+*object
+*
+*arguments
+*       none
+*
+*implicits
+#include "glb_ld.cdk"
+#include "vt1.cdk"
+#include "tr3d.cdk"
+#include "schm.cdk"
+#include "lun.cdk"
+*
+      integer  vmmlod,vmmget,vmmuld
+      external vmmlod,vmmget,vmmuld
+*
+      integer err,key(13),i,j,k,nvar
+      integer jin, jj
+      integer key1(Tr3d_ntr),key1_,n
+      real tr1
+      pointer (patr1,tr1(LDIST_SHAPE,*))
+*----------------------------------------------------------------------
+*
+      key(1)=VMM_KEY(ut1)
+      key(2)=VMM_KEY(vt1)
+      key(3)=VMM_KEY(tt1)
+      key(4)=VMM_KEY(psdt1)
+      key(5)=VMM_KEY(pipt1)
+      key(6)=VMM_KEY(fipt1)
+      key(7)=VMM_KEY(tdt1)
+      key(8)=VMM_KEY(fit1)
+      key(9)=VMM_KEY(qt1)
+      key(10)=VMM_KEY(st1)
+      key(11)=VMM_KEY(tpt1)
+      nvar = 11
+*
+      if (.not.Schm_hydro_L) then
+         key(12)=VMM_KEY(wt1)
+         key(13)=VMM_KEY(mut1)
+         nvar = 13
+      endif
+*
+      err = vmmlod(key,nvar)
+      err = VMM_GET_VAR(ut1)
+      err = VMM_GET_VAR(vt1)
+      err = VMM_GET_VAR(tt1)
+      err = VMM_GET_VAR(psdt1)
+      err = VMM_GET_VAR(pipt1)
+      err = VMM_GET_VAR(fipt1)
+      err = VMM_GET_VAR(tdt1)
+      err = VMM_GET_VAR(fit1)
+      err = VMM_GET_VAR(qt1)
+      err = VMM_GET_VAR(st1)
+      err = VMM_GET_VAR(tpt1)
+      if (.not.Schm_hydro_L) then
+         err = VMM_GET_VAR(wt1)
+         err = VMM_GET_VAR(mut1)
+      endif
+*
+      if (l_north) then
+         do k=1,G_nk
+            jin = l_nj-pil_n-1
+            jj  = l_nj-pil_n
+            do i=1,l_ni
+               vt1  (i,jj,k) = vt1  (i,jin,k)
+            enddo
+            jin = l_nj-pil_n
+            do j=1,pil_n
+            jj  = l_nj-pil_n+j
+            do i=1,l_ni
+               vt1  (i,jj,k) = vt1  (i,jin,k)
+               tt1  (i,jj,k) = tt1  (i,jin,k)
+               psdt1(i,jj,k) = psdt1(i,jin,k)
+               pipt1(i,jj,k) = pipt1(i,jin,k)
+               fipt1(i,jj,k) = fipt1(i,jin,k)
+               tdt1 (i,jj,k) = tdt1 (i,jin,k)
+               fit1 (i,jj,k) = fit1 (i,jin,k)
+               qt1  (i,jj,k) = qt1  (i,jin,k)            
+               tpt1 (i,jj,k) = tpt1 (i,jin,k)            
+            end do
+            do i=1,l_niu
+               ut1  (i,jj,k) = ut1  (i,jin,k)
+            end do
+            end do
+         end do
+         jin = l_nj-pil_n
+         do j=1,pil_n
+         jj  = l_nj-pil_n+j
+         do i=1,l_ni
+            st1  (i,jj) = st1  (i,jin)
+         end do
+         end do
+         if (.not. Schm_hydro_L) then
+            do k=1,G_nk
+            jin = l_nj-pil_n
+            do j=1,pil_n
+            jj  = l_nj-pil_n+j
+            do i=1,l_ni
+               wt1 (i,jj,k) = wt1 (i,jin,k)
+               mut1(i,jj,k) = mut1(i,jin,k)
+            end do
+            end do
+            end do
+         endif
+      endif
+*
+      if (l_south) then
+         do k=1,G_nk
+            jin = pil_s+1
+            do j=1,pil_s
+            jj  = pil_s-j+1
+            do i=1,l_ni
+               vt1  (i,jj,k) = vt1  (i,jin,k)
+               tt1  (i,jj,k) = tt1  (i,jin,k)
+               psdt1(i,jj,k) = psdt1(i,jin,k)
+               pipt1(i,jj,k) = pipt1(i,jin,k)
+               fipt1(i,jj,k) = fipt1(i,jin,k)
+               tdt1 (i,jj,k) = tdt1 (i,jin,k)
+               fit1 (i,jj,k) = fit1 (i,jin,k)
+               qt1  (i,jj,k) = qt1  (i,jin,k)
+               tpt1 (i,jj,k) = tpt1 (i,jin,k)
+            end do
+            do i=1,l_niu
+               ut1  (i,jj,k) = ut1  (i,jin,k)
+            end do
+            end do
+         end do
+         jin = pil_s+1
+         do j=1,pil_s
+         jj  = pil_s-j+1
+         do i=1,l_ni
+            st1  (i,jj) = st1  (i,jin)
+         end do
+         end do
+         if (.not. Schm_hydro_L) then
+            do k=1,G_nk
+            jin = pil_s+1
+            do j=1,pil_s
+            jj  = pil_s-j+1
+            do i=1,l_ni
+               wt1 (i,jj,k) = wt1 (i,jin,k)
+               mut1(i,jj,k) = mut1(i,jin,k)
+            end do
+            end do
+            end do
+         endif
+      endif
+      err = vmmuld(key,nvar)
+*
+      key1_ = VMM_KEY (trt1)
+      do n=1,Tr3d_ntr
+         key1(n) = key1_ + n
+      end do
+      if (Tr3d_ntr.gt.0) then
+         err = vmmlod(key1,Tr3d_ntr)
+         do n=1,Tr3d_ntr
+            err = vmmget(key1(n),patr1,tr1)
+           if (l_north) then
+                do k=1,G_nk
+                   jin = l_nj-pil_n
+                   do j=1,pil_n
+                   jj  = l_nj-pil_n+j
+                   do i=1,l_ni
+                      tr1  (i,jj,k) = tr1 (i,jin,k)
+                   enddo
+                   enddo
+                enddo
+            endif
+            if (l_south) then
+                do k=1,G_nk
+                   jin = pil_s+1
+                   do j=1,pil_s
+                   jj  = pil_s-j+1
+                   do i=1,l_ni
+                      tr1  (i,jj,k) = tr1 (i,jin,k)
+                   enddo
+                   enddo
+                enddo
+            endif
+         enddo
+         err = vmmuld(key1,Tr3d_ntr)
+      endif
+*
+*----------------------------------------------------------------------
+      return
+      end

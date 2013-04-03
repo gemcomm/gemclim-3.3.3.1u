@@ -1,0 +1,172 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+copyright (C) 2001  MSC-RPN COMM  %%%MC2%%%
+***s/r ecris_fst2_mos
+      subroutine ecris_fst2_mos ( fa,lminx,lmaxx,lminy,lmaxy,rf,nomvar,
+     $                           mul,add,mos,nkfa,ind_o,nk_o,nbit)
+      implicit none
+*
+      character* (*) nomvar
+      integer lminx,lmaxx,lminy,lmaxy,nkfa,nbit,ind_o(*),nk_o,mos
+      real fa(lminx:lmaxx,lminy:lmaxy,*),rf(*),mul,add
+*
+*
+*author  M. Desgagne 2001 (MC2)
+*
+*revision
+* v3_30 - Desgagne/Lee - Out_datyp is defined for data compression by default
+* v3_30 - Larocque/Dugas - mosaik output only version, Out_flipit_L turned off
+* v3_32 - Dugas B.       - rename ecris_fst2m to ecris_fst2_mos
+*
+**
+#include "out.cdk"
+*
+      integer     fstecr
+      external    fstecr
+*
+      character*1 gridtyp
+      character*8 dumc
+      integer     i,j,k,m,n,ier,pnip1,pnip3,cnt,nis,njs,nrd,
+     $            ii,jj,im,jm,g3,g4,oi,oj,datyp,kind
+      logical     reduc_L
+      real        value
+      real*8      sum_8
+*
+      real, dimension (:,:  ), allocatable         :: wk1
+      real, dimension (:,:,:), allocatable, target :: tr1
+      real, dimension (:,:,:), pointer             :: tr2
+*
+*----------------------------------------------------------------------
+*
+      kind = 3
+*
+*     Writing field 'nomvar' to a FST file
+*
+      if ((Out_nisl.le.0).or.(Out_njsl.le.0)) return
+*
+      datyp = Out_datyp
+
+      if (Out_blocme.eq.0) then
+
+         if (nbit.eq.32) datyp = 5
+*
+         gridtyp = 'Z'
+         if (Out_proj_S.eq.'X') gridtyp = 'X'
+         g3 = 0
+         g4 = 0
+         if (Out_nblocx*Out_nblocy.gt.1) then
+            gridtyp = '#'
+            g3     =  Out_ig3
+            g4     =  Out_ig4
+         endif
+         pnip1 = 0
+         pnip3 = Out_ip3
+         if (pnip3.lt.0) pnip3 = Out_npas
+         reduc_L = Out_reduc .gt. 1
+         nis = Out_ifg - Out_idg + 1
+         njs = Out_jfg - Out_jdg + 1
+         allocate( tr1(nis,njs,nk_o) )
+         tr2 => tr1
+         if (reduc_L) then
+            allocate( tr2(Out_nisl,Out_njsl,nk_o) )
+            if (Out_nblocx*Out_nblocy.gt.1) then
+               g3 = (out_rgridi0-Out_gridi0)/Out_reduc+1
+               g4 = (out_rgridj0-Out_gridj0)/Out_reduc+1
+            endif
+         endif 
+*
+      endif
+*
+      call blkcol ( tr1,nis,njs,Out_gridi0,Out_gridin,Out_gridj0,Out_gridjn,mul,
+     $              add,fa,lminx,lmaxx,lminy,lmaxy,nkfa,ind_o,nk_o)
+*
+      if (Out_blocme.eq.0) then
+*
+      if (reduc_L) then
+         nrd = Out_reduc-1
+         oi  = out_rgridi0-max(Out_bloci0-Out_hx*Out_blocwest ,Out_gridi0)+1
+         oj  = out_rgridj0-max(Out_blocj0-Out_hy*Out_blocsouth,Out_gridj0)+1
+         do k=1,nk_o
+         do j=1,Out_njsl
+         do i=1,Out_nisl
+            cnt=0
+            sum_8=0.0d0
+            im = (i-1)*Out_reduc + oi
+            jm = (j-1)*Out_reduc + oj
+            do jj=max(1,jm-nrd),min(jm+nrd,njs)
+            do ii=max(1,im-nrd),min(im+nrd,nis)
+               cnt=cnt+1
+               sum_8 = sum_8 + tr1(ii,jj,k)
+            end do
+            end do
+            tr2(i,j,k) = sum_8 / dble(cnt)
+         end do
+         end do
+         end do
+      endif
+*
+      if (Out_nisg.eq.Out_nisl+1) then
+*
+         allocate ( wk1(Out_nisg,Out_njsl) )
+*
+         do m=0,mos-1
+            do n=1,int(nk_o/mos)
+               value = rf(n) + m/100.
+               k = m * int( nk_o / mos ) + n
+               call convip( pnip1,value,kind,+1,dumc,.false. )
+*
+               do j=1,Out_njsl
+                  do i=1,Out_nisl
+                     wk1(i,j)=tr2(i,j,k)
+                  enddo
+                  wk1(Out_nisg,j)=wk1(1,j)
+               enddo
+*
+               ier = fstecr( wk1,tr1,-nbit,Out_unf,Out_dateo,
+     $               int(Out_deet),Out_npas,Out_nisg,Out_njsl,1,pnip1,
+     $               Out_ip2,pnip3,Out_typvar_S,nomvar,Out_etik_S,
+     $               gridtyp,Out_ig1,Out_ig2,g3,g4,datyp,Out_rewrit_L )
+            end do
+         end do
+*
+         deallocate( wk1 )
+*
+      else
+*
+         do m=0,mos-1
+            do n=1,int(nk_o/mos)
+               value = rf(n) + m/100.
+               k = m * int( nk_o / mos ) + n
+               call convip( pnip1,value,kind,+1,dumc,.false. )
+               ier = fstecr( tr2(1,1,k),tr1,-nbit,Out_unf,Out_dateo,
+     $               int(Out_deet),Out_npas,Out_nisl,Out_njsl,1,pnip1,
+     $               Out_ip2,pnip3,Out_typvar_S,nomvar,Out_etik_S,
+     $               gridtyp,Out_ig1,Out_ig2,g3,g4,datyp,Out_rewrit_L )
+            end do
+         end do
+*     
+      endif
+*
+      deallocate( tr1 )
+      if (reduc_L) deallocate( tr2 )
+*
+      endif
+*
+*--------------------------------------------------------------------
+      return
+      end
+
+

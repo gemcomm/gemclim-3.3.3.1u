@@ -1,0 +1,136 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!copyright (C) 2001  MSC-RPN COMM  %%%MC2%%%
+!**s/r out_phy_rotate
+#include "model_macros_f.h"
+      subroutine OUT_PHY_ROTATE ( bus_o,F_ni,F_nj,F_ni0,F_nj0, \
+                                 F_offi,F_offj, debug_L )
+!
+      implicit none
+!
+      logical debug_L
+      integer F_ni0,F_nj0,F_offi,F_offj
+      integer F_ni,F_nj,ni,nj
+      real bus_o(F_ni*F_nj,*)
+!
+!AUTHOR     Bernard Dugas
+!
+!REVISION
+! v3_32 - Dugas B.          -  initial GEMCLIM version
+!
+!OBJECT
+!    Rotate the physics vector components prior to their output
+!    The list of such variable pairs is maintained in veclist.cdk
+!
+!ARGUMENTS
+!    NAMES     I/O  TYPE        DESCRIPTION
+!
+!   bus_o      I/O   R    current output bus
+!   F_ni        I    I    horizontal tile dimension along X
+!   F_nj        I    I    horizontal tile dimension along Y
+!   F_ni0       I    I    number of points along X to treat
+!   F_nj0       I    I    number of points along Y to treat
+!   F_offi      I    I    initial horizontal offset in X
+!   F_offy      I    I    initial horizontal offset in Y
+!   debug_L     I    L    switch for debug information
+!
+!IMPLICIT
+#include "clim.cdk"
+#include "obus.cdk"
+
+      integer, dimension(:),allocatable :: offut,offvt
+      integer offu(Clim_nbrvec),offv(Clim_nbrvec),nk(Clim_nbrvec)
+      integer iu,iv, nkt,nku,nkv, i,j,vp,np
+ 
+      np = 0 ; nkt = 0
+
+      ! Check for the vector pairs in the current Obus
+
+      ID_ALL_VECTOR_PAIRS : do vp=1,Clim_nbrvec
+
+         iu = 0 ; iv = 0 ; nku = -1 ; nkv = -1
+
+         CHECK_FOR_X : do j=1,Obus_top
+            ! Looking for the X-component in Obus
+            if(Clim_listvec_S(1,vp) == Obus_var_S(j)) then
+               iu = j ; nku = Obus_shp(j)*Obus_mult(j)
+               cycle
+            endif
+         enddo CHECK_FOR_X
+
+         CHECK_FOR_Y : do j=1,Obus_top
+            ! Looking for the Y-component in Obus
+            if(Clim_listvec_S(2,vp) == Obus_var_S(j)) then
+               iv = j ; nkv = Obus_shp(j)*Obus_mult(j)
+               cycle
+            endif
+         enddo CHECK_FOR_Y
+
+         if(iu*iv > 0 .and. nku == nkv) then
+            ! Both X and Y components are available. Do it
+            if (debug_L) \
+            print *,'OUT_PHY_ROTATE: rotating vector (',  \
+                              trim(Clim_listvec_S(1,vp)), \
+                          ',',trim(Clim_listvec_S(2,vp)), \
+                          ') with ',nku,' level(s)'
+            np = np+1 ; nk(np) = nku ;  nkt = nkt+nku
+            offu(np) = Obus_offset(iu)
+            offv(np) = Obus_offset(iv)
+         endif
+
+      enddo ID_ALL_VECTOR_PAIRS
+
+      if (np == 0) return
+
+      ! Make sure that the rotation matrix is initialized
+
+      call rotate_vectors( bus_o(1,offu(1)), \
+                           bus_o(1,offv(1)), \
+                           1,F_ni,1,F_nj,1, .false. )
+
+      ! Rotate the pairs one level at a time
+
+      allocate( offut(nkt),offvt(nkt) ) ; i = 0
+
+      do vp=1,np
+         do j=1,nk(vp)
+            i = i+1
+            offut(i) = offu(vp)+j-1
+            offvt(i) = offv(vp)+j-1
+         enddo
+      enddo
+      
+!     configure rotation routine for physics lam grid
+      call rotate_vectors_pset( F_ni0,F_nj0,F_offi,F_offj )
+
+!$omp parallel
+!$omp do
+      do vp=1,nkt
+         call rotate_vectors(      \
+              bus_o(1,offut(vp)),  \
+              bus_o(1,offvt(vp)),  \
+              1,F_ni,1,F_nj,1,     \
+              .true. )
+      enddo
+!$omp enddo
+!$omp end parallel
+
+      call rotate_vectors_punset( )
+
+      deallocate( offut,offvt )
+
+      return
+      end subroutine OUT_PHY_ROTATE

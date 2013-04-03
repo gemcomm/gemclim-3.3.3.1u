@@ -1,0 +1,120 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r read_geophy_bus - Reads the geophysical with either  
+*               of the readgeo or geodata routines
+*
+#include "model_macros_f.h"
+*
+      subroutine read_geophy_bus
+#include "read_geophy_bus_int.cdk"
+*
+*author 
+*     Bernard Dugas -rpn - feb 2007 (from indata.ftn)
+*
+*revision
+* v3_30 - Dugas B.       - initial MPI version
+* v3_32 - Dugas B.       - use path.cdk
+* v3_32 - Abderrahim K.  - correction GFORTRAN
+*
+*object
+*     Handles geobus-related operations previously done
+*     in indata. Used by indata but is also called by
+*     set_dync to take care of LAM cases where
+*     Lam_toptt_L is true
+*	
+*arguments
+*	none
+*
+*implicits
+#include "lun.cdk"
+#include "schm.cdk"
+#include "glb_ld.cdk"
+#include "filename.cdk"
+#include "itf_phy_buses.cdk"
+#include "path.cdk"
+
+      integer  readgeo
+      external readgeo
+*
+      character*256 fn
+      integer key1(25),err,unf,ungeo,dat,k, err_geo
+*
+      logical, save :: done
+      data done / .false. /
+*
+*     ---------------------------------------------------------------
+      if (done) return
+      done = .true.
+*
+      Path_ind_S=trim(Path_input_S)//'/INIT_3D'
+*
+      err_geo = readgeo()
+      allocate (listgeonm(2,p_bgeo_top))
+      listgeonm(1,:) = geonm(1:p_bgeo_top,1)
+      listgeonm(2,:) = 'NIL'
+      if (err_geo.eq.0) listgeonm(2,:) = 'OK'
+*
+      if (G_lam) then
+         prefgeo = '!@#$%^&*'
+         ungeo   = 91
+         fn      = trim(Path_work_S)//'/geophy_fileprefix_for_LAM'
+         open(ungeo,FILE=fn, status='OLD',iostat=err)
+         if (err.eq.0) then
+            read (ungeo, '(a)', end = 9120) prefgeo
+ 9120       close(ungeo)
+         endif
+         if (prefgeo.ne.'!@#$%^&*') then
+            call geodata (G_ni,G_nj,listgeonm)
+         else
+            if (Lun_debug_L) write (Lun_out,1002)trim(prefgeo)
+         endif
+      endif
+*
+      if (Lun_out.gt.0) write (Lun_out,1001)
+*
+      do k=1,P_bgeo_top
+         if ((geonm(k,1).eq.'MT').or.(geonm(k,1).eq.'MF'))
+     $        call glbstat1(geofld(geopar(k,1)),geonm(k,1)(1:8),"geop",
+     $          1,l_ni,1,l_nj,geopar(k,3), 1,G_ni,1,G_nj,1,geopar(k,3))
+      end do
+*
+      if ( Schm_phyms_L ) then
+         err=0
+         do k=1,P_bgeo_top
+         if ((geonm(k,1).ne.'MT').and.(geonm(k,1).ne.'MF')) then
+            if (listgeonm(2,k).ne.'NIL') then
+               call glbstat1(geofld(geopar(k,1)),geonm(k,1)(1:8),"geop",
+     $          1,l_ni,1,l_nj,geopar(k,3), 1,G_ni,1,G_nj,1,geopar(k,3))
+            endif
+         endif
+         end do
+         do k=1,P_bgeo_top
+            if (listgeonm(2,k).eq.'NIL') then
+               err=-1
+               if (Lun_out.gt.0) 
+     $         write(Lun_out,*) listgeonm(1,k),listgeonm(2,k)
+            endif
+         end do
+         call gem_stop('read_geophy_bus',err)
+      endif
+*
+*     ---------------------------------------------------------------
+*
+ 1001 format(/,'GLOBAL STAT OF GEOPHYSICAL FIELDS',/,33('='))
+ 1002 format(/,' FILE ',A,'_gfilemap.txt IS NOT AVAILABLE --CONTINUE--',/,/)
+*
+      return
+      end
