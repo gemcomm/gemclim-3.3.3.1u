@@ -1,0 +1,430 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  STFRST4
+*
+      SUBROUTINE STFRST4(D2P,BA1,AA1,A1MAX,A1MIN,WKI,WM,A2P,C1,C2,
+     +                   QS, WP, TS, WS, al,
+     +                   gl, sd, cs, ks, sm, vg, lat,
+     +                   cst, csn, csg, kst, ksn, ksg,
+     +                   QA, PS, TAU, KOUNT, N)
+#include "impnone.cdk"
+      INTEGER KOUNT,N
+      REAL D2P(N),BA1(N),AA1(N),A1MAX(N),A1MIN(N),WKI(N),WM(N),A2P(N)
+      REAL C1(N),C2(N),QS(N),WP(N),TS(N),WS(N)
+      REAL QA(N),PS(N),TAU
+      real al(n),gl(n),sd(n),cs(n),ks(n),sm(n),vg(n),lat(n)
+      real cst, csn, csg, kst, ksn, ksg
+      REAL WSWK,QSAT
+*
+*Author
+*          J. Cote (RPN 1983)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      M. Lepine  -  RFE model code revision project (Feb 87)
+* 003      G.Verner (Oct 1987)
+*           Modification of type of soil (clay)
+* 004      N. Brunet  (May90)
+*               Standardization of thermodynamic functions
+* 005      N. Brunet  (May91)
+*               New version of thermodynamic functions
+*               and file of constants
+* 006      C. Girard (Nov92) surface infrared emissivity
+*          adjusted to 1.0
+* 007      B. Bilodeau (May 94) - New physics interface
+* 008      N. Brunet (May 95) - new surface processes
+* 009      B. Bilodeau (June 95) - switch fonte
+* 010      A. Methot (July 95) - corrections for southern hemisphere
+*                              - punch default/initial value of sm to 0
+* 011      N. Brunet (Oct 97) - change characteristics of snow sfce
+*                               and threshold for ice sfce
+* 012      N. Brunet (Apr 99) - put data hvg in meter
+*                             - put snow treshold (ent and eng) in meter
+* 013      M. Lepine (March 2003) -  CVMG... Replacements
+* 014      B. Bilodeau (May 2005) - New comdeck fintern
+*
+*Object
+*          to initialize for the Force-Restore method
+*
+*Arguments
+*
+*          - Input/Output -
+* D2P      timestep*(1/RHO(water)*D2)
+* BA1      timestep*(1/RHO(water)*D1)*BA/(critical value of which the
+*          precipitation flows)
+* AA1      timestep*(1/RHO(water)*D1)*(A1MAX-BA*WX)
+* A1MAX    timestep*(1/RHO(water)*D1)*A1MAX
+* A1MIN    timestep*(1/RHO(water)*D1)*A1MIN
+* WKI      1/(critical value in which the surface acts as if it was
+*          saturated)
+* WM       critical value of which the precipitation flows
+* A2P      timestep*A2/(24 hours)
+* C1       2*timestep*PI/(24 hours)
+* C2       2*timestep*SQRT(PI)/(specific heat of ground*SQRT(ground
+*          thermal diffusion coefficient*(24 hours)))
+* QS       specific humidity at the surface
+* WP       deep soil moisture
+*
+*          - Input/Output -
+* TS       surface temperature
+* WS       surface soil moisture
+*
+*          - Input -
+* AL       surface albedo
+* GL       oceanic ice cover
+* SD       snow depth
+* CS       heat capacity of soil - computed in stfrst
+* KS       heat diffusivity of soil - computed in stfrst
+* SM       stomatal resistance - computed in stfrst
+* VG       vegetation types
+* LAT      latitude in radians
+* CST      basic value of heat capacity of soil   (see comdeck options)
+* CSN      basic value of heat capacity of snow     "     "       "
+* CSG      basic value of heat capacity of ice      "     "       "
+* KST      basic value of heat diffusivity of soil  "     "       "
+* KSN      basic value of heat diffusivity of snow  "     "       "
+* KSG      basic value of heat diffusivity of ice   "     "       "
+* QA       specific humidity at the anemometer level
+* PS       surface pressure in millibars
+* TAU      timestep
+* KOUNT    number of timesteps
+* N        horizontal dimension
+*
+*MODULES
+*
+*Notes
+*          Force-restore equation for humidity:
+*          d WP/ dT = -D2'*(ES-P)
+*          d WS/ dT = -A1*D1'*(ES-P)-A2*(WS-WP)/day
+*          where:
+*          WS is the water content in the soil at the surface
+*          WP is the water content in the deep soil
+*          ES is evaporation
+*          P is precipitation
+*          WMAX is the threshold at which precipitation runs off
+*          EK is the threshold at which the surface acts as if it
+*          is saturated
+*          day is 24 hours
+*          D1' = 1/(RHO(water)*D1)
+*          D2' = 1/(RHO(water)*D2)
+*          A1  = A1MAX if WS/WMAX < WX (= 0.15)
+*              = A1MIN if WS/WMAX < 0.75
+*              = slope of BA is WX < WS/WMAX < 0.75
+*
+*          Force-restore equation for temperature:
+*  d TS / dT = -2*sqrt(PI)*HA/(CS*sqrt(KS*day))-2*PI(TS-TP)/day
+*          where:
+*          TS is the surface temperature
+*          TP is the deep soil temp. (fixed during integration)
+*          HA is the sum of fluxes toward the atmosphere
+*          CS is the surface specific heat
+*          KS is the surface thermal diffusion coefficient
+*
+*          The values between the square brackets are the values
+*          over D. Presently, one type of surface only is used with
+*          the values determined from Wangara's experiment by
+*          Deardorff. See J.Mailhot's master thesis for more details
+*
+**
+*
+#include "options.cdk"
+*
+      EXTERNAL STFRST3
+*
+*
+*
+#include "scfrst.cdk"
+*
+*
+      REAL D1,D2,AIN,AAX,BA,WX,A2,W2
+      REAL DIF
+      REAL DAY,D1P,AMN,AMX
+      SAVE D1,D2,AIN,AAX,BA,WX,A2,W1,W2
+      INTEGER J,K
+*
+      integer kvg
+      integer ja, jb, jc, jd, njq, jq, jw
+      integer mois, jour, mm
+      integer addm(12)
+      real hvg(25)
+      real csw, ksw, ent, eng, djr, csnm
+      real csnb, csnh, ksnb, ksnh, dcsn, dksn
+      real deglat, raddeg
+*
+      data addm/0,31,61,92,122,153,184,212,243,273,304,334/
+*
+*     --- hvg est la hauteur caracteristique du type de
+*         vegetation correspondant (dont le no varie
+*         de 0 a 24) en 'm'. cette hauteur servira
+*         a determiner si le manteau nival ('sd') couvre
+*         la vegetation
+*
+      data hvg /   0.,    0.,    0.,    0.,  12.0,
+     +            8.0,   8.0,   8.0,   8.0,   4.0,
+     +            2.0,   1.0,   1.0,  0.05,   .10,
+     +           0.05,  0.05,  0.05,  0.05,  0.05,
+     +           0.05,   1.0,  0.05,  0.05,    0./
+*
+      DATA DIF /  1.2E-06 /
+      DATA D1  /  0.10    /
+      DATA D2  /  0.50    /
+      DATA AIN /  0.50    /
+      DATA AAX / 14.0     /
+      DATA BA  /-22.5     /
+      DATA WX  / 0.15     /
+      DATA A2  / 0.90     /
+#include "hscap.cdk"
+      DATA W2  / 0.40     /
+*
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+*     CONSTANTES SCALAIRES
+*
+      DAY=86400.
+      raddeg = 180./pi
+*
+*     initialisations
+      do j=1,n
+         cs(j) = 2.34E+06
+         ks(j) = dif
+         sm(j) = 0.0
+      end do
+*
+***************************************************
+*     TENIR COMPTE DE LA PRESENCE DE NEIGE POUR   *
+*     MODIFIER LES CARACTERISTIQUES DU SOL        *
+***************************************************
+*
+      if (typsol) then
+*
+      ent = 0.05
+      eng = 0.5
+      dcsn = 0.7E+06
+      dksn = 0.6E-06
+      csnm = 1.5E+06
+*
+      csnb = csn
+      ksnb = ksn
+      csnh = csnb + dcsn
+      ksnh = ksnb + dksn
+*
+*     determination de njq, le no du jour a partir du 1er aout
+*     for northern hemisphere
+*     an offset of 183 days for southern hemisphere will be
+*     taken into account in the next do loop
+*
+      mois = date(2)
+      jour = date(3)
+      if(mois .ge. 8)mm = mois - 7
+      if(mois .lt. 8)mm = mois + 5
+      njq = addm(mm) + jour
+*
+*
+*     determination des coefficients cs, ks et sm
+*
+      do 100 j=1,n
+         kvg = ifix(vg(j)+0.1)
+*        --- l'indice kvg varie de 0 a 24, tandis que
+*            hvg va de 1 a 25
+         deglat = abs(lat(j)) * raddeg
+*
+*        *******************************************************
+*        calculation of jq taking into account both hemispheres
+*        *******************************************************
+*
+         if ( lat(j) .gt. 0. ) then
+                                     jq=njq
+         else
+            if ( njq .ge. 183 ) then
+                                     jq=njq-182
+            else
+                                     jq=njq+183
+            endif
+         endif
+*
+*             **********************************
+*             *  coefficients cs et ks         *
+*             **********************************
+*
+*           --- cas sur neige ---
+            if((sd(j) .ge. ent .and. gl(j) .lt. 0.5) .or.
+     +      (sd(j) .ge. eng .and. gl(j) .ge. 0.5))then
+*              --- etablit les bornes ja,jb,jc,jd
+               if(deglat .le. 40.0)then
+                  jb = 122
+                  jc = 184
+               end if
+               if(deglat .ge. 70.0)then
+                  jb = 61
+                  jc = 243
+               end if
+               if(deglat .gt. 40.0 .and. deglat .lt. 70.0)then
+                  jw = ifix(((deglat-40.)/30.)*60.)
+                  jb = 122 - jw
+                  jc = 184 + jw
+               end if
+               ja = jb - 60
+               jd = jc + 60
+*              --- variation de cs et ks selon le jour et la
+*                  latitude
+               if(jq .ge. jd .or. jq .le. ja)then
+                  csw = csnh
+                  ksw = ksnh
+               end if
+               if(jq .ge. jb .and. jq .le. jc)then
+                  csw = csnb
+                  ksw = ksnb
+               end if
+               if(jq .lt. jb .and. jq .gt. ja)then
+                  djr = float(jb-jq)/float(jb-ja)
+                  csw = csnb + djr*dcsn
+                  ksw = ksnb + djr*dksn
+               end if
+               if(jq .gt. jc .and. jq .lt. jd)then
+                  djr = float(jq-jc)/float(jd-jc)
+                  csw = csnb + djr*dcsn
+                  ksw = ksnb + djr*dksn
+               end if
+*              --- variation de cs selon albedo
+               cs(j) = csw + (csnm-csw)*(1.0-al(j))
+*
+               ks(j) = ksw
+*
+            end if
+*           --- cas sur glace ---
+            if(sd(j) .lt. eng .and. gl(j) .ge. 0.5)then
+               cs(j) = csg
+               ks(j) = ksg
+            end if
+*
+*           --- cas sur terre ---
+            if(sd(j) .lt. ent .and. gl(j) .lt. 0.5)then
+               cs(j) = cst
+               ks(j) = kst
+            end if
+*
+*
+100   continue
+*
+      endif
+*
+*
+      if (stomate) then
+*
+      do 200 j=1,n
+*
+*              *******************************
+*              * resistance stomatale - sm   *
+*              *******************************
+*
+         kvg = ifix(vg(j)+0.1)
+         if(al(j) .gt. 0.6) sm(j) = 15.0
+         if(al(j) .lt. 0.15) sm(j) = 60.0
+         if(al(j) .ge. 0.15 .and. al(j) .le. 0.6)
+     +      sm(j) = 75. - al(j)*100.
+*        --- sm selon vegetation et neige
+         if(kvg .eq. 0 .or. kvg .eq. 1 .or. kvg .eq. 24)then
+            sm(j) = 0.0
+         else if(kvg .eq. 22)then
+            if(hvg(kvg+1) .lt. sd(j)) sm(j) = amin1(sm(j), 5.)
+         else
+            if(hvg(kvg+1) .lt. sd(j)) sm(j) = amax1(sm(j), 15.)
+         end if
+*
+200   continue
+*
+      endif
+*
+*
+*     CHAMPS PHYSIQUES
+*
+      DO 1 J=1,N
+*
+*     PARAMETRES DU SOL
+*
+            D1P=TAU/(RAUW*D1)
+            D2P(J)=TAU/(RAUW*D2)
+            AMN=D1P*AIN
+            AMX=D1P*AAX
+            BA1(J)=D1P*BA
+            AA1(J)=AMX-BA1(J)*WX
+            A1MAX(J)=MAX(AMX,AMN)
+            A1MIN(J)=MIN(AMX,AMN)
+            WKI(J)=1.0/W1
+            WM(J)=W2
+            BA1(J)=BA1(J)/W2
+            A2P(J)=TAU*A2/DAY
+            C1(J)=2.*TAU*PI/DAY
+            C2(J)=2.*TAU*SQRT(PI) /(CS(j)*SQRT(ks(j)*DAY))
+*
+*
+    1 CONTINUE
+*
+*
+*
+*     CALCUL DE QS SELON FCREST
+*     *************************
+*
+*
+      IF (KOUNT.GT.0) RETURN
+*
+*
+      IF(SATUCO)THEN
+      DO 3 J=1,N
+*
+         QSAT = FOQST(TS(J),PS(J))
+*
+         WS(J) = WS(J)/WKI(J)
+         WS(J) = MAX( MIN( WS(J), WM(J) ), 0.015 )
+*
+         WSWK = MIN ( WS(J)*WKI(J) , 1.0 )
+         WSWK = MAX ( 0.5*(1.-COS(PI*WSWK)) , .05 )
+*
+         QS(J)=MIN( WSWK*(QSAT-QA(J))+QA(J) , QSAT )
+*
+    3    WP(J)=WS(J)
+      ELSE
+       DO 13 J=1,N
+*
+         QSAT = FOQSA(TS(J),PS(J))
+*
+         WS(J) = WS(J)/WKI(J)
+         WS(J)=MAX( MIN( WS(J), WM(J) ), 0.015 )
+*
+         WSWK = MIN ( WS(J)*WKI(J) , 1.0 )
+         WSWK = MAX ( 0.5*(1.-COS(PI*WSWK)) , .05 )
+*
+         QS(J)=MIN( WSWK*(QSAT-QA(J))+QA(J) , QSAT )
+*
+   13    WP(J)=WS(J)
+      END IF
+*
+*
+*     METTRE QS A ZERO SI LE MODELE EST SEC.
+      IF( .NOT. (WET.AND.EVAP) ) THEN
+*
+         DO 4 J=1,N
+            QS(J) = 0.0
+4        CONTINUE
+*
+      ENDIF
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

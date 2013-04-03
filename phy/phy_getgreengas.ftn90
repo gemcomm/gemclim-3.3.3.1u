@@ -1,0 +1,148 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!** S/P phy_getgreengas - Defines the 5 greenhouse gases from a table
+      subroutine phy_getgreengas( F_kount, Lun_out )
+!
+      implicit none
+!
+      integer F_kount,Lun_out
+!
+!Author
+!          K. Winger, UQAM 
+!
+!Revision   
+! 000      K. Winger  (Feb 2011) - Initial version
+! 001      B. Dugas   (Mar 2011) - Make this code independant of the dynamic comdecks
+! 002      B. Dugas   (Jul 2011) - Do not use FSTOUV/FSTFRM, olny FNOM/FCLOS
+!
+!Object
+!          Defines the 5 greenhouse gases from a table
+!          for the current year. 
+!
+!Arguments
+!          - Input -
+! F_kount  Timestep number
+! Lun_out  Unit number to print messages ? Has to be > 0 !
+!*
+
+#include "options.cdk"
+#include <clib_interface.cdk>
+
+      integer,  external :: fnom, fclos, newdate, fstouv,fstfrm
+      character(len=512)    Path_work_S, gases_dat_S
+
+      real(8)               heur_8
+      integer               xnday, part1,part2, cyear, y
+      integer               Lun_gases, err
+      real                  others
+
+      logical,      save :: read_done_L     = .false., &
+                            found_file_L    = .false.
+      integer,      save :: last_year       = 0 
+      integer, parameter :: maxyears        = 1000
+      integer,      save :: year(maxyears)  = 0
+      real   ,      save :: co2(maxyears)   = 0, n2o(maxyears)   = 0 , &
+                            cfc11(maxyears) = 0, cfc12(maxyears) = 0 , &
+                            ch4(maxyears)   = 0
+!---------------------------------------------------------------- 
+
+!*    -------------------------------------------------
+!C      Read greenhouse gas table (only once)
+!*    -------------------------------------------------
+
+      if ( .not. read_done_L ) then
+
+         read_done_L = .true.
+
+!C       Get directory and name of table file
+         if ( clib_getcwd( Path_work_S ) == CLIB_OK ) then
+
+            gases_dat_S = trim( Path_work_S )//'/../../input/greenhouse_gases.dat'
+
+!C          Open table
+            Lun_gases = 0
+            if (fnom (Lun_gases, gases_dat_S, 'FMT+SEQ+R/O', 0 ) /= 0) return
+
+!C          Skip first 6 lines
+            y = 0 ; read (Lun_gases,'(/////)', END=101)
+
+!C          Read greenhouse gas table
+ 100        read (Lun_gases,*, END=101) year(y+1),co2(y+1),n2o(y+1),ch4(y+1),cfc11(y+1),cfc12(y+1),others
+               if ( y < maxyears ) then
+                  y = y + 1
+                  goto 100
+               end if
+ 101        continue
+
+            err = fclos ( Lun_gases )
+
+            if ( y > 0 ) found_file_L = .true.
+
+            if ( Lun_out > 0 .and. found_file_L ) then
+               write(Lun_out,'(/A)') 'Read greenhouse gas table:'
+               write(Lun_out, '(A)')  trim( gases_dat_S )
+            end if
+
+         end if
+
+      end if
+
+      if ( .not. found_file_L ) return ! no greenhouse gas table !
+
+!*    -------------------------------------------------
+!C      Read values for current year
+!*    -------------------------------------------------
+
+!C    Get current year
+      heur_8 = F_kount * ( delt / 3600._8 )
+      call incdatr( xnday, date(14), heur_8 )
+      err = newdate( xnday, part1,part2, -3 )
+      cyear = part1/10000
+
+!C    Read values for current year
+      if ( last_year /= cyear ) then
+
+         y = 1
+         do while (.true.)
+            if ( year(y) == 0 ) exit
+            if ( year(y) == cyear ) exit
+            y = y + 1
+         end do
+
+!C       If end of table is reached, take last entry
+         if ( year(y) == 0 ) y = y - 1
+
+         last_year = year (y)
+         qco2      = co2  (y)
+         qn2o      = n2o  (y)
+         qch4      = ch4  (y)
+         qcfc11    = cfc11(y)
+         qcfc12    = cfc12(y)
+
+         if ( Lun_out > 0 ) then
+            write(Lun_out,1000) 'Greenhouse gases reset for year : ',last_year
+            write(Lun_out,1001) 'CO2  :',qco2, 'CFC11:',qcfc12, &
+                                'N2O  :',qn2o, 'CFC12:',qcfc11, &
+                                'CH4  :',qch4
+         end if
+
+      end if
+
+!---------------------------------------------------------------- 
+ 1000 format('*******'/A,I4)
+ 1001 format(5(3X,A,f10.3/))
+
+      end subroutine phy_getgreengas

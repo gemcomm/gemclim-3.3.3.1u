@@ -1,0 +1,126 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/R MHUAHR  -  PASSAGE DE HU A HR
+*
+#include "phy_macros_f.h"
+      SUBROUTINE MHUAHR(HR,HU,TX,PX,LNPS,MODP,SWTT,SWPH,
+     $                  NI,NK,N)
+#include "impnone.cdk"
+*
+      INTEGER NI, NK, N, MODP
+      REAL HR(NI,NK), HU(NI,NK), TX(NI,NK)
+      REAL PX(NK), LNPS(NI,*)
+      REAL TEMP1, TEMP2
+*
+*
+      LOGICAL SWTT, SWPH
+*
+*Author
+*          N. Brunet  (Jan91)
+*
+*Revision
+* 001      B. Bilodeau  (August 1991)- Adaptation to UNIX
+* 002      B. Bilodeau (January 2001) - Automatic arrays
+*
+*Object
+*          to calculate relative humidity from specific humidity,
+*          temperature and pressure
+*
+*Arguments
+*
+*          - Output -
+* HR       relative humidity in fraction
+*
+*          - Input -
+* HU       specific humidity in kg/kg
+* TX       temperature or virtual temperature in Kelvins
+* PX       see MODP
+* LNPS     see MODP
+* MODP     pressure mode (SI units only):
+*          =0; pressure level in PX
+*          =1; sigma level in PX and PS(surface pressure) in LNPS
+*          =2; sigma level in PX and logarithm of sigma level in
+*          LNPS
+*          =3; all points of pressure in LNPS(NI,*) in Pascals
+*          =4; sigma level in PX and logarithm of sigma level in
+*          LNPS(in millibars unless using SI units)
+*          =5; logarithm of pressure level in PX(in millibars unless
+*          using SI units)
+* SWTT     .TRUE. to pass TT for argument
+*          .FALSE. to pass TV for argument
+* SWPH     .TRUE. to consider water and ice phase
+*          .FALSE. to consider water phase only
+* NI       horizontal dimension
+* NK       vertical dimension
+* N        number of treated points
+*
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY
+*
+**
+*--------------------------------------------------------------------
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( PN , REAL , (N) )
+      AUTOMATIC ( TP , REAL , (N) )
+*
+************************************************************************
+*
+      INTEGER I, K
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*--------------------------------------------------------------------
+#include "initcph.cdk"
+*
+*
+      DO 10 K=1,NK
+*
+#include "modpr2.cdk"
+*
+         IF(SWTT)THEN
+            DO 100 I=1,N
+100         TP(I) = TX(I,K)
+         ELSE
+            DO 105 I=1,N
+105         TP(I) = FOTTV(TX(I,K),HU(I,K))
+         END IF
+*
+         DO 200 I=1,N
+            IF(SWPH)THEN
+               TEMP1   = TP(I)
+               TEMP2   = PN(I)
+               HR(I,K) = FOHR(HU(I,K),TEMP1,TEMP2)
+            ELSE
+               TEMP1   = TP(I)
+               TEMP2   = PN(I)
+               HR(I,K) = FOHRA(HU(I,K),TEMP1,TEMP2)
+            END IF
+200      CONTINUE
+*
+10    CONTINUE
+*
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

@@ -1,0 +1,722 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+** S/P HYDRO1
+*
+#include "phy_macros_f.h"
+      SUBROUTINE HYDRO1 ( DT, TS, T2, WG, W2, WF, WL, 
+     1            WR, WS, ALPHAS, RHOS, SNODP,
+     1            RAINRATE, SNOWRATE,  
+     1            T2M, U10M, V10M,
+     1            LEV, LETR, LEG, LES, ZC1, ZC2, C3,
+     1            CG, WGEQ, CT, LAI, VEG, D2,
+     1            WSAT, WFC, PSN, PSNG, PSNV,
+     1            LEFF, DWATERDT, DSNOWDT, FREEZS, RHOMAX, 
+     1            TST, T2T, 
+     1            WGT, W2T, WFT, WLT, WRT, WST, ALPHAST, RHOST,
+     1            DRAIN, DRAINTOT, RUNOFF, RUNOFFTOT, RSNOW,
+     1            N )
+*
+#include "impnone.cdk"
+*     
+      INTEGER N
+      REAL DT, TS(N), T2(N), WG(N), W2(N), WR(N), WS(N)
+      REAL WF(N), WL(N)
+      REAL ALPHAS(N), RHOS(N), RAINRATE(N), SNOWRATE(N)
+      REAL T2M(N), U10M(N), V10M(N)
+      REAL SNODP(N)
+      REAL LEV(N), LETR(N), LEG(N), LES(N), ZC1(N), ZC2(N)
+      REAL C3(N), CG(N), WGEQ(N), CT(N), LAI(N), VEG(N), D2(N)
+      REAL WSAT(N), WFC(N), PSN(N), PSNG(N), PSNV(N)
+      REAL LEFF(N), DWATERDT(N), DSNOWDT(N), FREEZS(N)
+      REAL RHOMAX(N)
+      REAL TST(N), T2T(N)
+      REAL WGT(N), W2T(N), WRT(N), WST(N), ALPHAST(N), RHOST(N)
+      REAL WFT(N), WLT(N)
+      REAL DRAIN(N), DRAINTOT(N), RUNOFF(N), RUNOFFTOT(N), RSNOW(N)
+*
+*Author
+*          S. Belair (January 1997) 
+*Revisions
+* 001      S. Belair (December 1997) 
+*                Include the subgrid-scale runoff according
+*                to the Nanjing model (Dumenil and Todini 1992,
+*                Habets and Noilhan 1996).   
+* 
+* 002      S. Belair (October 1998)
+*                Partition of precipitation at the surface in
+*                liquid and solid part (that's a temporary
+*                patch).   
+*
+* 003      S. Belair (November 1998)
+*                Small bug for the partition of precip. AND
+*                Refresh properties for snow when there is no snow
+*
+* 004      S. Belair (December 1998)
+*                Time evolution of the frozen soil water variable
+*
+* 005      S. Belair (January 1999)
+*                Include new prognostic variable for liquid water
+*                retained in the snow pack
+*
+* 006      S. Belair (September 1999)
+*                New tendency term for the density of snow related
+*                to freezing of liquid water in the snow pack
+*
+* 007      S. Belair (January 2000)
+*                Effect of rain on the temperature of the snowpack is
+*                now calculated in "ebudget.ftn"
+*                Calculate minimum albedo of snow "ansmin" and 
+*                the maximum density of snow "rhomax"
+*
+* 008      S. Belair (July 2000)
+*                Bug correction for runoff under the snowpack
+*
+* 009      B. Bilodeau (January 2001)
+*                Automatic arrays
+*
+* 010      S. Belair and B. Bilodeau (May 2001) 
+*                New density for fresh snow
+*
+* 011      V. Fortin (Nov 2007)
+*                Copy RUNOFF into RUNOFFTOT
+*
+* 012      K. Winger (Mar 2010)
+*                Copy DRAIN into DRAINTOT
+*
+*Object
+*     Calculates the evolution of the water variables, i.e., the superficial
+*     and deep-soil volumetric water content (wg and w2), the equivalent
+*     liquid water retained in the vegetation canopy (Wr), the equivalent
+*     water of the snow canopy (Ws), and also of the albedo and density of
+*     the snow (i.e., ALBS and RHOS).  Also determine the runoff and drainage
+*     into the soil.
+*
+*Arguments
+*
+*          - Input -
+* DT       timestep
+* TS       surface temperature
+* T2       mean surface temperature
+* WG       superficial volumetric water content
+* W2       soil volumetric water content
+* WF       frozen soil water
+* WL       liquid water in the snow pack
+* WR       water content retained by the vegetation canopy
+* WS       equivalent water content of the snow reservoir
+* ALPHAS   albedo of the snow
+* RHOS     density of the snow (relative to that of liquid water)
+* RAINRATE rain rate at the surface
+* SNOWRATE snow rate at the surface
+* LEV      latent heat of evaporation over vegetation
+* LETR     latent heat of evapotranspiration
+* LEG      latent heat over bare ground
+* LES      latent heat over snow
+* ZC1      coefficient for the moisture calculations
+* ZC2      coefficient for the moisture calculations
+* C3       coefficient for the drainage
+* CG       heat capacity coefficient for bare ground
+* WGEQ     equilibrium volumetric water content
+* CT       heat capacity coefficient for the total grid
+* LAI      leaf area index
+* VEG      fraction of the grid covered by vegetation
+* D2       rooting depth of the soil
+* WSAT     volumetric water content at soil saturation
+* WFC      volumetric water content at field capacity
+* PSN      fraction of the grid covered by snow
+* PSNG     fraction of bare ground covered by snow
+* PSNV     fraction of vegetation covered by snow
+* LEFF     effective latent heat
+* DWATERDT exchanged soil water between the frozen and liquid reservoirs
+* DSNOWDT  exchanged snow water between the frozen and liquid reservoirs
+* FREEZS   freezing tendency of liquid water in the snow pack
+*
+*          - Input / Output -
+* TST      new surface temperature
+* T2T      new mean surface temperature
+*
+*           - Output -
+* WGT      new superficial volumetric water content
+* W2T      new soil volumetric water content
+* WFT      new frozen soil water
+* WLT      new liquid water in the snow pack
+* WRT      new water content retained by the vegetation canopy
+* WST      new equivalent water content of the snow reservoir
+* ALPHAST  new albedo of snow
+* RHOST    new relative density of snow
+* DRAIN    drainage
+* DRAINTOT total drainage from all surface types
+* RUNOFF   runoff
+* RUNOFFTOT total surface runoff from all surface types
+*
+*
+#include "consphy.cdk"
+#include "isbapar.cdk"
+#include "surfacepar.cdk"
+*
+      INTEGER I
+*
+      REAL CRMIN, CRMAX, RHOE, TAUHOUR, RHOICE
+*
+      REAL RSNOW_DAY
+*
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( RR      , REAL , (N) )
+      AUTOMATIC ( SR      , REAL , (N) )
+      AUTOMATIC ( EV      , REAL , (N) )
+      AUTOMATIC ( ETR     , REAL , (N) )
+      AUTOMATIC ( EG      , REAL , (N) )
+      AUTOMATIC ( RUIR    , REAL , (N) )
+      AUTOMATIC ( RUIR2   , REAL , (N) )
+      AUTOMATIC ( WRMAX   , REAL , (N) )
+      AUTOMATIC ( TEMP    , REAL , (N) )
+      AUTOMATIC ( PG      , REAL , (N) )
+      AUTOMATIC ( ES      , REAL , (N) )
+      AUTOMATIC ( FNS     , REAL , (N) )
+      AUTOMATIC ( RUIG    , REAL , (N) )
+      AUTOMATIC ( RUIP    , REAL , (N) )
+      AUTOMATIC ( RUIT    , REAL , (N) )
+      AUTOMATIC ( WSX     , REAL , (N) )
+      AUTOMATIC ( BEXP    , REAL , (N) )
+      AUTOMATIC ( IM      , REAL , (N) )
+      AUTOMATIC ( I0IM    , REAL , (N) )
+      AUTOMATIC ( PGTMP   , REAL , (N) )
+      AUTOMATIC ( RVEG    , REAL , (N) )
+      AUTOMATIC ( WLMAX   , REAL , (N) )
+      AUTOMATIC ( ANSMIN  , REAL , (N) )
+      AUTOMATIC ( RHOSFALL, REAL , (N) )
+*
+************************************************************************
+*
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+*                            THE FOLLOWING SHOULD BE IN A COMMON
+*
+      CRMIN    = 0.03
+      CRMAX    = 0.10
+      RHOE     = 0.20
+      TAUHOUR  = 3600.
+      RHOICE   = 0.9
+*
+*
+*
+*                   Rainrate and snowrate (in mm/s). 
+*
+      DO I=1,N
+*
+        RR(I) = 1000. * RAINRATE(I)
+        SR(I) = 1000. * SNOWRATE(I)
+*
+      END DO
+*
+*
+*
+*
+**       1.     EVOLUTION OF THE EQUIVALENT WATER CONTENT Wr
+*               --------------------------------------------
+*
+*                                 evaporation rates
+*
+      DO I=1,N
+        EV(I)  = LEV(I)  / CHLC
+        ETR(I) = LETR(I) / CHLC
+        EG(I)  = LEG(I)  / LEFF(I)
+      END DO
+*
+*                                  evolution of the intercepted water
+*                                  (if we don t consider the runoff)
+*
+      DO I=1,N
+        WRT(I) = WR(I) - DT     
+     1         * (EV(I) - ETR(I)    
+     1         - VEG(I)*(1-PSNV(I)) * RR(I))
+      END DO
+*
+*                                  when Wr < 0, the direct evaporation
+*                                  (i.e., EV-ETR) removes too much
+*                                  liquid water from the vegetation
+*                                  reservoir.  This is considered as
+*                                  negative runoff, and it is stocked
+*                                  in RUIR2.
+*
+      DO I=1,N
+*
+        RUIR2(I) = MIN(0.,WRT(I)/DT)
+*
+*                                  Wr must be positive
+*
+        WRT(I) = MAX(0., WRT(I))
+*
+*                                  if Wr > Wrmax, there is runoff
+*
+        WRMAX(I) = 0.2*VEG(I)*LAI(I)
+        RUIR(I) = MAX(0., (WRT(I) - WRMAX(I)) / DT ) 
+*
+*                                  Wr must be smaller then Wrmax
+*
+        WRT(I) = MIN(WRT(I), WRMAX(I))
+*
+*
+*                                  Runoff from the vegetation canopy
+*                                  is thus given by RVEG
+*
+        RVEG(I) = RUIR(I) + RUIR2(I)
+*
+*
+*
+*                                  The rate of liquid water
+*                                  reaching the ground is the
+*                                  precipitation plus the vegetation
+*                                  runoff (we also consider the
+*                                  negative runoff).
+*
+        PG(I) = (1.-VEG(I)) * (1.-PSNG(I)) * RR(I)
+     1        +               (1.-PSN(I))  * RVEG(I)
+*
+      END DO
+*
+*                                   Finally, if Wr < CRITWATER, we
+*                                   force it to 0.0
+*
+      DO I=1,N
+        IF (WRT(I).LT.CRITWATER) WRT(I) = 0.0
+      END DO
+*
+*
+*
+*
+**       2.     EVOLUTION OF THE EQUIVALENT WATER CONTENT Ws
+*               --------------------------------------------
+*
+*                               evaporation over snow
+*
+      DO I=1,N
+*
+        ES(I) = LES(I) / (CHLC+CHLF)
+*
+*                               evolution of Ws
+*
+        WST(I) = WS(I) - DT * (ES(I) - SR(I)) + DSNOWDT(I)
+*
+      END DO
+*
+*
+*                               Check if too much snow has been melted
+*
+      DO I=1,N
+        IF (WS(I).LT.0.0) THEN
+          TST(I) = TST(I) - CT(I)*CHLF*DT*WS(I)
+          WS(I)  = 0.0
+        END IF
+      END DO
+*
+*
+*                                if Ws < CRITSNOW, force it to 0.0
+*                                and refresh properties (albedo and
+*                                density) of the snow pack
+*
+      DO I=1,N
+        IF (WST(I).LT.CRITSNOW) THEN
+          WST(I) = 0.0
+          ALPHAST(I) = ANSMAX
+          ALPHAS(I)  = ANSMAX
+          RHOST(I)   = RHOSDEF
+          RHOS(I)    = RHOSDEF
+        END IF
+      END DO
+*
+*
+*
+*
+*        3.     EVOLUTION OF LIQUID WATER IN THE SNOW PACK
+*               ------------------------------------------
+*
+*
+*                               Calculate the maximum liquid water
+*                               that can be retained in the snow pack
+*
+      DO I=1,N
+        IF (RHOS(I).LT.RHOE) THEN
+          WLMAX(I) = (
+     1                 CRMIN 
+     1               + (CRMAX-CRMIN) * (RHOE-RHOS(I)) / RHOE
+     1                                                         )
+     1               * WST(I)
+        ELSE
+          WLMAX(I) = CRMIN * WST(I)
+        END IF
+      END DO
+*
+*
+*                               Calculate runoff of liquid water from 
+*                               the snow pack
+*
+      DO I=1,N
+        IF (WL(I).LE.WLMAX(I)) THEN
+          RSNOW(I) = WL(I) / TAUHOUR *
+     1               EXP( WL(I)-WLMAX(I) )
+        ELSE
+          RSNOW(I) = WLMAX(I) / TAUHOUR
+     1             + (WL(I)-WLMAX(I)) / DT
+        END IF
+        RSNOW(I) = MAX( 0.      , RSNOW(I) )
+        RSNOW(I) = MIN( WL(I)/DT, RSNOW(I) )
+      END DO
+*
+*
+*                               Calculate the new values for WL and
+*                               for the liquid water reaching the ground
+*
+      DO I=1,N
+        WLT(I) = WL(I) + PSN(I)*(RR(I)+RVEG(I))*DT 
+     1                 - RSNOW(I)*DT - DSNOWDT(I)
+        WLT(I) = MAX( 0., WLT(I) )
+      END DO
+*
+*
+*                               Include the effect of runoff from the
+*                               snowpack as a source for water reaching
+*                               the ground
+*
+      DO I=1,N
+        PG(I) = PG(I) + RSNOW(I)
+      END DO
+*
+*
+*
+*
+*
+*
+*        4.     SUBGRID-SCALE RUNOFF
+*               --------------------
+*
+*                                Preliminary calculations
+*                                for:
+*                                BEXP = exponent b in the formulation
+*                                IM   = maximum infiltration capacity
+*                                I0IM = fraction i0 / im where i0 is
+*                                       infiltration capacity of the 
+*                                       non-saturated subgrid elements
+*                                PGTMP = PG (liquid water fluxes at the
+*                                        surface) with the right units
+*                                        (i.e., meters).
+*
+*                                Note that the sum of W2+WF is used.
+*                                When soil is frozen, greater chance of
+*                                runoff.
+*
+*                                First remove excedent of soil water
+*                                (greater than the soil saturation)
+*
+      DO I=1,N
+        RUIT(I) = MAX( 0., W2(I)+WF(I)-WSAT(I) )
+        IF (RUIT(I).GT.W2(I)) 
+     1               WF(I) = WF(I)+W2(I)-RUIT(I)
+        W2(I) = MAX( 0., W2(I)-RUIT(I) )
+      END DO  
+*
+*
+*                                Subgrid-scale runoff parameterization
+*
+      DO I=1,N
+        BEXP(I)  = 1.
+        IM(I)    = (1.+BEXP(I))*WSAT(I)*D2(I)
+        I0IM(I)  = 1. 
+     1        - MAX( 0., ( 1.- (W2(I)+WF(I))/WSAT(I)) )
+     1                               **( 1./(BEXP(I)+1.) ) 
+        PGTMP(I) = PG(I) * DT / 1000. 
+        PGTMP(I) = MAX( PGTMP(I), 0.0 ) 
+*
+*
+*
+*                                 Calculate the runoff
+*
+        RUNOFF(I) = PGTMP(I) + IM(I)/(BEXP(I)+1) *
+     1              (
+     1   MAX( 0., ( 1.-I0IM(I)-PGTMP(I)/IM(I) ) )**(BEXP(I)+1.) 
+     1      -  MAX( 0., ( 1.-I0IM(I) ) )**(BEXP(I)+1.)
+     1                                                )
+        RUNOFF(I) = MAX( RUNOFF(I), 0.0 )
+        PG(I) = PG(I) - RUNOFF(I)*1000./DT
+      END DO
+*
+*
+      DO I=1,N
+        RUNOFF(I) = RUNOFF(I)*1000. + RUIT(I)
+      END DO
+*
+*
+*
+*
+**       5.     EVOLUTION OF THE SUPERFICIAL WATER CONTENT WG
+*               ---------------------------------------------
+*
+*
+      DO I=1,N
+*                            updated values for wg
+*
+        WGT(I) = (WG(I) - DT * (ZC1(I) * (EG(I) - PG(I))  
+     1        / 1000. -  ZC2(I) * WGEQ(I) / 86400.) )   
+     1        / (1. + DT * ZC2(I) / 86400.)
+*
+*                             horizontal runoff when wg > wsat
+*
+        RUIG(I) = MAX(0., WG(I) - WSAT(I) )
+*
+      END DO
+*
+*
+**       6.     EVOLUTION OF THE DEEP-SOIL WATER CONTENT W2
+*               -------------------------------------------
+*
+      DO I=1,N
+*
+*                             updated values for w2
+*
+        W2T(I) = W2(I) - DT*(EG(I) + ETR(I) - PG(I)) 
+     1         / (D2(I) * 1000.)
+*
+*
+*                              deep-soil horizontal runoff
+*
+        RUIP(I) = RUIG(I) * 10./(D2(I)*1000.)
+*
+      END DO
+*
+*
+*
+*
+*
+**       7.     DRAINAGE FROM THE DEEP SOIL
+*               ---------------------------
+*
+*                                      when w2 > wfc, there is drainage
+*
+      DO I=1,N
+*
+        DRAIN(I) = -DT*MAX(0.,W2T(I)-WFC(I))*C3(I)  
+     1           / (D2(I)*86400.)
+*
+*                                      the deep-soil volumetric water content w2
+*                                      is modified consequently
+*
+        W2T(I) = W2T(I) + DRAIN(I)
+*
+*                                      Drainage from ISBA is sent to DRAINTOT
+*                                      which includes all types of surface        
+        DRAINTOT(I) = -DRAIN(I) * 1000. * D2(I) / DT
+*
+      END DO
+*
+*
+*
+*
+*        8.     TIME-EVOLUTION OF THE FROZEN SOIL WATER
+*               ---------------------------------------
+*
+      DO I=1,N
+        WFT(I) = WF(I)  + DWATERDT(I)
+        W2T(I) = W2T(I) - DWATERDT(I)
+      END DO
+*
+*
+*
+*
+*
+**       9.     EVOLUTION OF SNOW ALBEDO
+*               ------------------------
+*
+*
+*                                       First calculate the minimum
+*                                       value for the snow albedo
+*                                       ANSMIN
+*
+      DO I=1,N
+        RSNOW_DAY = MIN( RSNOW(I)*24.*3600., 10. )
+        ANSMIN(I) = 0.5 - 0.2 *
+     1           (  1. - COS(RSNOW_DAY*PI /
+     1              ( 2.*10. ) )               )
+      END DO
+*
+*                                       the evolution of the snow albedo differs
+*                                       if there is melting or not
+*
+      DO I=1,N
+*
+*                                       when there is melting
+*
+        IF (WST(I).GT.0.0.AND.DSNOWDT(I).LT.0.0) 
+     1    ALPHAST(I) = (ALPHAS(I)-ANSMIN(I))*EXP(-0.01*DT/3600.) 
+     1               +  ANSMIN(I)
+     1               +  SR(I)*DT/WCRN*(ANSMAX-ANSMIN(I))
+*
+        IF (WST(I).GT.0.0.AND.DSNOWDT(I).GE.0.0)
+     1    ALPHAST(I) = ALPHAS(I) - TODRY*DT/86400.  
+     1               + SR(I)*DT/WCRN*(ANSMAX-ANSMIN(I))
+*
+*
+      END DO
+*
+*                                       limits of the albedo
+*
+      DO I=1,N
+*
+        IF (WST(I).GT.0.0) THEN
+          ALPHAST(I) = MIN( ANSMAX, ALPHAST(I) )
+          ALPHAST(I) = MAX( ANSMIN(I), ALPHAST(I) )
+        ELSE
+          ALPHAST(I) = ANSMAX
+        END IF
+*
+      END DO
+*
+*
+*
+*
+**       10.     EVOLUTION OF SNOW DENSITY
+*                -------------------------
+*
+*
+*                           Density of falling snow
+*
+      DO I=1,N
+        IF (WST(I).GT.0.0) THEN
+           RHOSFALL(I) = 109. + 6.*(T2M(I)-TRPL) +
+     1                   26.*(U10M(I)**2+V10M(I)**2)**0.25
+           RHOSFALL(I) = MIN(MAX((RHOSFALL(I)*0.001),RHOMIN), 0.250)
+        ELSE
+           RHOSFALL(I) = RHOSDEF
+	END IF
+      END DO
+*
+*                           Evolution of the snow density depends
+*                           on 3 factors:  
+*    
+*                           - decrease of density due to fresh new snow
+*                           - increase of density due to aging
+*                           - increase of density due to freezing of 
+*                             liquid water in the snow pack
+*
+*
+*                           A) decrease due to fresh new snow
+*
+      DO I=1,N
+        IF (WST(I).GT.0.0) THEN
+          WSX(I)   = MAX( WST(I),SR(I)*DT)
+          RHOST(I) = ( (WSX(I)-SR(I)*DT) * RHOS(I)
+     1             + (SR(I)*DT) * RHOSFALL(I)) / WSX(I)
+        END IF
+      END DO
+*
+*
+*                           B) increase due to aging
+*
+      DO I=1,N
+        IF (WST(I).GT.0.0.AND.RHOST(I).LT.RHOMAX(I)) THEN
+          RHOST(I) = (RHOST(I)-RHOMAX(I))*EXP(-0.01*DT/3600.) 
+     1               + RHOMAX(I)
+        END IF
+      END DO
+*
+*
+*                           C) increase due to freezing
+*
+      DO I=1,N
+        IF (WST(I).GT.0.0) THEN
+          RHOST(I) = 
+     1               ( WST(I)*RHOST(I) + FREEZS(I)*DT*RHOICE )
+     1             / ( WST(I)+FREEZS(I)*DT )
+        END IF
+      END DO
+*
+*                          lower limit for the snow density
+*
+      DO I=1,N
+        IF (WST(I).GT.0.0) THEN
+          RHOST(I) = MIN( RHOICE, RHOST(I) )
+          RHOST(I) = MAX( RHOMIN, RHOST(I) )
+        ELSE
+          RHOST(I) = RHOSDEF
+        END IF
+      END DO
+*
+*
+      DO I=1,N
+         SNODP(I) = WST(I)/(RHOST(I)*RAUW)
+      END DO
+*
+*
+**
+**       11.     RUN-OFF
+*               -------
+*
+*                                     when w2 > wsat, there is runoff
+*
+      DO I=1,N
+*
+        RUIT(I) = MAX( 0., W2T(I)+WFT(I)-WSAT(I) )
+        IF (RUIT(I).GT.W2T(I)) 
+     1               WFT(I) = WFT(I)+W2T(I)-RUIT(I)
+        W2T(I) = MAX( 0., W2T(I)-RUIT(I) )        
+*
+        RUNOFF(I) = RUNOFF(I) + RUIT(I) 
+*                                      Runoff from ISBA is sent to RUNOFFTOT
+*                                      which includes all types of surface        
+        RUNOFFTOT(I) = RUNOFF(I) / DT
+*
+      END DO
+*
+*
+**       12.     LIMITS FOR WG AND W2
+*                --------------------
+*
+*
+      DO I=1,N
+*
+        WGT(I) = MIN( WGT(I), WSAT(I) )
+        WGT(I) = MAX( WGT(I), CRITWATER   )
+*
+        W2T(I) = MIN( W2T(I), WSAT(I) )
+        WFT(I) = MIN( WFT(I), WSAT(I) )
+*
+        IF (W2T(I)+WFT(I).LT.CRITWATER) THEN
+          W2T(I) = CRITWATER
+          WFT(I) = 0.0
+        END IF
+*
+*                                     we ensure coherence between the
+*                                     frozen and liquid soil water
+*
+        IF (W2T(I).LT.CRITWATER) THEN
+           WFT(I) = WFT(I) - ( CRITWATER-W2T(I) )
+           W2T(I) = CRITWATER
+        ENDIF
+*
+        WFT(I) = MAX( WFT(I), 0.0   )
+*
+      END DO
+*
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

@@ -1,0 +1,126 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer,
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer
+!version 3 or (at your option) any later version that should be found at:
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software;
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec),
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!***  s/p radcons
+!*
+#include "phy_macros_f.h"
+      subroutine radcons (f,fsiz, e, esiz, ni)
+
+#include "impnone.cdk" 
+     
+      integer fsiz, esiz, ni
+      real f(fsiz), e(esiz)
+
+#include "phybus.cdk"
+#include "consphy.cdk"
+
+!Author
+!         J.Mailhot, A. Erfani, J. Toviessi (July 2009)
+!
+!
+!Revisions
+!
+!
+!Object
+!       Calculate constants required to define the radiation along the 
+!       slopes. 
+!
+!
+!Arguments
+!
+!               - Input/Output -
+! f             bus of the physics variable 
+! e             bus of the physics variable            
+!               - Input -
+! fsiz          size of the f bus
+! esiz          size of the e bus 
+! ni            horizontal dimension 
+!
+	  integer i
+	  real sum
+          real pi180 
+ 
+	  real cos_n    ! North 
+	  real cos_e    ! East
+	  real cos_s    ! South 
+	  real cos_w    ! West 
+	  real sin_n    ! North 
+	  real sin_e    ! East 
+	  real sin_s    ! South 
+	  real sin_w    ! West 
+
+	  AUTOMATIC(sla_cos,  real,(4*ni))
+	  AUTOMATIC(sla_sin,  real,(4*ni))
+	  AUTOMATIC(sla_2cos, real,(4*ni))
+          AUTOMATIC(sla_2sin, real,(4*ni))
+          AUTOMATIC(sla_rad,  real,(4*ni))
+
+	  cos_n    = cos(pi)         ! North 
+	  cos_e   = cos(1.5*pi)      ! East 
+	  cos_s  = cos(0.0)          ! South
+	  cos_w  = cos(0.5*pi)       ! West
+	  sin_n    = sin(pi)         ! North
+	  sin_e   = sin(1.5*pi)      ! East
+	  sin_s  = sin(0.0)          ! South
+	  sin_w  = sin(0.5*pi)       ! West
+
+!                facteur de conversion d'angle de degre a radian
+          pi180 =   pi/180.0
+
+      do i = 1, 4*ni
+
+            sla_rad(i)  = e(sla+i-1)*pi180
+	    sla_2cos(i) = sla_rad(i)*0.50
+	  enddo
+
+	  call  vscos(sla_cos, sla_rad,   4*ni)
+	  call  vssin(sla_sin, sla_rad,   4*ni)
+	  call  vssin(sla_2sin,sla_2cos,  4*ni)
+	  call  vscos(sla_2cos,sla_2cos,  4*ni)
+
+ do i = 1, ni
+      sum =  e(fsa+i-1) + e(fsa+ni+i-1) + e(fsa+2*ni+i-1) + e(fsa+3*ni+i-1) 
+
+      f(c1slop+i-1) = e(fsa+i-1)*sla_cos(i) +                             & 
+                      e(fsa+ni+i-1)*sla_cos(ni+i) +                       &
+                      e(fsa+2*ni+i-1)*sla_cos(2*ni+i) +                   &
+			       e(fsa+3*ni+i-1)*sla_cos(3*ni+i)
+      f(c1slop+i-1) = f(c1slop+i-1) + (1-sum)
+
+      f(c2slop+i-1) = e(fsa+i-1)*sla_sin(i)*cos_n +                       & 
+                      e(fsa+ni+i-1)*sla_sin(ni+i)*cos_e +                 &
+                      e(fsa+2*ni+i-1)*sla_sin(2*ni+i)*cos_s +             & 
+			       e(fsa+3*ni+i-1)*sla_sin(3*ni+i)*cos_w
+
+      f(c3slop+i-1) = e(fsa+i-1)*sla_sin(i)*sin_n +                       & 
+                      e(fsa+ni+i-1)*sla_sin(ni+i)*sin_e +                 &
+                      e(fsa+2*ni+i-1)*sla_sin(2*ni+i)*sin_s +             & 
+                      e(fsa+3*ni+i-1)*sla_sin(3*ni+i)*sin_w
+
+      f(c4slop+i-1) = e(fsa+i-1)*sla_2cos(i)*sla_2cos(i) +                & 
+	              e(fsa+ni+i-1)*sla_2cos(ni+i)*sla_2cos(ni+i) +       &
+                      e(fsa+2*ni+i-1)*sla_2cos(2*ni+i)*sla_2cos(2*ni+i) + & 
+	              e(fsa+3*ni+i-1)*sla_2cos(3*ni+i)*sla_2cos(3*ni+i)
+      f(c4slop+i-1) = f(c4slop+i-1)+ (1-sum)
+
+      f(c5slop+i-1) = e(fsa+i-1)*sla_2sin(i)*sla_2sin(i) +                & 
+	              e(fsa+ni+i-1)*sla_2sin(ni+i)*sla_2sin(ni+i) +       &
+                      e(fsa+2*ni+i-1)*sla_2sin(2*ni+i)*sla_2sin(2*ni+i) + & 
+	              e(fsa+3*ni+i-1)*sla_2sin(3*ni+i)*sla_2sin(3*ni+i)
+
+ end do
+
+ return
+ end

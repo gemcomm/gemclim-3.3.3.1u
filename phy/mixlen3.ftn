@@ -1,0 +1,325 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P MIXLEN3
+*
+*
+#include "phy_macros_f.h"
+      SUBROUTINE MIXLEN3( ZN, THVSTAG, EN, ZSTAG, H, SIGMA, PS, N, NK)
+*
+*
+#include "impnone.cdk"
+*
+      INTEGER N,NK
+*
+      REAL ZN(N,NK), THVSTAG(N,NK)
+      REAL EN(N,NK), ZSTAG(N,NK)
+      REAL SIGMA(N,NK), PS(N)
+      REAL H(N)
+*
+*
+*
+*Author
+*          S. Belair (November 1996)
+*
+*Revision
+* 001      J. Mailhot (July 1999) - version using the virtual potential
+*                                   temperature; change name to MIXLEN1
+* 002      J. Mailhot (Sept 1999) - clipping of RIF maximum for computation of ZE
+* 003      S. Belair (Oct 1999)   - staggerred values for the virtual 
+*                                   potential temperature and the heights
+* 004      J. Mailhot (July 2000) - correct limits for solution of quadratic eqn.
+* 005      J. Mailhot (Aug 2000) - add relaxation option (RELAX = .T. or .F.)
+* 006      S. Belair, J. Mailhot (March 2001)
+*                                  blend between local (i.e.,
+*                                  Bougeault-Lacarrere) and
+*                                  background (i.e., input) mixing and
+*                                  dissipation lengths
+* 007      A-M Leduc  (Oct 2001)   - Automatic arrays
+* 008      J. Mailhot (May 2002) - restrict local mixing to convective case
+* 009      S. Belair, J. Mailhot (June 2002) - use fixed heights for blend
+*                                              and remove stability considerations
+* 010      S. Belair (Jan 2003)   -reorganization and modification of bougeault
+*                                   mixlen1--->mixlen2
+* 011      B. Bilodeau (Aug 2003) - IBM conversion (scalar version)
+* 012      S. Belair (March 2004) - Relax the mixing length towards the 
+*                                   Blackadar value in the upper troposphere
+*                                   (i.e., between plow and phigh)
+* 002      L. Spacek (Dec 2007)   - all calculations on energy levels
+*
+*Object
+*           Calculates the mixing length ZN and the dissipation
+*           length ZE based on the Bougeault and Lacarrere method.
+*
+*Arguments
+*                        -Output-
+*
+* ZN        mixing length
+*
+*                         -Input-
+*
+* ZN        mixing length at t- (only if RELAX = .TRUE.)
+* THV       virtual potential temperature
+* EN        turbulent kinetic energy
+* Z         height of the sigma levels
+* H         height of the boundary layer
+* N         horizontal dimension
+* NK        vertical dimension
+*
+*
+      INTEGER J, K, KI
+      REAL GRAVINV
+*
+*
+      SAVE ZMIX, PLOW, PHIGH
+      REAL ZMIX, PLOW, PHIGH
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( KIK      , INTEGER , (N,NK   ) )
+*
+      AUTOMATIC ( RECBETA  , REAL    , (N      ) )
+      AUTOMATIC ( LUP      , REAL    , (N,NK   ) )
+      AUTOMATIC ( LDOWN    , REAL    , (N,NK   ) )
+      AUTOMATIC ( DELTHK   , REAL    , (N,NK   ) )
+      AUTOMATIC ( SLOPE    , REAL    , (N,NK   ) )
+      AUTOMATIC ( DELEN    , REAL    , (N,NK   ) )
+      AUTOMATIC ( DELZUP   , REAL    , (N,NK   ) )
+      AUTOMATIC ( DELZDOWN , REAL    , (N,NK   ) )
+      AUTOMATIC ( BUOYSUM  , REAL    , (N,NK,NK) )
+      AUTOMATIC ( ENLOCAL  , REAL    , (N,NK   ) )
+      AUTOMATIC ( ZNBLAC   , REAL    , (N,NK   ) )
+      AUTOMATIC ( PRES     , REAL    , (N,NK   ) )
+*
+************************************************************************
+*
+#include "consphy.cdk"
+#include "scfrst.cdk"
+*
+      DATA ZMIX  / 500. /
+      DATA PLOW  / 550.E2 /
+      DATA PHIGH / 450.E2 /
+*
+*
+      DO J=1,N*NK*NK
+        BUOYSUM(J,1,1) = 0.
+      END DO
+*
+*
+      DO K=1,NK
+      DO J=1,N
+        ZNBLAC(J,K) = ZN(J,K)
+        PRES(J,K)   = SIGMA(J,K) * PS(J)
+      END DO
+      END DO
+*
+*
+*
+*
+*                              virtual potential temperature and 
+*                              level heights must be put on staggerred
+*
+      DO K=1,NK-1
+      DO J=1,N
+        ENLOCAL(J,K) = MIN( EN(J,K), 4. )
+      END DO
+      END DO
+*
+*
+*                              surface buoyancy term BETA
+*
+      GRAVINV = 1./GRAV
+      DO J=1,N
+        RECBETA(J) = THVSTAG(J,NK)*GRAVINV
+      END DO
+*
+*
+*
+*                      --------- FIND THE UPWARD MIXING LENGTH
+*                                (LUP)
+*
+      DO J=1,N*NK
+        KIK(J,1) = 1
+      END DO
+*
+*
+      DO J=1,N
+      DO 10 KI=2,NK-1
+      DO K=KI,2,-1
+        IF (KI.EQ.K) BUOYSUM(J,K+1,KI) = 0.0
+        BUOYSUM(J,K,KI) =
+     1           BUOYSUM(J,K+1,KI)     +
+     1       0.5*( ZSTAG(J,K-1)-ZSTAG(J,K) ) *
+     1   ( THVSTAG(J,K-1) + THVSTAG(J,K) - 2.*THVSTAG(J,KI) )
+*
+        IF (BUOYSUM(J,K,KI).GT.ENLOCAL(J,KI)*RECBETA(J)) THEN
+           KIK(J,KI) = K
+           GOTO 10
+        ENDIF
+      END DO
+10    CONTINUE
+      END DO
+*
+*
+*
+      DO K=2,NK-1
+      DO J=1,N
+        LUP(J,K)     = ZSTAG(J,KIK(J,K)) - ZSTAG(J,K)
+        DELTHK(J,K)  = THVSTAG(J,KIK(J,K)) - THVSTAG(J,K)
+        SLOPE(J,K)   = ( THVSTAG(J,KIK(J,K)-1)-THVSTAG(J,KIK(J,K)))/
+     1                 (  ZSTAG(J,KIK(J,K)-1) -  ZSTAG(J,KIK(J,K) ) )
+        SLOPE(J,K)   = MAX( SLOPE(J,K), 1.E-6 )
+        DELEN(J,K)   = ENLOCAL(J,K)*RECBETA(J) - BUOYSUM(J,KIK(J,K)+1,K)
+        DELZUP(J,K)  = -DELTHK(J,K) +
+     1               SQRT( MAX( 0.0, DELTHK(J,K)*DELTHK(J,K) +
+     1                    2.*SLOPE(J,K)*DELEN(J,K) ) )
+        DELZUP(J,K)  = DELZUP(J,K) / SLOPE(J,K)
+        LUP(J,K)     = LUP(J,K) + DELZUP(J,K)
+        LUP(J,K)     = MAX( LUP(J,K), 1. )
+      END DO
+      END DO
+*
+*
+      DO J=1,N
+        LUP(J,1) = LUP(J,2)
+        LUP(J,NK)= LUP(J,NK-1)
+      END DO
+*
+*
+*
+*                             Same work but for the downward
+*                             free path
+*
+      DO KI=1,NK
+      DO J=1,N
+        KIK(J,KI) = 1
+      END DO
+      END DO
+*
+      DO J=1,N
+      DO 11 KI=2,NK-1
+      DO K=KI,NK-1
+        IF (KI.EQ.K) BUOYSUM(J,K-1,KI) = 0.0
+        BUOYSUM(J,K,KI) = BUOYSUM(J,K-1,KI) +
+     1       0.5*( ZSTAG(J,K) - ZSTAG(J,K+1) ) *
+     1       ( 2.*THVSTAG(J,KI) - THVSTAG(J,K) - THVSTAG(J,K+1) )
+*
+        IF (BUOYSUM(J,K,KI).GT.ENLOCAL(J,KI)*RECBETA(J)) THEN
+           KIK(J,KI) = K
+           GO TO 11
+        ENDIF
+        IF (K.EQ.NK-1.AND.KIK(J,KI).EQ.1) KIK(J,KI) = NK-1
+      END DO
+11    CONTINUE
+      END DO
+*
+*
+      DO J=1,N
+        KIK(J,1) = 1
+      END DO
+*
+*
+      DO K=2,NK-1
+      DO J=1,N
+        LDOWN(J,K)    = ZSTAG(J,K) - ZSTAG(J,KIK(J,K))
+        DELTHK(J,K)   = THVSTAG(J,K) - THVSTAG(J,KIK(J,K))
+        SLOPE(J,K)    = ( THVSTAG(J,KIK(J,K))-THVSTAG(J,KIK(J,K)+1))/
+     1                 (  ZSTAG(J,KIK(J,K)) -  ZSTAG(J,KIK(J,K)+1) )
+        SLOPE(J,K)    = MAX( SLOPE(J,K), 1.E-6 )
+        DELEN(J,K)    = ENLOCAL(J,K)*RECBETA(J) - BUOYSUM(J,KIK(J,K)-1,K)
+        DELZDOWN(J,K) = -DELTHK(J,K) + SQRT ( MAX( 0.0 ,
+     1                   DELTHK(J,K)*DELTHK(J,K) +
+     1                   2.*SLOPE(J,K)*DELEN(J,K) ) )
+        DELZDOWN(J,K) = DELZDOWN(J,K) / SLOPE(J,K)
+        LDOWN(J,K)    = LDOWN(J,K) + DELZDOWN(J,K)
+        LDOWN(J,K)    = MIN( LDOWN(J,K), ZSTAG(J,K) )
+        LDOWN(J,K)    = MAX( LDOWN(J,K), 1. )
+      END DO
+      END DO
+*
+*
+      DO J=1,N
+        LDOWN(J,NK)  = LDOWN(J,NK-1)
+        LDOWN(J,1)   = LDOWN(J,2)
+      END DO
+*
+*
+*
+*
+*                            Calculate the mixing length ZN
+*                            and the dissipation length from the
+*                            LUP and LDOWN results
+*
+*
+      DO K=1,NK
+      DO J=1,N
+        ZN(J,K) = MIN( LUP(J,K), LDOWN(J,K) )
+        ZN(J,K) = MIN(  ZN(J,K), ZSTAG(J,K) )
+      END DO
+      END DO
+*
+*
+*
+*
+*                            Blending of the mixing and dissipation lengths
+*                            between the local values (i.e., Bougeaut-
+*                            Lacarrere calculations) and background values
+*                            (i.e., from input arguments)
+*                            Restrict local mixing to convective case
+*                            This blending is done near the surface (below
+*                            ZMIX), and in the upper troposphere (above PHIGH,
+*                            with a linear transition between PLOW and PHIGH).
+*
+      DO K=1,NK
+      DO J=1,N
+*
+        IF ( ZSTAG(J,K).LT.ZMIX ) THEN
+          ZN(J,K)   = ZNBLAC(J,K) + ZSTAG(J,K)/ZMIX * 
+     1                             ( ZN(J,K) - ZNBLAC(J,K) )
+        END IF
+*
+      END DO
+      END DO
+*
+*
+      DO K=1,NK
+      DO J=1,N
+        ZN(J,K) = ZNBLAC(J,K) + 
+     1            ( MIN( MAX( PRES(J,K), PHIGH ) , PLOW ) - PHIGH )
+     1          * ( ZN(J,K) - ZNBLAC(J,K) ) / ( PLOW - PHIGH )
+      END DO
+      END DO
+*
+*
+*
+*
+      DO J=1,N
+        ZN(J,NK)   = MIN( ZN(J,NK)  , KARMAN*ZSTAG(J,NK)   )
+      END DO
+*
+*
+      DO K=1,NK
+      DO J=1,N
+        ZN(J,K) = MAX( ZN(J,K), 1.E-6 )
+      END DO
+      END DO
+*
+*
+*
+      RETURN
+      END

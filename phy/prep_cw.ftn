@@ -1,0 +1,240 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer,
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer
+!version 3 or (at your option) any later version that should be found at:
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software;
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec),
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P PREP_CW
+      Subroutine prep_cw (f, fsiz, d, dsiz, v, vsiz,
+     +                    qcplus0, ficebl,
+     +                     kount, trnch, task, ni, nk)
+*
+#include "impnone.cdk"
+*
+      Integer fsiz, dsiz, vsiz, ni, n, nk
+      Integer kount, trnch, task
+      Real f(fsiz), d(dsiz), v(vsiz)
+      Real qcplus0(ni,nk), ficebl(ni,nk)
+*
+*
+*Author
+*          L. Spacek (Oct 2004)
+*
+*Revisions
+* 000      The code was extracted from phyexe1 in order to have final water calculations in one place
+* 001      J. Milbrandt (Dec 2006) - added snow (QN) and hail (QH) mass to calculation of IWC for Milbrandt-Yau scheme
+* 002      J. Milbrandt (Nov 2008) - removed graupel (QG) and hail (QH) mass from calculation IWC for M-Y;
+*                                    removed rain mass (QR) from calculation of LWC for M-Y
+* 003      Spacek/Dugas (Spring 2011) - qldi, qsdi, qlsc, qssc fix for no convection case
+*
+*Object
+*          Save water contents and cloudiness in the permanent bus
+*
+*Arguments
+*
+*          - Input -
+* dsiz     dimension of d
+* fsiz     dimension of f
+* vsiz     dimension of v
+* qcplus0  qcplus at the beginning of physics calculations
+* ficebl   fraction of ice
+* kount    index of timestep
+* trnch    number of the slice
+* task     task number
+* ni       horizontal dimension
+* nk       vertical dimension
+*
+*          - Output -
+*
+*          - Input/Output -
+* d        dynamic             bus
+* f        permanent variables bus
+* v        volatile (output)   bus
+*
+*Implicites
+*
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+*
+*Modules
+*
+*
+**    -------------------------------
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+*
+*
+************************************************************************
+*
+      Integer ik, i, k
+*
+*     Statement Function to calculate the indexes
+*
+      ik(i,k) = (k-1)*ni + i - 1
+*
+*     Apply the convection/condensation tendencies
+*     ------------------------------------------
+*
+      If (iconvec.Gt.0 .Or. istcond.Gt.0) Then
+*
+*     Cloud water
+*     ------------
+*
+      If (istcond.Ge.3) Then
+*
+*     Copy qcplus into the permanent bus. Il will be used during
+*     next timestep by the radiation
+*
+         Do i=1,ni*(nk-1)
+           f(lwc+i-1) =  d(qcplus+i-1)
+         Enddo
+*
+*     If we have the CONSUN scheme, the cloud water from MoisTKE has
+*     priority over the cloud water from the grid-scale scheme.
+*     In this Case, everything goes into the LWC (for liquid cloud water)
+*     variable.
+*
+         If (istcond.Eq.4) Then
+*VDIR NODEP
+            Do i=1,ni*(nk-1)
+               If (ifluvert.Eq.3. .And. f(qtbl+i-1).Gt.d(qcplus+i-1)) Then
+                     f(lwc+ i-1) =  f(qtbl+i-1)
+                     f(fxp+i-1) =  f(fbl+i-1)
+               Endif
+            Enddo
+*
+         Endif
+*
+*     Same for MixPhase ... BUT the partition of cloud water is also done
+*                           using fice and ficebl
+*
+         If (istcond.Eq.5) Then
+*VDIR NODEP
+            Do i=1,ni*(nk-1)
+               f(lwc+i-1) =  d(qcplus+i-1) * (1.0 - f(fice+i-1) )
+               f(iwc+i-1) =  d(qcplus+i-1) * f(fice+i-1)
+*
+               If (ifluvert.Eq.3. .And. f(qtbl+i-1).Gt.d(qcplus+i-1)) Then
+                  f(lwc+ i-1) =  f(qtbl+i-1) * (1.0 - ficebl(i,1) )
+                  f(iwc+ i-1) =  f(qtbl+i-1) * ficebl(i,1)
+                  f(fxp+i-1) =  f(fbl+i-1)
+               Endif
+            Enddo
+*
+         Endif
+*
+*
+*     For the Kong and Yau scheme, MoisTKE has
+*     priority over the grid-scale condensation scheme
+*
+         If (istcond.Eq.9) Then                    ! schema "EXCRG" (Kong-Yau)
+            Do i=1,ni*(nk-1)
+*              transvidage de qiplus (glace) et
+*              qgplus (neige roulee ou "graupel")
+               f(lwc+i-1) =  d(qcplus+i-1) + d(qrplus+i-1)
+               f(iwc+i-1) =  d(qiplus+i-1) + d(qgplus+i-1)
+*
+               If (ifluvert.Eq.3. .And. f(qtbl+i-1).Gt.
+     +             f(lwc+i-1)+f(iwc+i-1)) Then
+*
+                  f(lwc+ i-1) =  f(qtbl+i-1) * (1.0 - ficebl(i,1) )
+                  f(iwc+ i-1) =  f(qtbl+i-1) * ficebl(i,1)
+                  f(fxp+i-1) =  f(fbl+i-1)
+*
+               Endif
+*
+            Enddo
+         Endif
+*
+         If (istcond.ge.10 .and. istcond.le.14) Then  !Milbrandt-Yau scheme (all versions)
+            Do i=1,ni*(nk-1)
+*              transvidage de qiplus (pristine ice) et qnplus ("snow" [large ice crystals/aggregates]):
+               f(lwc+i-1) =  d(qcplus+i-1)
+               f(iwc+i-1) =  d(qiplus+i-1) + d(qnplus+i-1)
+*
+               If (ifluvert.Eq.3. .And. f(qtbl+i-1).Gt.
+     +             f(lwc+i-1)+f(iwc+i-1)) Then
+*
+                  f(lwc+ i-1) =  f(qtbl+i-1) * (1.0 - ficebl(i,1) )
+                  f(iwc+ i-1) =  f(qtbl+i-1) * ficebl(i,1)
+                  f(fxp+i-1) =  f(fbl+i-1)
+*
+               Endif
+*
+            Enddo
+         Endif
+*
+*     The following is necessary until the zonals at t=0 be corrected
+*
+c         If(kount.Eq.1) Then
+c            Do i=1,ni*(nk-1)
+c               d(qcplus+i-1)=qcplus0(i,1)
+c            Enddo
+c         Endif
+*
+      Endif
+*
+*
+*
+*     Add the cloud water (liquid and solid) coming from shallow and deep
+*     cumulus clouds (only for the Kuo Transient shallow- and Kain-Fritsch
+*     or Bechtold deep-convection schemes). qldi, qsdi, and qlsc, qssc are
+*     undefined if these schemes are not used. Also note that qldi, qsdi,
+*     qlsc and qssc are NOT IN-CLOUD values.
+*
+*     If the MixPhase or Kong-Yau schemes are used, it is better to partition
+*     cloud water into liquid and solid phases (possible for the Kain-Fritsch
+*     scheme). For the other grid-scale schemes (e.g., Sundqvist) all
+*     the cloud water is put in LWC (and will be partition later in the
+*     radiation subroutines)
+*
+      If ((iconvec == 6 .or. iconvec == 13) .and. ishlcvt(2) > 0) then
+         If (istcond.Ge.5) then 
+*
+            Do i=1,ni*(nk-1)
+               f(lwc+i-1) = f(lwc+i-1) + f(qldi+i-1)
+     1                                 + v(qlsc+i-1)
+               f(iwc+i-1) = f(iwc+i-1) + f(qsdi+i-1)
+     1                                 + v(qssc+i-1)
+            Enddo
+*
+         Else
+*
+            Do i=1,ni*(nk-1)
+               f(lwc+i-1) = f(lwc+i-1)
+     1                    +   f(qldi+i-1)   +f(qsdi+i-1)
+     1                    +   v(qlsc+i-1)   +v(qssc+i-1)
+            Enddo
+*
+         Endif
+      Endif
+*
+*     Combine explicit and Implicit clouds using the random overlap
+*     approximation:
+*         FXP is for grid-scale condensation
+*              (but can also include the PBL clouds of MoisTKE)
+*         FDC is for deep convection clouds
+*         FSC is for the shallow convection clouds
+*
+      Do i=1,ni*(nk-1)
+          f(ftot+i-1) = Min(  Max(
+     1         1. - (1.-f(fxp+I-1))*(1.-f(fdc+I-1))*(1.-f(fsc+I-1)) ,
+     1                                                0.       )  ,
+     1                                                       1.)
+      Enddo
+*
+      Endif
+      End Subroutine prep_cw

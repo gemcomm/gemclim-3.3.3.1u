@@ -1,0 +1,235 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  LIN_DIFVER1
+*
+      SUBROUTINE LIN_DIFVER1 (DB, DSIZ, F, FSIZ, V, VSIZ,
+     +                        G, ESPG, SELOC,
+     +                        TAU, KOUNT, TRNCH, N, NK, STACK)
+*
+*
+#include "impnone.cdk"
+*
+      INTEGER DSIZ,FSIZ,VSIZ,KOUNT,TRNCH,N,NK,STACK,IERROR,ESPG
+      REAL DB(DSIZ),F(FSIZ),V(VSIZ),G(ESPG)
+      REAL SELOC(N,NK)
+      REAL TAU
+*
+*
+*Author
+*     Stephane Laroche - Janvier 2002
+*
+*Revisions
+* 001   S. Laroche - As DIFVER6 but for simplified physics
+* 002   S. Laroche (May 2005) slight change in AQ
+* 003   L. Spacek (Jun 2008)     - Staggered version
+*                      
+*
+*Object
+*          to perform the implicit vertical diffusion
+*
+*Arguments
+*          - Input/Output -
+* DB       dynamic bus
+* F        field for permanent physics variables
+* V        volatile bus
+* DSIZ     dimension of DB
+* FSIZ     dimension of F
+* VSIZ     dimension of V
+* G        physics work space
+* ESPG     dimension of G
+*
+*          - Input -
+* SELOC    staggered sigma levels
+* TAU      timestep * factdt * facdifv
+*          see common block "options"
+* KOUNT    timestep number
+* TRNCH    row number
+* N        horizontal dimension
+* NK       vertical dimension
+* STACK    task number
+*
+**
+*
+      EXTERNAL LIN_DIFF_VERT1
+*
+      INTEGER J,K
+      REAL gsrt,RSG
+*
+#include "indx_sfc.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "stk.cdk"
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+*
+      AUTOMATIC (  KMSG , REAL , (N,NK  ) )
+      AUTOMATIC (  KTSG , REAL , (N,NK  ) )
+      AUTOMATIC (  BMSG , REAL , (N     ) )
+      AUTOMATIC (  BTSG , REAL , (N     ) )
+*
+*
+************************************************************************
+*
+*     POINTEURS POUR ALLOCATION  DYNAMIQUE
+      REAL C,D,R,R1,R2,ZERO
+      REAL AQ, LSCP
+      REAL GAM0, FSLOFLX
+      POINTER (PAC,C(N,NK)),( PAD,D(N,NK)), (PAR,R(N,NK))
+      POINTER (PAR1, R1(N,NK)), (PAR2,R2(N,NK)), (PAZERO,ZERO(N,NK))
+      POINTER (IAQ, AQ(N))
+      POINTER (  IGAM0     , GAM0   (N,NK+1)  )
+      POINTER (  IFSLOFLX  , FSLOFLX(N     )  )
+*
+*     POINTEURS POUR CHAMPS DEJA DEFINIS DANS LES BUS
+      REAL TU, TV, TT, TQ, UU, VV, W
+      REAL T, Q, SG, SPONMOD
+      POINTER ( TU_ , TU      (N,NK))
+      POINTER ( TV_ , TV      (N,NK))
+      POINTER ( TT_ , TT      (N,NK))
+      POINTER ( TQ_ , TQ      (N,NK))
+      POINTER ( UU_ , UU      (N,NK))
+      POINTER ( VV_ , VV      (N,NK))
+      POINTER ( T _ , T       (N,NK))
+      POINTER ( Q _ , Q       (N,NK))
+      POINTER ( SG_ , SG      (N,NK))
+      POINTER ( SP_ , SPONMOD (N   ))
+*
+*     POINTEURS POUR SIGMA EFFECTIF THERMO
+      REAL SIGEF, SIGEX
+      POINTER (  SIGEF_, SIGEF(N,NK  )  )
+      POINTER (  SIGEX_, SIGEX(N,NK  )  )
+*
+      integer jk
+*     fonction-formule
+      jk(j,k) = (k-1)*n + j - 1
+*
+*---------------------------------------------------------------------
+*
+      IF(IFLUVERT.EQ.0) RETURN
+*
+*     EQUIVALENCE POUR LES NIVEAUX "DIFFUSION TEMPERATURE"
+      IF(DB(SIGT)>0) THEN
+         SIGEF_ = LOC(DB(SIGT   ))
+      ELSE
+         SIGEF_ = LOC(SELOC(1,1 ))
+      ENDIF
+*
+*     EQUIVALENCES AVEC CHAMPS DEJA INCLUS DANS LES BUS
+      TU_ = LOC(V (UDIFV  ))
+      TV_ = LOC(V (VDIFV  ))
+      TT_ = LOC(V (TDIFV  ))
+      TQ_ = LOC(V (QDIFV  ))
+      UU_ = LOC(DB(UPLUS  ))
+      VV_ = LOC(DB(VPLUS  ))
+      T _ = LOC(DB(TPLUS  ))
+      Q _ = LOC(DB(HUPLUS ))
+      SP_ = LOC(DB(EPONMOD))
+      SG_ = LOC(DB(SIGM   ))
+*
+*     INITIALISATION DU SYSTEME DE GESTION DE L'ESPACE DE TRAVAIL
+      STK_INITA(G,ESPG)
+*
+*     ALLOCATION DES POINTEURS
+      STK_ALLOC(IAQ     , N        )
+      STK_ALLOC(PAC     , N*NK     )
+      STK_ALLOC(PAD     , N*NK     )
+      STK_ALLOC(PAR     , N*NK     )
+      STK_ALLOC(PAR1    , N*NK     )
+      STK_ALLOC(PAR2    , N*NK     )
+      STK_ALLOC(PAZERO  , N*NK     )
+      STK_ALLOC(IGAM0   , N*(NK+1) )
+      STK_ALLOC(IFSLOFLX, N        )
+*
+      RSG = (GRAV/RGASD)
+*
+      DO K=1,NK
+         DO J=1,N
+            GAM0(J,K) = RSG*SELOC(J,K)/V(TVE+jk(J,K))
+            KMSG(J,K) = V(KM +JK(J,K))*GAM0(J,K)**2
+            KTSG(J,K) = V(KT +JK(J,K))*GAM0(J,K)**2
+            V(GTE+JK(J,K)) = V(GTE+JK(J,K))/GAM0(J,K)
+            V(GQ +JK(J,K)) = V(GQ +JK(J,K))/GAM0(J,K)
+         END DO
+      END DO
+*
+*
+      DO J=1,N
+         AQ(J)        = -RSG/V(TVE+jk(J,NK-1))
+         V(ALFAT+J-1) = V(ALFAT+J-1)*AQ(J)
+         V(ALFAQ+J-1) = V(ALFAQ+J-1)*AQ(J)
+         BMSG(J)      = V(BM   +J-1)*AQ(J)
+         BTSG(J)      = V(BT   +J-1)*AQ(J)
+
+      END DO
+*
+*
+*
+*
+* DIFFUSION VERTICALE IMPLICITE (VERTICAL SPONGE)
+*
+      gsrt = grav/(rgasd*250.)
+      DO K=1,NK
+         DO J=1,N
+            IF (SPONMOD(J)*EPONGE(K).GT.0.0) THEN
+             V(KM+JK(J,K)) = SPONMOD(J)*EPONGE(K)
+             KMSG(J,K)     = MAX( KMSG(J,K),
+     +                            V(KM+JK(J,K))*(seloc(j,k)*gsrt)**2 )
+            ENDIF
+        END DO
+      END DO
+*
+*
+      DO K=1,NK
+         DO J=1,N
+            ZERO(J,K) = 0.0
+         END DO
+      END DO
+*
+*
+* DIFFUSE U
+*
+      CALL LIN_DIFF_VERT1(TU,UU,KMSG,ZERO,ZERO,BMSG,SG,SELOC,
+     $                    TAU,1.,C,D,R,R1,N,NK)
+*
+*
+* DIFFUSE V
+*
+      CALL LIN_DIFF_VERT1(TV,VV,KMSG,ZERO,ZERO,BMSG,SG,SELOC,
+     $                    TAU,1.,C,D,R,R1,N,NK)
+*
+*
+* DIFFUSE MOISTURE
+*
+*
+*
+      CALL LIN_DIFF_VERTTQ1(TQ,Q,KTSG,V(GQ),V(ALFAQ),BTSG,SG,SIGEF,
+     $                    TAU,1.,C,D,R,R1,N,NK)
+*
+*
+* DIFFUSE TEMPERATURE
+*
+*
+      CALL LIN_DIFF_VERTTQ1(TT,T,KTSG,V(GTE),V(ALFAT),BTSG,SG,SIGEF,
+     $                    TAU,1.,C,D,R,R1,N,NK)
+*
+*
+      RETURN
+      END

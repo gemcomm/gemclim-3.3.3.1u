@@ -1,0 +1,67 @@
+c     Version 1.0
+      subroutine hs_adjust_flux (sw, tp, tcutoff, hice, hsnow, ta,
+     +                        qa, ua, psurf, delq, 
+     +                        evap, hsen, rlwd)
+      implicit none
+#include "lakes.cdk"
+#include "lakepar.cdk"
+	real sw,tp,tcutoff,hice,hsnow,ta,qa,ua,psurf,delq,
+     +     evap,hsen,rlwd,emice,t4,x,a,b,qsen,
+     +     qlat,qmet,condbar,val,val2,q0,t0,tcutc,tposs,t,tlat
+	integer ntimes
+c      parameter (Le = 2.25e6, Lei = 2.5e6)
+c      parameter (stefbol = 5.6696e-8, emice = 0.97)
+
+c  Solve for the temperature of the ice (tp)
+c  necessary to bring into balance the meteorological heat fluxes and the
+c  heat flux in the upper component of the ice/snow.  It also adjusts the
+c  sensible heat flux to reflect this new ice temperature (hsen).  Evap is
+c  changed inasmuch as the surface vapor pressure on which it depends
+c  is a function of the new surface temperature.  The subroutine iterates
+c  until the solved surface temperature derived from the interplay of the
+c  fluxes is equivalent to the temperature fed in by the iteration loop.
+
+       t4(x)=(x+273.15)**4.  
+       tcutc=tcutoff-273.15  
+       ntimes=1
+       a=-0.1
+       b=10.0
+ 99    continue
+c	write(*,*)'contnue'
+       do tposs=b,-50.0,a
+       t=tposs
+c	write(*,*)'tposs->',tposs
+       tlat=t+273.15   ! switch to kelvin
+       call hs_latsens (tlat, tcutoff, hice, ta,
+     +               qa, ua, psurf, delq, evap, qsen)
+       hsen=qsen
+       qlat=-evap*Lei
+       qmet=rlwd-emis*delta*t4(t)+qsen+qlat
+c	write(*,*)'rlwd,lwd,qsen,qlat',rlwd,emis*delta*t4(t),qsen,qlat
+       call hs_ice_rad (sw, hice, hsnow, condbar, val, val2 )
+c	write(*,*)'sw',sw
+       q0=-qmet  
+       t0=condbar*(sw-q0)+tcutc-val ! eq 7 from p + h
+c	write(*,*)'tpos,t0',t,t0
+       if (t0.ge.t.and.ntimes.eq.1) then
+c	write(*,*)'first'
+         b=t-a
+         a=-.001
+         ntimes=2
+         goto 99
+       else if (t0.ge.t.and.ntimes.eq.2) then
+c	write(*,*)'second'
+         b=t-a
+         a=-.00001
+         ntimes=3
+         goto 99
+       else if (t0.ge.t.and.ntimes.eq.3) then
+         tp=t+273.15         ! temperature to pass back out
+c	 write(*,*)'*******return after 3********'
+         return
+       endif
+c	write(*,*)'none'
+       enddo
+c	 write(*,*)'*******return otherwise********'
+       return
+       end

@@ -1,0 +1,471 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  MCONADJ2
+*
+#include "phy_macros_f.h"
+      SUBROUTINE MCONADJ2( T , Q , R , W , PS , KCL , STAWS , DELWET ,
+     %                     S , DQ , DT , H , HS , P , QS ,
+     %                     NADJ , ITER , N , NK ,
+     %                     KA, NDIM, SATUCO)
+*
+
+#include "impnone.cdk"
+*
+      INTEGER N,NK,KA,NDIM
+      REAL T(NDIM,NK),Q(NDIM,NK),R(N),W(N),PS(N),KCL(N)
+      REAL STAWS(n,KA-1,6)
+      REAL DELWET(n,NK),S(n,NK),DQ(N),DT(N),H(N),HS(N),P(N),QS(N)
+      INTEGER NADJ,ITER
+      LOGICAL SATUCO
+*
+*Author
+*          R. Benoit RPN(Nov 1979)( RFE CDC )
+*
+*Revision
+* 001      M. Valin RPN(Jan80)
+* 002      B. Wellk CRAY ( Vectorization on the CRAY )
+* 003      R. Benoit RPN  ( Remove adjustment in the boundary layer )
+* 004      C. Beaudoin RPN(Nov 83)( SEF )
+* 005      J. Cote RPN(June 85)( Optimization , Documentation )
+* 006      M. Lepine  -  RFE model code revision project (Jan87)
+*                     -  Add parameter NDIM
+* 007      R.Benoit (Mar87)Correction of virtual temperature
+*              Adapted to the code revision by MJ L'Heureux
+* 008      R. Benoit  - errors in CNADJTV (Rev  07)
+* 009      N. Brunet  (May90)
+*              Standardization of thermodynamic functions
+* 010      H. Ritchie, A.M. Leduc, C. Girard  (May91)
+*              Modification of test of convergence
+* 011      N. Brunet  (May91)
+*              New version of thermodynamic functions
+*              and file of constants
+* 012      B. Bilodeau  (August 1991)- Adaptation to UNIX
+* 013      R. Benoit (Aug 93) Local sigma
+* 014      G. Pellerin (Nov93) - Adaptation to MACROTASKING
+*              of EFRADJ - Change call from MPRECIP
+*              Change name from MCONADJ to MCONADJ2
+* 015      M. Lepine (March 2003) -  CVMG... Replacements
+* 016      G. Pellerin (Mai 03) - IBM conversion
+*                      - calls to optimized routine MFOQST
+*                      - calls to optimized routine MFOHR 
+*
+*Object
+*          to execute one or several iterations of the moist
+*          convective adjustment algorithm (MANABE)
+*
+*Arguments
+*
+*          - Input/Output -
+* T        temperature
+* Q        specific humidity
+* R        equivalent humidity to precipitation
+*
+*          - Input -
+* W        vertical integral of divergence
+* PS       surface pressure
+* KCL      index of 1st level in the boundary layer
+* STAWS    matrix of stabilization prepared in WETCONj (2D)
+* DELWET   half thicknesses of layers prepared in WETCONj (2D)
+* S        sigma levels (2D)
+* DQ       work space
+* DT       work space
+* H        relative humidity
+* HS       relative humidity at critical saturation
+* P        work space
+* QS       work space
+*
+*          - Output -
+* NADJ     number of points requiring more adjustment
+*
+*          - Input/Output -
+* ITER     iteration number, initially set to zero
+*
+*          - Input -
+* N        number of points processed simultaneously
+* NK       vertical dimension
+* KA       1st dimension (minus 1) for STAWS
+* NDIM     1st dimension of T and Q
+* SATUCO   .TRUE. if water/ice phase for saturation
+*          .FALSE. if water phase only for saturation
+*
+*Notes
+*          The ancestor of this routine was CONADJ of C.Girard
+*          and R. Daley, RPN, Nov 75.  This routine was called
+*          by MPRECIP. We must use the compatible version of
+*          MPRECIP and WETCON.
+*          Refer "Parametrisation des Effets Physiques dans les
+*          Modeles de Prevision du Temps" R. Benoir,RPN,June1980
+*
+************************************************************************ 
+*     AUTOMATIC ARRAYS
+************************************************************************ 
+*
+      AUTOMATIC ( xdet , REAL , (N) )
+      AUTOMATIC (  QS1 , REAL , (N) )
+      AUTOMATIC (  PP1 , REAL , (N) )
+      AUTOMATIC ( TSV , REAL , (N,NK) )
+      AUTOMATIC (  PP , REAL , (N,NK) )
+*
+************************************************************************ 
+*
+*
+*IMPLICITES
+*
+#include "acmcon.cdk"
+*
+*MODULES
+*
+**
+*
+      REAL EPH,FL,HH,HY,HZ,TT,X,Y
+      REAL TVK, TVL, YK, YL, Z
+      INTEGER I,J,K,L
+      INTEGER ITERA,MODP
+      REAL T0,Q0,CQ,CT,LSC,FT0,DFT0
+*
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+*
+*     DEBUT D'UNE ITERATION
+*
+      DO 5 K=1,KA
+      DO 5 J=1,N
+      PP(J,K) = S(J,K)*PS(J)
+    5 TSV(J,K) = T(J,K)
+*
+   10 ITER = ITER + 1
+*
+*     CONDENSATION AU SOMMET ( S(1) )
+*
+      MODP=3
+      IF(SATUCO)THEN
+       CALL MFOQST(QS,T(1,1),S,PP(1,1),MODP,N,1,N)
+       CALL MFOHR(H,Q(1,1),T(1,1),S,PP(1,1),MODP,N,1,N)
+      DO 20 J=1,N
+   20    HS(J) = MIN( 1.0 , H(J) )
+      ELSE
+       CALL MFOQSA(QS(1),T(1,1),S,PP(1,1),MODP,N,1,N)
+       CALL MFOHRA(H,Q(1,1),T(1,1),S,PP(1,1),MODP,N,1,N)
+      DO 22 J=1,N
+   22    HS(J) = MIN( 1.0 , H(J) )
+      END IF
+*
+      IF ( ITER.EQ.1 ) THEN
+         DO 25 J=1,N
+            if (W(J).LT.0.0 .AND. H(J).GT.HM) then
+               HS(J) = CRIRLH( H(J) )
+            endif
+ 25      CONTINUE
+      ENDIF
+*
+      DO 30 J=1,N
+         QS(J) = HS(J) * QS(J)
+         if (HS(J).LE.HMHCMIN ) then
+            DQ(J) = 0.
+         else
+            DQ(J) = MIN( 0.0 , QS(J) - Q(J,1) )
+         endif
+ 30   CONTINUE
+*
+      I = 0
+      DO 32 J=1,N
+         IF ( DQ(J) .EQ. 0.0 ) I = I + 1
+   32 CONTINUE
+*
+      IF ( LHEAT.EQ.1 .AND. I.NE.N ) THEN
+*
+*     CONDENSATION ET DEGAGEMENT DE CHALEUR LATENTE
+*
+*     A L'ENTREE DE LA BOUCLE DQ = DEFICIT DE SATURATION
+*     A LA SORTIE DE LA BOUCLE DQ = HUMIDITE CONDENSEE
+*
+*   LA CONDENSATION EST CALCULEE PAR LA METHODE DE NEWTON
+*   EN UTILISANT 2 ITERATIONS ET LA DERIVEE DU PREMIER ORDRE
+*      T = T0 - F(T0)/DF(T0)
+*      DF(T0) = 1 + H*DQSAT(T0)
+*
+      DO 35 J=1,N
+       IF(DQ(J).LT.0.0)THEN
+         T0 = T(J,1)
+         Q0 = Q(J,1)
+         DO 200 ITERA = 1,2
+            LSC = HTVOCP(T0)
+           IF(SATUCO)THEN
+            QST = FOQST(T0,PS(J)*S(j,1))
+            FT0 = LSC * (HS(J)*  QST - Q0)
+            DFT0 = 1.0 + (LSC * FODQS(QST,T0)*HS(J))
+           ELSE
+            QST = FOQSA(T0,PS(J)*S(j,1))
+            FT0 = LSC*(HS(J)*QST-Q0)
+            DFT0 = 1.0 + (LSC*FODQA(QST,T0)*HS(J))
+           END IF
+            T0 = T0 - FT0/DFT0
+  200       Q0 = Q0 + (FT0/DFT0)/LSC
+*
+         CQ = Q0 - Q(J,1)
+         Q(J,1) = Q0
+         T(J,1) = T0
+         R(J) = R(J) + DELWET(j,1) * CQ
+       ENDIF
+35    CONTINUE
+*
+*
+      ELSE IF ( LHEAT.NE.1 .AND. I.NE.N ) THEN
+*
+*     ELIMINATION DE LA SURSATURATION
+*
+         DO 36 J=1,N
+            Q(J,1) = Q(J,1) + DQ(J)
+   36       R(J) = DELWET(j,1) * DQ(J) + (R(J))
+      ENDIF
+*
+*     FIN DE LA CONDENSATION AU SOMMET
+*
+*     DEBUT DE LA BOUCLE SUR LES COUCHES
+*
+      DO 85  K=1,KA-1
+*
+      L = K + 1
+      FL = FLOAT(K)
+*
+*     APRES LA PROCHAINE BOUCLE
+*     DQ = TEMPERATURE MOYENNE DE LA COUCHE
+*     DT = GAMMA
+*     QS = 0.0 POUR AJUSTEMENT VERS L'ADIABATIQUE SECHE
+*        = 1.0 POUR AJUSTEMENT VERS L'ADIABATIQUE MOUILLEE
+*
+      DO 39 J=1,N
+         DQ(J) = 0.5 * ( T(J,L) + T(J,K) )
+         TVK = FOTVT(T(J,K),Q(J,K))
+         TVL = FOTVT(T(J,L),Q(J,L))
+         DT(J) = (TVK - TVL) * STAWS(j,K,3) + 0.5 * (TVK + TVL)
+         P(J) = PS(J) * S(j,L)
+ 39   CONTINUE
+        IF(SATUCO)THEN
+         CALL MFOHR(H,Q(1,L),T(1,L),S,PP(1,L),MODP,N,1,N)
+        ELSE
+         CALL MFOHRA(H,Q(1,L),T(1,L),S,PP(1,L),MODP,N,1,N)
+        END IF
+      DO 43 J=1,N
+         HS(J) = MIN( 1.0 , H(J) )
+         if (H(J)*MOIADJ.GE.HCMTOL .AND. W(J).LT.0.0 ) then
+            QS(J) = 1.0
+         else
+            QS(J) = 0.0
+         endif
+ 43   CONTINUE
+*
+      IF ( ITER.EQ.1 ) THEN
+      DO 45 J=1,N
+         if (H(J).GT.HM .AND. W(J).LT.0.0 ) then
+             HS(J) =  CRIRLH( H(J) )
+         endif
+ 45   CONTINUE
+      ENDIF
+*
+      I = 0
+      DO 47 J=1,N
+         IF ( QS(J) .EQ. 0.0 ) I = I + 1
+   47 CONTINUE
+*
+      IF ( I.NE.N ) THEN
+*
+*     A LA SORTIE DE LA BOUCLE QS CONTIENT LE GAMMA DE SATURATION
+*    VIRTUEL
+*     OU 0.0 SELON LE CAS
+*
+         DO 49  J=1,N
+          PP1(J)=P(J)*STAWS(j,K,6)
+ 49      CONTINUE
+         CALL MFOQST(QS1,DQ,S,PP1,MODP,N,1,N)
+        IF(SATUCO)THEN
+         DO 50  J=1,N
+            X = QS1(J)
+            Z = X * DELTA
+            Y = HTVOCP( DQ(J) )
+            X = Y * X / ( CAPPA * DQ(J) )
+            Y = X * EPS1 * Y / DQ(J)
+            X = DQ(J) * ( Y - X ) / ( 1.0 + Y )
+*            PASSAGE DE GAMMA A GAMMA VIRTUEL, AYANT GAMMA DANS X.
+            Y = FODQS(QS1(J),DQ(J)) * CAPPA * (DQ(J)-X)
+            xdet(J) = (1.+Z)*X - (DELTA*DQ(J)/CAPPA) * (Y - QS1(J))
+ 50      CONTINUE
+        ELSE
+         CALL MFOQSA(QS1,DQ,S,PP1,MODP,N,1,N)
+         DO 52  J=1,N
+            X = QS1(J)
+            Z = X * DELTA
+            Y = HTVOCP( DQ(J) )
+            X = Y * X / ( CAPPA * DQ(J) )
+            Y = X * EPS1 * Y / DQ(J)
+            X = DQ(J) * ( Y - X ) / ( 1.0 + Y )
+*            PASSAGE DE GAMMA A GAMMA VIRTUEL, AYANT GAMMA DANS X.
+            Y = FODQA(QS1(J),DQ(J)) * CAPPA * (DQ(J)-X)
+            xdet(J) = (1.+Z)*X - (DELTA*DQ(J)/CAPPA) * (Y - QS1(J))
+ 52      CONTINUE
+        END IF
+*
+         DO 53  J=1,N
+            if (QS(J).EQ.1.0 ) then
+               QS(J) = CHIC( MAX( H(J) , HC ) ) * xdet(J) 
+            else
+               QS(J) = 0.
+            endif
+ 53      CONTINUE
+*
+      ENDIF
+*
+      DO 59 J=1,N
+*        LE X EXPRIME LA CONSERVATION D'ENTHALPIE AVEC CP CONSTANT
+         X = STAWS(j,K,5)
+         YK = (1.0 + DELTA * Q(J,K))
+         YL = (1.0 + DELTA * Q(J,L))
+         Z = 0.5 * (X*YK + YL) + STAWS(j,K,3) * (X*YK - YL)
+*
+*    AVOIR CONVECTION **MOUILLEE** JUSQU'EN BAS (OTER CONVECTION SECHE)
+*
+         DT(J)=DIM(QS(J),DT(J))/Z
+         IF(QS(J).EQ.0.0)DT(J)=0.0
+         T(J,K) = X * DT(J) + (T(J,K))
+         T(J,L) = T(J,L) + DT(J)
+   59  CONTINUE
+      IF(SATUCO)THEN
+      DO 60 J=1,N
+         QS(J) = HS(J) * FOQST(T(J,L),P(J))
+   60    DQ(J) = MIN( 0.0 , QS(J) - Q(J,L) )
+      ELSE
+      DO 62 J=1,N
+         QS(J) = HS(J) * FOQSA(T(J,L),P(J))
+   62    DQ(J) = MIN( 0.0 , QS(J) - Q(J,L) )
+      END IF
+*
+      IF ( MOIFLX.EQ.1 ) THEN
+*
+*     FLUX D'HUMIDITE VERS LE HAUT
+*
+*     DQ = DEFICIT DE SATURATION AU BAS DE LA COUCHE
+*
+         DO 65 J=1,N
+            if (DT(J).LT.0.0) then
+               Q(J,K) = STAWS(j,K,5) * DQ(J) + (Q(J,K))
+               Q(J,L) = Q(J,L) + DQ(J)
+            endif
+   65       DQ(J) = MIN( 0.0 , QS(J) - Q(J,L) )
+      ENDIF
+*
+      DO 70 J=1,N
+          if (HS(J) .LE. HMHCMIN) DQ(J) = 0.
+ 70   CONTINUE
+*
+      I = 0
+      DO 72 J=1,N
+         IF ( DQ(J) .EQ. 0.0 ) I = I + 1
+   72 CONTINUE
+*
+      IF ( LHEAT.EQ.1 .AND. I.NE.N ) THEN
+*
+*     CONDENSATION ET DEGAGEMENT DE CHALEUR LATENTE
+*
+*     VOIR "CONDENSATION AU SOMMET"
+*
+         DO 75 J=1,N
+*
+          IF(DQ(J).LT.0.0)THEN
+            T0 = T(J,L)
+            Q0 = Q(J,L)
+            DO 250 ITERA = 1,2
+               LSC = HTVOCP(T0)
+              IF(SATUCO)THEN
+               QST = FOQST(T0,PS(J)*S(j,L))
+               FT0 = LSC * (HS(J)* QST - Q0)
+               DFT0 = 1.0 + (LSC * FODQS(QST,T0)*HS(J))
+              ELSE
+               QST = FOQSA(T0,PS(J)*S(j,L))
+               FT0 = LSC*(HS(J)*QST - Q0)
+               DFT0 = 1.0 + (LSC*FODQA(QST,T0)*HS(J))
+              END IF
+               T0 = T0 - FT0/DFT0
+  250          Q0 = Q0 + (FT0/DFT0)/LSC
+*
+            CQ = Q0 - Q(J,L)
+            CT = T0 - T(J,L)
+            Q(J,L) = Q0
+            T(J,L) = T0
+            R(J) = R(J) + DELWET(j,L) * CQ
+          ENDIF
+75    CONTINUE
+*
+      ELSE IF ( LHEAT.NE.1 .AND. I.NE.N ) THEN
+*
+*     ELIMINATION DE LA SURSATURATION
+*
+         DO 76 J=1,N
+            Q(J,L) = Q(J,L) + DQ(J)
+            R(J) = DELWET(j,L) * DQ(J) + (R(J))
+   76    CONTINUE
+*
+      ENDIF
+*
+*
+   85 CONTINUE
+*
+*     FIN DE LA BOUCLE SUR LES COUCHES
+*
+      DO 87 J=1,N
+         DQ(J) = -1.0
+   87 CONTINUE
+*
+*     EXAMEN DU CRITERE DE CONVERGENCE
+*
+      DO 100 K=1,KA
+         DO 90 J=1,N
+            IF ( (T(J,K) - TSV(J,K))**2 .GE. TRESHLD ) DQ(J) = 1.0
+   90    CONTINUE
+  100 CONTINUE
+*
+      I = 0
+      DO 110 J=1,N
+         IF ( DQ(J) .GT. 0.0 ) I = I + 1
+  110 CONTINUE
+*
+*
+      CONTAINS
+! internal function definitions
+#include "flatscp.cdk"
+         REAL FUNCTION chic(F_HH)
+         REAL F_HH
+      
+         if (F_HH.LT.1.0) then
+            CHIC = HCI * ( F_HH -HC )
+         else
+            CHIC = 1.0
+         endif
+         END FUNCTION chic
+
+         REAL FUNCTION crirlh(F_HH)
+         REAL F_HH
+
+         if (F_HH.LE.1.0) then
+            CRIRLH = MIN(F_HH,1.0) - AA*(MIN(F_HH,2.0-F_HH) -HM)**3
+         else
+            CRIRLH = MIN(1.0,MIN(F_HH,1.0) - AA*(MIN(F_HH,2.0-F_HH) -HM)**3)
+         endif
+         END FUNCTION crirlh
+*
+#include "fintern90.cdk"
+      END

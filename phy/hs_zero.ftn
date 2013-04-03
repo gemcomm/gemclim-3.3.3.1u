@@ -1,0 +1,26 @@
+      subroutine hs_zero (t2w,t2i,q2w,q2i,u2w,u2i,evapw,evapi,qhw,qhi,
+     +                  qew,qei,lnetw,lneti,luw,lui,sww,swi)
+     
+      implicit none 
+      real t2w,t2i,q2w,q2i,u2w,u2i,evapw,evapi,qhw,qhi,
+     +                  qew,qei,lnetw,lneti,luw,lui,sww,swi
+      t2w=0.0
+      t2i=0.0
+      q2w=0.0
+      q2i=0.0
+      u2w=0.0
+      u2i=0.0
+      evapw=0.0
+      evapi=0.0
+      qhw=0.0
+      qhi=0.0
+      qew=0.0
+      qei=0.0
+      lnetw=0.0
+      lneti=0.0
+      luw=0.0
+      lui=0.0
+      sww=0.0
+      swi=0.0
+      return
+      end

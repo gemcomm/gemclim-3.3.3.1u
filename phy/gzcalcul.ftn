@@ -1,0 +1,67 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/p  gzcalcul
+*
+      subroutine gzcalcul(gzm,tvirt,mrgasd,s,ni,nk)
+*
+#include "impnone.cdk"
+      integer ni,nk
+      real mrgasd
+      real gzm(ni,nk),tvirt(ni,nk),s(ni,nk)
+*
+*author
+*          A-M.Leduc (June 2002)
+*
+*
+*object
+*         To calculate the geopotential from virtual
+*         temperatures and sigma levels
+*
+*arguments
+*
+*          - output -
+* gzm        result
+*
+*          - input -
+* tvirt    virtual temperature
+* s        sigma levels
+* mrgasd   gas constant (negative value)
+* ni       horizontal dimension
+* nk       vertical dimension
+*
+*notes
+*         gzm (*,nk) is initialized to zero in phyexe1
+*         just before the call to this routine
+**
+*
+      integer j,k
+      real tavg, savg
+
+
+*           calculation of geopotential
+*
+        do k=nk,2,-1
+         do j=1,ni
+
+           tavg=(tvirt(j,k)+tvirt(j,k-1))*0.5
+           savg=(s(j,k)+s(j,k-1))*0.5
+           gzm(j,k-1)=gzm(j,k) + mrgasd *tavg *(s(j,k)-s(j,k-1))/savg
+         
+         end do
+       end do
+
+      return
+      end

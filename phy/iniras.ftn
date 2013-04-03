@@ -1,0 +1,69 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+      SUBROUTINE INIRAS
+*
+#include "impnone.cdk"
+*
+*Author
+*          B. Bilodeau (Apr 97)
+*
+*Revisions
+* 001      B. Dugas    (Aug 2005) - RASDATA defined in INIRAS_DATA
+*
+*Object
+*          initialize common block RASDATA for RAS convection scheme
+*
+*Arguments
+*
+*Notes
+*          The code of INIRAS has been extracted from 
+*          s/r MRACRITN in order to make it reentrant.
+*
+**
+*
+      INTEGER L
+      REAL TEM
+*
+#include "rasdata.cdk"
+*
+      ACTOP   = ACTP*FACM
+      DO 5 L=1,15
+      A(L) = A(L)*FACM
+    5 CONTINUE
+      DO 10 L=2,15
+      TEM   = PH(L) - PH(L-1)
+      AU(L) = A(L-1) / TEM
+      AD(L) = A(L)   / TEM
+      AC(L) = PH(L)*AU(L) - PH(L-1)*AD(L)
+      AD(L) = AD(L) - AU(L)
+   10 CONTINUE
+*
+      RETURN
+      END
+      BLOCK DATA INIRAS_DATA
+*
+#include "rasdata.cdk"
+*
+      DATA PH/150.0, 200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0
+     *,       550.0, 600.0, 650.0, 700.0, 750.0, 800.0, 850.0/
+ 
+      DATA A/ 1.6851, 1.1686, 0.7663, 0.5255, 0.4100, 0.3677
+     *,       0.3151, 0.2216, 0.1521, 0.1082, 0.0750, 0.0664
+     *,       0.0553, 0.0445, 0.0633/
+ 
+      DATA AD/15*0.0/, AC/15*0.0/, ACTOP/0.0/
+*
+      END BLOCK DATA INIRAS_DATA

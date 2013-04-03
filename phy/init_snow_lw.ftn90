@@ -1,0 +1,109 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #######################################
+      SUBROUTINE INIT_SNOW_LW(PEMISSN,TPSNOW)
+!     #######################################
+!
+!!****  *INIT_SNOW_LW* - routine to initialize snow surf. temp and emissivity
+!!
+!!    PURPOSE
+!!    -------
+!!
+!!**  METHOD
+!!    ------
+!!
+!!    EXTERNAL
+!!    --------
+!!
+!!
+!!    IMPLICIT ARGUMENTS
+!!    ------------------
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!
+!!    AUTHOR
+!!    ------
+!!	V. Masson   *Meteo France*	
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2003 
+!-------------------------------------------------------------------------------
+!
+!*       0.    DECLARATIONS
+!              ------------
+!
+USE MODD_TYPE_SNOW
+USE MODD_SURF_PAR,   ONLY : XUNDEF
+USE MODD_CSTS,       ONLY : XTT, XLMTT
+!
+USE MODE_SNOW3L
+!
+IMPLICIT NONE
+!
+!*       0.1   Declarations of arguments
+!              -------------------------
+!
+REAL,                 INTENT(IN)    :: PEMISSN ! snow emissivity
+TYPE(SURF_SNOW),      INTENT(INOUT) :: TPSNOW  ! snow characteristics
+!
+!*       0.2   Declarations of local variables
+!              -------------------------------
+!
+INTEGER :: JPATCH ! loop counter on tiles
+!-------------------------------------------------------------------------------
+!
+DO JPATCH=1,SIZE(TPSNOW%WSNOW,3)
+!
+!*       1.    Emissivity
+!              ----------
+!
+  IF (TPSNOW%SCHEME=='1-L ' .OR. TPSNOW%SCHEME=='3-L ') THEN
+    WHERE(TPSNOW%WSNOW(:,1,JPATCH)==0. .OR. TPSNOW%WSNOW(:,1,JPATCH)==XUNDEF )
+      TPSNOW%EMIS (:,JPATCH)= XUNDEF
+    ELSEWHERE
+      TPSNOW%EMIS (:,JPATCH)= PEMISSN
+    END WHERE
+  END IF
+!
+!*      2.     Surface temperature
+!              -------------------
+!
+  IF (TPSNOW%SCHEME=='1-L ') THEN
+    WHERE(TPSNOW%WSNOW(:,1,JPATCH)==0. .OR. TPSNOW%WSNOW(:,1,JPATCH)==XUNDEF )
+      TPSNOW%TS (:,JPATCH)= XUNDEF
+    ELSEWHERE
+      TPSNOW%TS(:,JPATCH) = TPSNOW%T(:, TPSNOW%NLAYER,JPATCH)
+    END WHERE
+  END IF
+!
+  IF (TPSNOW%SCHEME=='3-L ') THEN
+    WHERE(TPSNOW%WSNOW(:,1,JPATCH)==0. .OR. TPSNOW%WSNOW(:,1,JPATCH)==XUNDEF )
+      TPSNOW%TS (:,JPATCH)= XUNDEF
+    ELSEWHERE
+      TPSNOW%TS(:,JPATCH) = XTT + ( (TPSNOW%HEAT(:,1,JPATCH)/TPSNOW%WSNOW(:,1,JPATCH)) + XLMTT )  &
+                            *(TPSNOW%RHO(:,1,JPATCH)/SNOW3LSCAP(TPSNOW%RHO(:,1,JPATCH)))
+      TPSNOW%TS(:,JPATCH) = MIN(XTT, TPSNOW%TS(:,JPATCH))
+    END WHERE
+  END IF
+!
+END DO
+!
+!-------------------------------------------------------------------------------
+!
+END SUBROUTINE INIT_SNOW_LW

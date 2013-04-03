@@ -1,0 +1,532 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+MODULE MM_SEDIMENTATION_V33
+
+CONTAINS
+
+!=====================================================================================!
+ SUBROUTINE SEDI_ISGH_V33(QX,NX,ZX,cat,Q,T,DE,gamfact,epsQ,epsN,epsZ,afx,bfx,cmx,dmx,   &
+                     dtx,cx6,ALFxfix,Noxfix,LXP,npassx,ni,nk,VxMax,DxMax,DZ,SR,scheme)
+
+!-------------------------------------------------------------------------------------!
+! Sedimentation subroutine for categories whose fall velocity equation is
+! V(D) = gamfact * afx * D^bfx
+!
+! Version package: 2.3.0
+! Last modified  : 2006-01-07
+!
+!  ***  for multimom_v33BETA.ftn90  ***
+!  ***  - tested for TM version (scheme=4), 2005-12-06 -> reproduces mmTM_v3.2 on Linux
+!-------------------------------------------------------------------------------------!
+
+  USE MM_FUNCTIONS_V33
+  IMPLICIT NONE
+
+! PASSING PARAMETERS:
+  real, dimension(ni,nk), INTENT(INOUT) :: QX,NX,ZX,Q,T
+  real, dimension(ni),    INTENT(INOUT) :: SR
+  real, dimension(ni,nk), INTENT(IN)    :: DE,DZ
+  real,    INTENT(IN)    :: dtx,epsQ,epsN,epsZ,cx6,VxMax,LXP
+  real*8,  INTENT(IN)    :: afx,bfx,cmx,dmx,ALFxfix,Noxfix,DxMax
+  integer, INTENT(IN)    :: npassx,ni,nk,scheme,cat
+
+! LOCAL PARAMETERS:
+  real, dimension(ni,nk) :: VVQ,VVN,VVZ,RHOQX,gamfact,FLIM
+  logical                :: slabHASmass,LOCALLIM,QxPresent
+  integer, dimension(ni) :: activeColumn
+  real                   :: VqMax,VnMax,Vzmax,cmxSP
+  real*8                 :: ALFx,GX2,GX5,ckQx1,ckQx2,ckQx3,iLAMx,iLAMxB0,tmpdp1,tmpdp2,Dx
+  integer                :: nnn,a,i,k,counter
+  real*8, parameter      :: thrd  = 1.d0/3.d0
+
+!-------------------------------------------------------------------------------------!
+
+  cmxSP= sngl(cmx)
+!
+  !Determine for which slabs and columns sedimentation should be computes:
+   call countColumns_v33(QX,ni,nk,epsQ,counter,activeColumn,slabHASmass)
+
+   IF (slabHASmass) THEN
+
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
+    DO nnn= 1,npassx
+
+       RHOQX= DE*QX
+       VVQ= 0.;  VVN= 0.;  VVZ= 0.;  VqMax= 0.;  VnMax= 0.;  VzMax= 0.
+       do a= 1,counter
+         i=activeColumn(a)
+         do k= 1,nk
+
+           if (scheme==1)                    then
+              QxPresent = (QX(i,k)>epsQ)
+              ALFx      = ALFxfix
+              if (cat==2) then  ![ice]
+                NX(i,k) = 5.*exp(0.304*(273.15-max(233.,T(i,k))))  !Cooper eqn.
+              else if (cat>=3.and.cat<=5) then  ![snow, grpl, or hail]
+                tmpdp1  = gammaDP(1.d0+ALFx)
+                tmpdp2  = gammaDP(4.d0+ALFx)
+                NX(i,k) = (Noxfix*tmpdp1)**(3./(4.+ALFx))*(tmpdp1/tmpdp2*DE(i,k)*     &
+                           QX(i,k)/cmx)**((1.+ALFx)/(4.+ALFx))
+              endif
+           else if (scheme==2.or.scheme==3)  then
+              QxPresent=  (QX(i,k)>epsQ .and. NX(i,k)>epsN)
+              if (QxPresent) then
+                 Dx  = (dble(DE(i,k)*QX(i,k)/NX(i,k))/cmx)**thrd
+                 ALFx= diagAlpha_v33(Dx,cat)
+              endif
+           else if (scheme==4)               then
+              QxPresent=  (QX(i,k)>epsQ .and. NX(i,k)>epsN .and. ZX(i,k)>epsZ)
+              if (QxPresent) ALFx= solveAlpha_v33(QX(i,k),NX(i,k),ZX(i,k),cmxSP,DE(i,k))
+           endif
+
+           if (QxPresent) then
+              GX2      = 1.d0/gammaDP(1.d0+ALFx)
+              GX5      = gammaDP(1.d0+ALFx+dmx)
+              ckQx1    = afx*gammaDP(1.d0+ALFx+dmx+bfx)/GX5
+              ckQx2    = afx*gammaDP(1.d0+ALFx+bfx)*GX2
+              ckQx3    = afx*gammaDP(7.d0+ALFx+bfx)/gammaDP(7.d0+ALFx)
+              iLAMx    = (dble(QX(i,k)*DE(i,k)/NX(i,k))/(cmx*GX5*GX2))**thrd
+              iLAMxB0  = iLAMx**bfx
+              tmpdp1   = -gamfact(i,k)*iLAMxB0
+              VVQ(i,k) = tmpdp1*ckQx1;   VqMax= max(VxMAX,-VVQ(i,k))
+              VVN(i,k) = tmpdp1*ckQx2;   VnMax= max(VxMAX,-VVN(i,k))
+              VVZ(i,k) = tmpdp1*ckQx3;   VzMax= max(VxMAX,-VVZ(i,k))
+           endif
+
+         enddo  !k-loop
+       enddo    !i-loop
+       locallim= (nnn==1)
+       call blg3_v33(RHOQX,DZ,VVQ,ni,nk,dtx,locallim,VqMax,FLIM,counter,activeColumn)
+       if (scheme >1)  &
+          call blg3_v33(NX,DZ,VVN,ni,nk,dtx,locallim,VnMax,FLIM,counter,activeColumn)
+       if (scheme==4)  &
+          call blg3_v33(ZX,DZ,VVZ,ni,nk,dtx,locallim,VzMax,FLIM,counter,activeColumn)
+       QX= RHOQX/DE
+
+    ! Prevent levels with zero N and nonzero Q and size-limiter:
+       IF (scheme>1) THEN
+       do a= 1,counter
+         i=activeColumn(a)
+         do k= 1,nk
+           if (scheme==2.or.scheme==3)  then
+              QxPresent=  (QX(i,k)>epsQ .and. NX(i,k)>epsN)
+           elseif (scheme==4)           then
+              QxPresent=  (QX(i,k)>epsQ .and. NX(i,k)>epsN .and. ZX(i,k)>epsZ)
+           endif
+           if (.not. QxPresent) then
+              Q(i,k) = Q(i,k)+QX(i,k)
+              T(i,k) = T(i,k) - LXP*QX(i,k)   !LCP for rain; LSP for i,s,g,h
+              QX(i,k)= 0.;  NX(i,k)= 0.;  ZX(i,k)= 0.
+           else  ! size limiter:
+              Dx     = (dble(DE(i,k)*QX(i,k)/NX(i,k))/cmx)**thrd
+              tmpdp1 = sngl(max(Dx,DxMAX)/DxMAX)
+              NX(i,k)= NX(i,k)*tmpdp1*tmpdp1*tmpdp1
+           endif
+         enddo
+       enddo
+       ENDIF !(if scheme>1)
+
+       SR(:)= SR(:) - cx6*VVQ(:,nk)*DE(:,nk)*QX(:,nk)
+
+    ENDDO  !nnn-loop
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
+
+   ENDIF  !slabHASmass
+
+ END SUBROUTINE SEDI_ISGH_V33
+
+!=====================================================================================!
+
+ SUBROUTINE countColumns_v33(QX,ni,nk,minQX,counter,activeColumn,slabHASmass)
+
+! Searches the hydrometeor array QX(ni,nk) for non-zero (>minQX) values.
+! Returns slabHASmass=TRUE if there is a single non-zero value in the array
+! and returns the array if i-indices (activeColumn) for the columns (i)
+! which contain at least one non-zero value, as well as the number of such
+! columns (counter).
+
+ IMPLICIT NONE
+
+ ! PASSING PARAMETERS:
+  integer, intent(IN)                   :: ni,nk
+  integer, intent(OUT)                  :: counter
+  integer, dimension(ni), intent(OUT)   :: activeColumn
+  real,    dimension(ni,nk), intent(IN) :: QX
+  real,    intent(IN)                   :: minQX
+  logical, intent(OUT)                  :: slabHASmass
+
+! LOCAL PARAMETERS:
+   integer :: i,k
+
+   k=0; counter=0; activeColumn=0; slabHASmass=.false.
+   do i=1,ni
+
+      do
+         k=k+1
+         if (QX(i,k)>minQX) then
+            counter=counter+1
+            activeColumn(counter)=i
+            slabHASmass=.true.
+            k=0
+            exit
+         else
+            if (k==nk) then
+               k=0
+               exit
+            endif
+         endif
+      enddo
+
+   enddo  !i-loop
+
+
+ END SUBROUTINE countColumns_v33
+!=====================================================================================!
+
+!***S/P BLG
+!     SUBROUTINE BLG2 (RO,RT,DZ,WW,NI,NK,DT,COMPLIM,KF,WMAX,FLIM,IDIR)
+      SUBROUTINE BLG3_V33 (RO,DZ,WW,NI,NK,DT,COMPLIM,WMAX,FLIM,counter,activeColumn)
+
+#include "impnone.cdk"
+
+      INTEGER NI,NK,counter  !,KF,IDIR
+
+      REAL RO(NI,NK),DZ(NI,NK),WW(NI,NK),DT,WMAX,FLIM(NI,NK) !,RT(NI)
+      INTEGER activeColumn(NI)
+
+      LOGICAL COMPLIM
+
+
+! *Author
+! *          C. Girard and A. Plante (2001)
+!
+! *Revision
+! *
+! * 001      A. Glazer and A. Plante (Oct 2001) - Introduce complim,
+! *          and ind_limit in computation of precipitation
+! * 002      A. Plante (June 2003)
+! *             - IBM conversion, added ro_star. This imporved sedimentaion
+! *               in mixphase4 by 38%.
+! *             - Change computation limit to insure reentrance in OpenMP
+! *             - blg2.ftn validates perfectly with blg.ftn of PHY 3.8.
+! *--------------------------------------------------------------------------------*
+! * 003      J. Milbrandt (Nov 2004)
+! *           Modified for use in emicroTM.ftn90:
+! *           _ add condition for mass-in-column (activeColumn); for all i-loops, the
+! *             line 'do i=1,ni' was replaced with 'do a=1,counter' & 'i=activeColumn(a)'
+! *           - remove RT calculation (and pass)
+! *           - hard-wired various options for emicroTM (removed unnecessary IF statements)
+! *--------------------------------------------------------------------------------*
+! *
+! *Object
+!
+! *
+! *   Version 1.0
+! *
+! *   CALCULATES
+! *                sedimentation of a quantity of matter ro(kg/m3)
+! *
+! *                falling with negative downward velocity ww(m/s)
+! *
+! *   ACCORDING TO
+! *                the BOX-LAGRANGIAN SCHEME
+! *                         (Kato,1995:JMSJ,73,241-245)
+! *
+! *             OR
+! *                the ADJACENT-LAGRANGIAN SCHEME
+! *                Girard and Plante
+! *
+! *   PLUS
+! *                a conservative two-grid-length filter
+! *                in order to control noise if needed
+! *
+! *Arguments
+! *
+! *          - Input/Output -
+! *
+! * RO       density in cell before and after sedimentation.
+! *
+! *          - Output -
+! *
+! * RT       precipitation reaching the surface.
+! *
+! *          - Input -
+! *
+! * DZ       cell thickness
+! * WW       vertical velocity (negative downward)
+! * NI       number of profiles
+! * NK       number of grid point in profiles
+! * DT       timestep
+! * COMPLIM  logical switch to force recomputing the table FLIM
+! * KF       number of filtering pass
+! * FLIM     index of hier grid point where to look for mass in sedimentation.
+! *          Note that only collumn FLIM(1,*) is used.
+! * WMAX     maximum vertical velocity (positive or negative value).
+! *          This is used to save computation time. For each
+! *          level, the index of the heighest level from which
+! *          mass can be received will be computed if COMPLIM is .true.
+! * IDIR     direction of index:
+! *          idir=0 if index one is at top of model
+! *          idir=1 if index one is at surface of model
+! * COUNTER  number of columns in (ni,nk) slab with non-zero RO
+! * ACTIVECOLUMN  array of i-indices with non-zero columns in RO(ni,nk)
+! *
+#include "maxlev.cdk"
+!
+      character*6 scheme
+
+      integer i,k,l,km1,kp1,ks,ke,kw,a
+
+      real vp(ni,nk),zt(ni,nk),zb(ni,nk),dzi(ni,nk),one
+!     real zz(ni,idir:nk+idir),ro_star(ni,nk)  !used if idir is passed (orig)
+      real zz(ni,  0 :nk     ),ro_star(ni,nk)  !for hard-wired idir=0  (mod, JAM)
+
+      real zmax,tempo,epsilon
+
+      parameter(one=1.,epsilon=1e-2)
+
+
+      integer idzmin
+
+!     scheme='kato'
+      scheme='girard'
+
+!===========================================================================
+!     Set parametres related to index direction.
+
+!       ks=1
+!       ke=nk
+!       kw=1
+!       if(idir.eq.0)then
+!          ks=nk
+!          ke=1
+!          kw=-1
+!       endif
+
+  !For nk=bottom:  (hard-wired to remove pass of 'idir' parameter)
+         ks=nk
+         ke=1
+         kw=-1
+
+!===========================================================================
+!     Compute cell height,
+!         and final position of the top (zt) and bottom (zb) of moving boxes.
+!     Initialise rt and vp.
+
+!       do i=1,ni
+!          rt(i)=0.
+!       enddo
+
+!     do i=1,ni
+      do a= 1,counter
+         i=activeColumn(a)
+         zz(i,ks)=0.
+      enddo
+      do k=ks,ke,kw
+!        do i=1,ni
+         do a= 1,counter
+            i=activeColumn(a)
+            zz (i,k+kw)=zz(i,k)+dz(i,k)
+            dzi(i,k)=one/dz(i,k)
+            vp (i,k)=0.
+         enddo
+      enddo
+
+      do k=1,nk
+        !do i=1,ni
+         do a= 1,counter
+            i=activeColumn(a)
+            zb(i,k)=zz(i,k)+ww(i,k)*dt
+         enddo
+      enddo
+
+!       if(scheme.eq.'kato')then
+! c        print*,'Kato'
+! c        Note that this scheme reproduce the Eulerians scheme if CFL<1.
+!          do k=1,nk
+!             do i=1,ni
+!                zt(i,k)=zb(i,k)+dz(i,k)
+!             enddo
+!          enddo
+!       endif
+
+!       if(scheme.eq.'girard')then
+
+!        Note that this scheme DOES NOT reproduce the Eulerians scheme.
+        !do i=1,ni
+         do a= 1,counter
+            i=activeColumn(a)
+            zt(i,ke)=zb(i,ke)+dz(i,ke)
+         enddo
+         do k=ks,ke-kw,kw
+           !do i=1,ni
+            do a= 1,counter
+               i=activeColumn(a)
+               zb(i,k)=min(zb(i,k+kw)-epsilon*dz(i,k),zz(i,k)+ww(i,k)*dt)
+               zt(i,k)=zb(i,k+kw)
+            enddo
+         enddo
+
+!       endif
+
+! The following replaces the three following loops:
+! (With use of i=activeColumn(a), it is unclear how columns in ro_star(i,k)
+!  will be used. Thus, the calculation cannot be broken up to enable use
+!  of 'vsdiv' subroutine.)   JAM
+      do k=1,nk
+        !do i=1,ni
+         do a= 1,counter
+            i=activeColumn(a)
+            ro_star(i,k)= ro(i,k)*dz(i,k)/(zt(i,k)-zb(i,k))
+         enddo
+      enddo
+
+! c     Compute density in original cell before remapping (ro_star):
+! c     ro(i,k) * dz(i,k)/(zt(i,k)-zb(i,k))
+!
+!       do k=1,nk
+!         !do i=1,ni
+!          do a= 1,counter
+!             i=activeColumn(a)
+!             ro_star(i,k)=zt(i,k)-zb(i,k)
+!          enddo
+!       enddo
+
+!****************
+!     call vsdiv(ro_star,dz,ro_star,ni*nk)
+!!     ro_star= dz/ro_star  !JAM (if 'massvp4' not included in -libappl)
+!  The above approach does not work with use of activeColumn due to DIV-BY-ZERO.
+!  Replaced with the following:     (JAM)
+!       do k=1,nk
+!         !do i=1,ni
+!          do a= 1,counter
+!             i=activeColumn(a)
+!             ro_star(i,k)= dz(i,k)/ro_star(i,k)
+!          enddo
+!       enddo
+!  (The above loop could be removed and the re-calculation of ro_star moved to the
+!  loop above.)
+!****************
+
+!       do k=1,nk
+!         !do i=1,ni
+!          do a= 1,counter
+!             i=activeColumn(a)
+!             ro_star(i,k)=ro(i,k)*ro_star(i,k)
+!          enddo
+!       enddo
+!  (The above calc could be relocated to the "Compute density.." loop above)
+!===========================================================================
+!
+      if(complim)then
+
+!        Compute limit index where to look for mass.
+
+!        Find domain tightest levels.
+         idzmin=1
+         tempo=dz(1,ks)
+        !do i=2,ni
+         do a= 2,counter
+            i=activeColumn(a)
+            if(dz(i,ks).lt.tempo)then
+               tempo=dz(i,ks)
+               idzmin=i
+            endif
+         enddo
+
+         zmax=abs(wmax*dt)
+
+         do l=ks,ke,kw
+            flim(1,l)=float(l)
+            do k=l,ke,kw
+               if(zmax.ge.zz(idzmin,k)-zz(idzmin,l+kw))  &
+                   flim(1,l)=float(k)
+            enddo
+         enddo
+
+      endif
+!
+!===========================================================================
+!     Compute sedimentation, store in vp.
+
+      do l=1,nk
+         do k=l,nint(flim(1,l)),kw
+           !do i=1,ni
+            do a= 1,counter
+               i=activeColumn(a)
+               vp(i,l)=vp(i,l) + ro_star(i,k)*max( 0. ,  &
+                       min(zz(i,l+kw),zt(i,k)) - max(zz(i,l),zb(i,k)) )
+
+            enddo
+         enddo
+      enddo
+
+!==========================================================================
+!     Compute precipitation.
+
+!       do k=ks,nint(flim(1,ks)),kw
+!          do i=1,ni
+!             rt(i)=rt(i)+ro(i,k)*
+!      $           max( 0. , min(zz(i,ks),zt(i,k)) - (zt(i,k)-dz(i,k)) )
+!          enddo
+!       enddo
+
+!===========================================================================
+!     Update density.
+
+      do k=1,nk
+        !do i=1,ni
+         do a= 1,counter
+            i=activeColumn(a)
+            ro(i,k)=vp(i,k)*dzi(i,k)
+         enddo
+      enddo
+
+!===========================================================================
+!     Apply conservative two-grid-length filter
+
+!     Loop on filter pass
+!       do l=1,kf
+!
+!          do k=1,nk
+!             kp1=min(k+1,nk)
+!             km1=max(k-1,1)
+!             do i=1,ni
+!                vp(i,k) = ro(i,k) +
+!      $              0.25*((ro(i,kp1)-ro(i,k))-
+!      $              (ro(i,k)-ro(i,km1))*(dz(i,km1)*dzi(i,k)))
+!             enddo
+!          enddo
+!
+!          do k=1,nk
+!             do i=1,ni
+!                ro(i,k)=vp(i,k)
+!             enddo
+!          enddo
+!
+!       enddo
+
+!===========================================================================
+
+!       print*, ' at RETURN'
+!         print*, RO,DZ,WW,NI,NK,DT,COMPLIM,WMAX,FLIM,IDIR,
+!      ]                 counter,activeColumn
+      return
+!
+      END SUBROUTINE BLG3_V33
+!=====================================================================================!
+
+END MODULE MM_SEDIMENTATION_V33

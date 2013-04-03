@@ -1,0 +1,45 @@
+c Version 1.0
+c  From BATS, calculates fragmented albedos (direct and diffuse) in
+c  wavelength regions split at 0.7um.
+
+      subroutine hs_lake_albedo (tair, tcutoff, coszrs, albs, albi, albw)
+      implicit none
+#include "lakepar.cdk"
+      
+	real tair,tcutoff,coszrs,albs,albi,albw,fsol1,fsol2,
+     +     snal0,snal1,sical0,sical1,czen,czeta,tdiffs,albgl,
+     +     albgs,albg,albgsd,albgld,albgls,tdiff,albb
+
+
+      parameter (fsol1=0.5, fsol2=0.5) ! sw and lw weighting 
+      parameter (snal0=0.95, snal1=0.65) ! sw and lw albedo for new snow
+      parameter (sical0=0.6, sical1=0.4) ! sw and lw albedo for sea ice
+	parameter (albb=0.)
+
+      czen=amax1(coszrs, 0.)  ! make sure coszrs is above zero
+      czeta = czen
+
+
+      tdiffs=tair-tcutoff  ! degrees above freezing in celcius
+      tdiff=amax1(tdiffs,0.) ! make sure tdiffs above zero 
+      tdiffs=amin1(tdiff,20.) ! limit diff to be < 20 degrees
+      albgl=sical1-1.1e-2*tdiffs  ! long wave = near-infrared
+      albgs=sical0-2.45e-2*tdiffs ! short wave = visible
+      albg=fsol1*albgs+fsol2*albgl ! wt. long.v.short by fsol
+      albgsd=albgs ! make diffuse = direct
+      albgld=albgl ! make diffuse = direct
+      albi=albg   ! albedo of ice
+
+c     snow albedo really depends on snow-age, zenith angle,
+c     and thickness of snow, age reduces visible rad snow albedo
+
+      albs=0.70  ! albedo of snow
+
+      albg= albb +0.05/(czeta+0.15)
+      albgs=albg
+      albgl=albg
+c      albgsd= albb +0.08  ! diffuse
+c      albgld= albb +0.08  ! diffuse
+      albw=albg  ! albedo over open ocean, depends on zenith angle
+      return
+      end

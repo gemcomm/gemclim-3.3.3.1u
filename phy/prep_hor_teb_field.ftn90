@@ -1,0 +1,218 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #################################################################################
+SUBROUTINE PREP_HOR_TEB_FIELD(HPROGRAM,HSURF,HATMFILE,HATMFILETYPE)
+!     #################################################################################
+!
+!
+!!****  *PREP_HOR_TEB_FIELD* - reads, interpolates and prepares a TEB field
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     V. Masson 
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2004
+!!------------------------------------------------------------------
+!
+!
+USE MODD_PREP,     ONLY : CINGRID_TYPE, COUTGRID_TYPE, CINTERP_TYPE, XZS_LS, XLAT_OUT, XLON_OUT
+USE MODD_PREP_TEB, ONLY : XGRID_ROOF, XGRID_ROAD, XGRID_WALL
+USE MODD_TEB,      ONLY : XWS_ROAD, XWS_ROOF, XT_ROAD, XT_ROOF, XT_WALL, XTI_BLD, &
+                          XT_CANYON,XQ_CANYON,XD_ROAD,XD_WALL,XD_ROOF,            &
+                          NROAD_LAYER, NWALL_LAYER, NROOF_LAYER,                  &
+                          TSNOW_ROOF, TSNOW_ROAD, XTI_ROAD
+USE MODD_TEB_GRID, ONLY:  XLAT, XLON
+!
+!USE MODI_READ_PREP_TEB_CONF 
+!USE MODI_PREP_TEB_GRIB
+!USE MODI_PREP_TEB_UNIF
+USE MODI_PREP_TEB_GEM
+USE MODI_HOR_INTERPOL
+USE MODI_PREP_HOR_SNOW_FIELDS
+USE MODI_GET_LUOUT
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=7),   INTENT(IN)  :: HSURF     ! type of field
+CHARACTER(LEN=28),  INTENT(IN)  :: HATMFILE    ! name of the Atmospheric file
+CHARACTER(LEN=6),   INTENT(IN)  :: HATMFILETYPE! type of the Atmospheric file
+!
+!
+!*      0.2    declarations of local variables
+!
+CHARACTER(LEN=6)                 :: YFILETYPE ! type of input file
+CHARACTER(LEN=28)                :: YFILE     ! name of file
+REAL, POINTER, DIMENSION(:,:)    :: ZFIELDIN  ! field to interpolate horizontally
+REAL, ALLOCATABLE, DIMENSION(:,:):: ZFIELDOUT ! field interpolated   horizontally
+INTEGER                          :: ILUOUT    ! output listing logical unit
+!
+LOGICAL                          :: GUNIF     ! flag for prescribed uniform field
+!
+!-------------------------------------------------------------------------------------
+!
+!
+!*      1.     Reading of input file name and type
+!
+CALL GET_LUOUT(HPROGRAM,ILUOUT)
+!
+IF (HPROGRAM /= 'MC2GEM') THEN
+ !CALL READ_PREP_TEB_CONF(HPROGRAM,HSURF,YFILE,YFILETYPE,HATMFILE,HATMFILETYPE,ILUOUT,GUNIF)
+ELSE
+ GUNIF = .FALSE.         ! champs non uniformes
+ YFILE = '                         '
+ YFILETYPE = '      '
+ENDIF
+!
+!*      2.     Snow variables case?
+!
+IF (HSURF=='SN_ROOF') THEN
+  CALL PREP_HOR_SNOW_FIELDS(HPROGRAM,HSURF,              &
+                            YFILE,YFILETYPE,ILUOUT,GUNIF,&
+                            1,                           &
+                            XLAT,XLON,TSNOW_ROOF   )
+  RETURN
+ELSE IF (HSURF=='SN_ROAD') THEN
+  CALL PREP_HOR_SNOW_FIELDS(HPROGRAM,HSURF,              &
+                            YFILE,YFILETYPE,ILUOUT,GUNIF,&
+                            1,                           &
+                            XLAT,XLON,TSNOW_ROAD   )
+  RETURN
+END IF
+!
+!*      3.     Output Grid
+!
+!ALLOCATE(XLAT_OUT(SIZE(XLAT)))
+!ALLOCATE(XLON_OUT(SIZE(XLON)))
+XLAT_OUT = XLAT
+XLON_OUT = XLON
+!
+!
+!*      4.     Reading of input  configuration (Grid and interpolation type)
+!
+IF (GUNIF) THEN
+!  CALL PREP_TEB_UNIF(ILUOUT,HSURF,ZFIELDIN)
+ELSE IF (YFILETYPE=='GRIB  ') THEN
+!  CALL PREP_TEB_GRIB(HPROGRAM,HSURF,YFILE,ILUOUT,ZFIELDIN)
+ELSE IF (HPROGRAM=='MC2GEM') THEN
+  CALL PREP_TEB_GEM(HSURF,ZFIELDIN)
+END IF
+!
+!*      5.     Horizontal interpolation
+!
+ALLOCATE(ZFIELDOUT(SIZE(XLAT),SIZE(ZFIELDIN,2)))
+!
+CALL HOR_INTERPOL(ILUOUT,ZFIELDIN,ZFIELDOUT)
+!
+!*     6.     Return to historical variable
+!
+SELECT CASE (HSURF)
+ CASE('ZS     ') 
+!  ALLOCATE(XZS_LS(SIZE(ZFIELDOUT,1)))
+  XZS_LS(:) = ZFIELDOUT(:,1)
+ CASE('WS_ROOF') 
+!  ALLOCATE(XWS_ROOF(SIZE(ZFIELDOUT,1)))
+  XWS_ROOF(:) = ZFIELDOUT(:,1)
+ CASE('WS_ROAD')
+!  ALLOCATE(XWS_ROAD(SIZE(ZFIELDOUT,1)))
+  XWS_ROAD(:) = ZFIELDOUT(:,1)
+ CASE('TI_ROAD') 
+!  ALLOCATE(XTI_ROAD(SIZE(ZFIELDOUT,1)))
+  XTI_ROAD(:) = ZFIELDOUT(:,1)
+ CASE('TI_BLD ') 
+!  ALLOCATE(XTI_BLD (SIZE(ZFIELDOUT,1)))
+  XTI_BLD (:) = ZFIELDOUT(:,1)
+ CASE('T_ROAD ') 
+!  ALLOCATE(XT_ROAD(SIZE(ZFIELDOUT,1),NROAD_LAYER))
+  CALL INIT_FROM_REF_GRID(XGRID_ROAD,ZFIELDOUT,XD_ROAD,XT_ROAD)
+ CASE('T_WALL ')
+!  ALLOCATE(XT_WALL(SIZE(ZFIELDOUT,1),NWALL_LAYER))
+  CALL INIT_FROM_REF_GRID(XGRID_WALL,ZFIELDOUT,XD_WALL,XT_WALL)
+ CASE('T_ROOF ') 
+!  ALLOCATE(XT_ROOF(SIZE(ZFIELDOUT,1),NROOF_LAYER))
+  CALL INIT_FROM_REF_GRID(XGRID_ROOF,ZFIELDOUT,XD_ROOF,XT_ROOF)
+ CASE('T_CAN  ') 
+!  ALLOCATE(XT_CANYON(SIZE(ZFIELDOUT,1)))
+  XT_CANYON (:) = ZFIELDOUT(:,1)
+ CASE('Q_CAN  ') 
+!  ALLOCATE(XQ_CANYON(SIZE(ZFIELDOUT,1)))
+  XQ_CANYON (:) = ZFIELDOUT(:,1)
+END SELECT
+!
+!-------------------------------------------------------------------------------------
+!
+!*      7.     Deallocations
+!
+DEALLOCATE(ZFIELDIN )
+DEALLOCATE(ZFIELDOUT)
+!!DEALLOCATE(XLAT_OUT )
+!DEALLOCATE(XLON_OUT )
+!!IF (ALLOCATED(XZS_LS)) DEALLOCATE(XZS_LS)
+!IF (ASSOCIATED(XZS_LS)) DEALLOCATE(XZS_LS)
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+!
+CONTAINS
+!
+!-------------------------------------------------------------------------------------
+!-------------------------------------------------------------------------------------
+SUBROUTINE INIT_FROM_REF_GRID(PGRID1,PT1,PD2,PT2)
+!
+USE MODI_INTERP_GRID2D
+!
+REAL, DIMENSION(:,:), INTENT(IN)  :: PT1    ! temperature profile
+REAL, DIMENSION(:),   INTENT(IN)  :: PGRID1 ! normalized grid
+REAL, DIMENSION(:,:), INTENT(IN)  :: PD2    ! output layer thickness
+REAL, DIMENSION(:,:), INTENT(OUT) :: PT2    ! temperature profile
+!
+INTEGER                                  :: JL  ! loop counter
+REAL, DIMENSION(SIZE(PT1,1),SIZE(PT1,2)) :: ZD1 ! input grid
+REAL, DIMENSION(SIZE(PD2,1),SIZE(PD2,2)) :: ZD2 ! output grid
+REAL, DIMENSION(SIZE(PD2,1))             :: ZD  ! output total thickness
+!
+ZD2(:,:) = 0.
+ZD (:)   = 0.
+!
+DO JL=1,SIZE(ZD2,2)
+  ZD2(:,JL) = ZD(:) + PD2(:,JL)/2.
+  ZD (:)    = ZD(:) + PD2(:,JL)
+END DO
+!
+DO JL=1,SIZE(PT1,2)
+  ZD1(:,JL) = PGRID1(JL) * ZD(:)
+END DO
+!
+CALL INTERP_GRID2D(ZD1,PT1,ZD2,PT2)
+!
+END SUBROUTINE INIT_FROM_REF_GRID
+!-------------------------------------------------------------------------------------
+!
+END SUBROUTINE PREP_HOR_TEB_FIELD

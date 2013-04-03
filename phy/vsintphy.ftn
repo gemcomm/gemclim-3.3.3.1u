@@ -1,0 +1,114 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!!! S/P VSINTPHY
+      subroutine vsintphy( vsint,champs, sigma_loc,p0, \
+                           sigtyp_S, masse_L, n,nk )
+
+#include "impnone.cdk"
+
+      integer N,NK
+      logical masse_L
+      character(len=*) sigtyp_S
+      real    vsint(N),champs(N,NK),sigma_loc(N,NK),p0(N)
+
+!Author
+!          B. Dugas
+!
+!Revisions
+! 000      B. Dugas (Fev 2008)      - Version initiale
+!
+!Object
+!          calculates centered vertical (local-) sigma integrals
+!
+!Arguments
+!
+!          - Output -
+! vsint     vertical sigma integral of champs
+!
+!          - Input -
+! champs    multi-level variable to integrate
+! sigma_loc local sigmal levels on full levels
+! p0        surface pressure
+!
+!          - Input -
+! sigtyp_S  sigma_loc coordinate type: 'FULL' or 'HALF'
+! masse_L   whether to scale the result by p0/GRAV (logical)
+! N         horizontal running length
+! NK        vertical dimension
+!
+
+!IMPLICITES
+
+#include "consphy.cdk"
+
+!MODULES
+
+      integer L
+      real    ds(N,NK),sf(N,NK)
+      character(len=4) local_sigtyp_S
+
+      ! default value for local_sigtyp_S
+
+      local_sigtyp_S = sigtyp_S
+
+      if(local_sigtyp_S .ne. 'HALF' .and. \
+         local_sigtyp_S .ne. 'FULL' )     \
+         local_sigtyp_S =    'FULL'
+
+      if(local_sigtyp_S == 'FULL') then
+
+         ! since sigtyp_S has 'FULL' levels, ds will
+         ! be the difference between half-levels
+
+         ds(:,1) = sqrt( sigma_loc(:,1)*sigma_loc(:,2) )
+
+         do L=2,NK-1
+            ds(:,L) =    sqrt( sigma_loc(:,L  )*sigma_loc(:,L+1 ) ) \
+                       - sqrt( sigma_loc(:,L-1)*sigma_loc(:,L   ) )
+         enddo
+
+         ds(:,NK) = 1. - sqrt( sigma_loc(:,NK )*sigma_loc(:,NK-1) )
+
+      elseif(local_sigtyp_S == 'HALF') then
+
+         ! while ds is now the difference between the full-levels sf
+
+         sf(:,NK) = sigma_loc(:,NK)**2
+
+         do L=NK-1,1,-1
+            sf(:,L) = sigma_loc(:,L)**2/sf(:,L+1)
+         enddo
+
+         do L=1,NK-1
+            ds(:,L) = sf(:,L+1)-sf(:,L)
+         enddo
+
+         ds(:,NK) = 1. - sf(:,NK)
+
+      endif
+
+      vsint(:) = champs(:,1) * ds(:,1)
+
+      do L=2,NK
+         vsint(:) = vsint(:) + champs(:,L) * ds(:,L)
+      enddo
+
+      ! normalize by the total mass ?
+
+      if (masse_L) vsint(:) = vsint(:) * p0(:) / GRAV
+
+      return
+      end

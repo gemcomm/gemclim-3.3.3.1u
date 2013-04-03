@@ -1,0 +1,1472 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P PHY_OPT
+*
+      SUBROUTINE PHY_OPTC (NOM,VALEURC,NV,MODE,prout,err)
+*
+      IMPLICIT NONE
+*
+      CHARACTER *(*) NOM, MODE
+      logical prout
+      INTEGER NV,err
+      CHARACTER *(*) VALEURC(NV)
+      INTEGER        VALEURI(NV)
+      LOGICAL        VALEURL(NV)
+      REAL           VALEURR(NV)
+*
+*Author
+*          B. Bilodeau (Spring 1994)
+*
+*Revisions
+* 001      M. Gagnon   (Jul 95) - Initialize radnivl
+* 002      M. Desgagne (Nov 95) - Schmsol for CLASS
+* 003      B. Dugas    (Sep 96) - 1) Change GWDRAG switch to character
+*                                 2) Add RADFIX logical option
+*                                 3) Add ETRMIN,TAUFAC,Z0MIN real options
+*                                 4) Add SHLCVT character switch
+* 004      G. Pellerin (Oct 96) - Options KUOSTD,KUOSYM,KUOSUN added
+*                                 along with updated condensation CONSUN
+* 005      G. Pellerin (Nov 96) - Options RAS and SHALODQC added
+* 006      G. Pellerin (Apr 97) - Advection of liquid water switch
+* 007      M. Desgagne (Apr 96) - ADVECTKE
+* 008      F. Kong     (Dec 96) - Explicit schemes in STCOND
+* 009      B. Bilodeau (Aug 97) - Z0DIR
+* 010      B. Bilodeau (Jun 98) - RADFILES
+* 011      P.-A. Michelangeli (Jul 98) - Add FOMIC logical option
+* 012      B. Bilodeau (Dec 99) - NSLOFLUX
+* 013      N. Brunet   (Sep 99) - add 5 logical options
+*                                 (cortm,corts,drylaps,montagn,bkgalb)
+*                                 (project to move treatment of geophysical
+*                                  fields into physical library)
+* 014      B. Bilodeau (Apr 2000) - ICEMELT (sea ice melting)
+* 015      B. Bilodeau (Mar 2001) - SNOALB_ANL
+* 016      J. Mailhot  (Nov 2000) - Add moist turbulence option (ifluvert=3)
+* 017      A.-M. Leduc (Nov 2001) - Add KFC parameters
+* 018      A. Erfani   (Nov 2001) - Add KFCKUO2 option
+* 019      B. Bilodeau (Feb 2002) - Add Z0TCST option
+* 020      B. Bilodeau (Mar 2002) - Remove AIRE
+* 021      S. Laroche  (Mar 2002) - Add options for the linearized physics
+* 022      A-M. Leduc , B. Bilodeau (Dec 2002) - Switch shlcvt with double options
+* 023      A-M. Leduc  (Dec 2002) - Add KFCPCP switch: conservation of pcpn in kfcp
+* 024      B. Dugas    (Sep 2002) - Add CO2 concentration parameter
+* 025      B. Bilodeau (Feb 2003) - Add AS2, BETA2 and KKL2 parameters
+* 026      B. Dugas    (Mar 2003) - Add STRATOS parametre
+* 027      JF Mahfouf  (May 2003) - Add IMPFLX option for coupling surface with vert. diff.
+* 028      A-M. Leduc  (Jun 2003) - add RADFLTR switch
+* 029      A. Plante   (Sep 2003) - add PCPTYPE switch
+* 030      B. Bilodeau (Mar 2004) - add TSCONFC and KFCTRIG4
+* 031      B. Bilodeau (Jul 2004) - add Z0TLAT and remove Z0TCST.
+*            Double character options names from 8 to 16 characters.
+* 032      A-M. Leduc  (Feb 2004) - add KTICEFRAC switch
+* 033      L. Spacek   (Aug 2004) - cloud clean-up; elimination of ISTCOND=2,6,7,8 ICONVEC=4
+* 034      D. Talbot   (Mar 2005) - add TDIAGLIM switch
+* 035      A-M. Leduc  (May 2005) - add TS_FLXIR switch
+* 036      S. Valcke   (Apr 2005) - add COUPLING and CPL_FLD and indx_xxx
+* 037      A. Lemonsu  (Jun 2005) - add SCHMURB
+* 038      B. Dugas    (Jun 2005) - add KFCTRIGA trigger modifier for KF convection
+* 039      B. Dugas    (Aug 2005) - use PHYOPT_DATA to initialize OPTIONS and DZSEDI
+* 040      A-M. Leduc  (Oct 2005) - add LIMSNODP switch
+* 041      M. Desgagne (July 2006)- revised interface
+* 042      J. Milbrandt (Dec 2006)- added options for Milbrandt-Yau scheme
+* 043      B. Bilodeau (Feb 2007) - Cleanup
+* 044      B. Bilodeau (Apr 2007) - Offline
+* 045      J. Milbrandt (Apr 2008)- added single/double-moment namelist switches for M-Y scheme;
+*                                   removed unused physics namelist options for M-Y
+* 046      M. Desgagne (Mar 2008) - optional ozone file
+* 047      L. Spacek   (Sep 2008) - added icelac
+* 048      B. Dugas    (Sep 2008) - Inincr
+* 049      R. Larocque (Apr 2006) - add nmos (MOSAIC) and IWF
+* 050      L. Duarte   (Dec 2008) - add CLASS_IG and SCHMSOL_LEV
+* 051      B. Dugas    (Jan 2009) - Re-define VAMIN as a configurable OPTION
+* 052      A-M. Leduc  (Feb 2009) - add KFCTRIGLAT, KFCTRIGL and TRIGLAT 
+* 053      J. Toviessi (Jul 2009) - added radslope modifications
+* 054      L. Duarte   (Dec 2009) - add VEGE_FIELDS
+* 055      A. Martynov (Aug 2011) - add 1D interactive lakes
+! 050      A. Plante   (Sep 2011) - Add namelist member NON_ORO_PBOT
+! 051      Zadra/McTaggart-Cowan (Jan 2012) - Add namelist PBL_RCRIT
+*
+*Object
+*          Initialize/Extract physics comdeck OPTIONS
+*
+*Arguments
+*
+*          - Input -
+* NOM      name of the option to be treated
+*
+*          - Input/Output -
+* VALEURC  value of the character constant
+* VALEURI  value of the integer   constant
+* VALEURL  value of the logical   constant
+* VALEURR  value of the real      constant
+*
+*          - Input -
+* NV       number of values to be treated
+* MODE     mode of operation : SET = initialize the value
+*                              GET = extract the value
+*
+*Notes
+*          phy_opt sets or gets options of four
+*          types : character, integer, logical
+*          and real. It includes 3 entry points.
+*
+**
+#include "phy_master_ctrl.cdk"
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "indx_sfc.cdk"
+*
+      CHARACTER MODEC*3,NOMC*16,TYPE*1
+      INTEGER i,j,n
+*
+*     LIST OF VARIABLES THAT CAN BET "SET"
+      INTEGER NVAR_SET
+      PARAMETER (NVAR_SET=9)
+      CHARACTER*16 VAR_SET(NVAR_SET)
+      DATA VAR_SET                                              \
+          /'CLIMAT'   , 'COUPLING' , 'DATE'     , 'DELT'     ,  \
+           'ININCR'   , 'LIN_V4D'  , 'OFFLINE'  , 'PTOP_NML' ,  \
+           'WET'/
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( VALC    , CHARACTER*16 , (NV) )
+*
+************************************************************************
+*
+      TYPE = 'C'
+*
+      GO TO 500
+*
+100   CONTINUE
+*
+      err = 0
+      DO I=1,NV
+         CALL LOW2UP(VALEURC(I),VALC(I))
+      END DO
+*
+      IF (NOMC.EQ.'CONVEC')                       THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = CONVEC
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'FLUVERT')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = FLUVERT
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'GWDRAG')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = GWDRAG
+*
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCPCP')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = KFCPCP
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LAKES')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+             VALEURC(1) = LAKES
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LONGMEL')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+             VALEURC(1) = LONGMEL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADIA')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = RADIA
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADFILES')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = RADFILES
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SHLCVT')                  THEN
+*
+         IF (NV.NE.2) THEN
+            if (prout) WRITE(6,1012) NOMC
+            err = -1
+            return
+         ENDIF
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            DO I=1,NV
+               VALEURC(I) = SHLCVT(I)
+            END DO
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'STCOND')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = STCOND
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SCHMSOL')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = SCHMSOL
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SCHMURB')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = SCHMURB
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'VEGE_FIELDS')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = VEGE_FIELDS
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'PCPTYPE')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+*
+            VALEURC(1) = PCPTYPE
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'PVERSION')                THEN
+*
+         IF      (MODEC.EQ.'GET')                 THEN
+*
+            VALEURC(1) = trim( phy_pck_version )
+     +                 //' '//
+     +                   trim( phy_release_pck_version )
+*
+         ENDIF
+*
+      ELSE
+*
+         if (prout) then
+         WRITE(6,1020) NOMC,'CONVEC, FLUVERT, GWDRAG, LONGMEL, '
+         WRITE(6,1021)      'RADIA,SCHMSOL,STCOND,SHLCVT,KFCPCP'
+         WRITE(6,1021)      'PCPTYPE,LAKES                     '
+         WRITE(6,1022)
+         endif
+         err = -1
+*
+      ENDIF
+*
+      RETURN
+*
+      ENTRY PHY_OPTI      (NOM,VALEURI,NV,MODE,prout,err)
+*
+*Author
+*          B. Bilodeau (Spring 1994)
+*
+*Object
+*          to initialize the physics comdeck OPTIONS
+*
+*Arguments
+*
+*          - Input -
+* NOM      name of the option to be treated
+*
+*          - Input/Output -
+* VALEURI  value of the integer   constant
+*
+*          - Input -
+* NV       number of values to be treated
+* MODE     mode of operation : SET = initialize the value
+*                              GET = extract the value
+**
+*
+      TYPE = 'I'
+      GO TO 500
+*
+200   CONTINUE
+*
+      err = 0
+      IF (NOMC.EQ.'CLASS_IG')                     THEN
+*
+         IF      (MODEC.EQ.'GET')                 THEN
+            VALEURI(1) = CLASS_IG
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DATE')                    THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            DO 55 I=1,NV
+               DATE(I) = VALEURI(I)
+55          CONTINUE
+            IF (PROUT) THEN
+               WRITE(6,'(/A,5I10)') 'PHYSICS OPTION DATE = ',(DATE(I),I=1,5)
+            ENDIF
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ICONVEC')                 THEN
+*
+         IF      (MODEC.EQ.'GET')                 THEN
+            VALEURI(1) = ICONVEC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'IHEATCAL')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = IHEATCAL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'IKFCPCP')                 THEN
+*
+         IF      (MODEC.EQ.'GET')                 THEN
+            VALEURI(1) = IKFCPCP
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ISTCOND')                 THEN
+*
+         IF      (MODEC.EQ.'GET')                 THEN
+            VALEURI(1) = ISTCOND
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MOYHR')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = MOYHR
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'NMOS')                    THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = NMOS
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'NSLOFLUX')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = NSLOFLUX
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KNTRAD')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = KNTRAD
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LIN_KPH')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = LIN_KPH
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LIN_LSC')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = LIN_LSC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LIN_PBL')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = LIN_PBL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LIN_SGO')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = LIN_SGO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LIN_V4D')                 THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            LIN_V4d = VALEURI(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,I4)') 'PHYSICS OPTION LIN_V4D = ',LIN_V4D
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_CCNTYPE')              THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = MY_CCNTYPE
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_FULL_VERSION')        THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURI(1) = MY_FULL_VERSION
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADNIV')                  THEN
+
+         IF (MODEC.EQ.'GET')                      THEN
+            DO I=1,NV
+               VALEURI(I) = RADNIVL(I)
+            ENDDO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'INDX_SOIL')               THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_soil
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_GLACIER')               THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_glacier
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_WATER')               THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_water
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_ICE')               THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_ice
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_URB')                  THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_urb
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_LAKES')                  THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_lakes
+         ENDIF
+      ELSE IF (NOMC.EQ.'INDX_AGREGE')               THEN
+         IF (MODEC.EQ.'GET')                 THEN
+               VALEURI(1) = indx_agrege
+         ENDIF
+      ELSE IF (NOMC.EQ.'ILAKES')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURI(1) = ILAKES
+         ENDIF
+*
+      ELSE
+*
+         if (prout) then
+         WRITE(6,1020) NOMC,'DATE, KNTRAD, RADNIVL, IHEATCAL '
+         WRITE(6,1022)
+         endif
+         err = -1
+*
+      ENDIF
+*
+      RETURN
+*
+      ENTRY PHY_OPTL      (NOM,VALEURL,NV,MODE,prout,err)
+*
+*Author
+*          B. Bilodeau (Spring 1994)
+*
+*Object
+*          to initialize the physics comdeck OPTIONS
+*
+*Arguments
+*
+*          - Input -
+* NOM      name of the option to be treated
+*
+*          - Input/Output -
+* VALEURL  value of the logical   constant
+*
+*          - Input -
+* NV       number of values to be treated
+* MODE     mode of operation : SET = initialize the value
+*                              GET = extract the value
+**
+*
+      TYPE = 'L'
+      GO TO 500
+*
+300   CONTINUE
+*
+      err = 0
+      IF (NOMC.EQ.'ADVECTKE')                     THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = ADVECTKE
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'AGREGAT')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = AGREGAT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'CHAUF')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = CHAUF
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'CLIMAT')                  THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            CLIMAT = VALEURL(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,L2)') 'PHYSICS OPTION CLIMAT = ',CLIMAT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DBGMEM')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = DBGMEM
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DIFFUW')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = DIFFUW
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DRAG')                    THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = DRAG
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'EVAP')                    THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = EVAP
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ICELAC')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = ICELAC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ICEMELT')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = ICEMELT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'IMPFLX')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = IMPFLX
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'INILWC')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = INILWC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ININCR')                  THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            ININCR = VALEURL(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,L2)') 'PHYSICS OPTION ININCR = ',ININCR
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'IWF')                     THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = (IWF.EQ.1)
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KFCMOM')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1)= KFCMOM
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KTICEFRAC')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1)= KTICEFRAC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LMETOX')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1)= LMETOX
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_C')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_C
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_R')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_R
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_I')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_I
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_S')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_S
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_G')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_G
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DBLMOM_H')             THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DBLMOM_H
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_ICEON')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_ICEON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_WARMON')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_WARMON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_SEDION')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_SEDION
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_RAINON')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_RAINON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_SNOWON')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_SNOWON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DIAGON')               THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_DIAGON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_INITN')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+           VALEURL(1) = MY_INITN
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'NON_ORO')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = NON_ORO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'OFFLINE')                 THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            OFFLINE = VALEURL(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,L2)') 'PHYSICS OPTION OFFLINE = ',OFFLINE
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADFIX')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = RADFIX
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADFLTR')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = RADFLTR
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RADSLOPE')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = RADSLOPE
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TS_FLXIR')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = TS_FLXIR
+         ENDIF
+*
+*
+      ELSE IF (NOMC.EQ.'SATUCO')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = SATUCO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SIMISCCP')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = SIMISCCP
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SNOALB_ANL')              THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = SNOALB_ANL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SNOWMELT')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = SNOWMELT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'STOMATE')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = STOMATE
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'STRATOS')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = STRATOS
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TSCONFC')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = TSCONFC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TYPSOL')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = TYPSOL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'WET')                     THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            WET = VALEURL(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,L2)') 'PHYSICS OPTION WET = ',WET
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'Z0DIR')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = Z0DIR
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'CORTM')                   THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = CORTM
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DRYLAPS')                 THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = DRYLAPS
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'BKGALB')                  THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = BKGALB
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'FOMICHEV')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = FOMIC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TDIAGLIM')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = TDIAGLIM
+         ENDIF
+*
+*
+      ELSE IF (NOMC.EQ.'LIMSNODP')                THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = LIMSNODP
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'COUPLING')                THEN
+*
+         IF      (MODEC.EQ.'SET')                 THEN
+            COUPLING = VALEURL(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,L2)') 'PHYSICS OPTION COUPLING = ',COUPLING
+         ENDIF
+*
+      ELSE
+*
+         if (prout) then
+         WRITE(6,1020) NOMC,'ADVECTKE, BKGALB, CHAUF, CLIMAT,  '
+         WRITE(6,1021)      'CORTM, COUPLING,DBGMEM,    '
+         WRITE(6,1021)      'DIFFUW,DRAG, DRYLAPS, EVAP,  '
+         WRITE(6,1021)      'FOMIC,IMPFLX,INILWC,ICELAC,KFCMOM,'
+         WRITE(6,1021)      'KTICEFRAC,ININCR,LIMSNODP,LMETOX, '
+         WRITE(6,1021)      'NON_ORO, RADFIX,         '
+         WRITE(6,1021)      'RADFLTR, TS_FLXIR, SATUCO,        '
+         WRITE(6,1021)      'SIMISCCP, SNOALB_ANL, SNOWMELT,   '
+         WRITE(6,1021)      'STOMATE, STRATOS, TDIAGLIM,       '
+         WRITE(6,1021)      'TYPSOL, WET, Z0DIR                '
+         WRITE(6,1022)
+         endif
+         err = -1
+*
+      ENDIF
+*
+      RETURN
+*
+      ENTRY PHY_OPTR      (NOM,VALEURR,NV,MODE,prout,err)
+*
+*Author
+*          B. Bilodeau (Spring 1994)
+*
+*Object
+*          to initialize the physics comdeck OPTIONS
+*
+*Arguments
+*
+*          - Input -
+* NOM      name of the option to be treated
+*
+*          - Input/Output -
+* VALEURR  value of the real      constant
+*
+*          - Input -
+* NV       number of values to be treated
+* MODE     mode of operation : SET = initialize the value
+*                              GET = extract the value
+**
+*
+      TYPE = 'R'
+      GO TO 500
+*
+400   CONTINUE
+*
+      err = 0
+      IF (NOMC.EQ.'AS')                          THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = AS2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'BETA')                   THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = BETA2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DELT')                   THEN
+*
+         IF      (MODEC.EQ.'SET')                THEN
+            DELT = VALEURR(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,F7.1)') 'PHYSICS OPTION DELT = ',DELT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'DZSEDI')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = DZSEDI
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'EPONGE')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = EPONGE(I)
+            END DO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ETRMIN')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = ETRMIN2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'FACDIFV')                THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = FACDIFV
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'FACTDT')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = FACTDT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'HC2')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = HC2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'HF2')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+*
+            VALEURR(1) = HF2
+*
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'HM2')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+*
+            VALEURR(1) = HM2
+*
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCDEPTH')              THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCDEPTH
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCDET')                THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCDET
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCDLEV')               THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCDLEV
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCRAD')                THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCRAD
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCTIMEA')              THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCTIMEA
+         ENDIF
+*
+       ELSE IF (NOMC.EQ.'KFCTIMEC')              THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) =KFCTIMEC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KFCTRIG4')               THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) = KFCTRIG4(1)
+           VALEURR(2) = KFCTRIG4(2)
+           VALEURR(3) = KFCTRIG4(3)
+           VALEURR(4) = KFCTRIG4(4)
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KFCTRIGA')               THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) = KFCTRIGA
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KFCTRIGL')               THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) = KFCTRIGL
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KFCTRIGLAT')              THEN
+*
+         IF (MODEC.EQ.'GET')                      THEN
+            VALEURL(1) = KFCTRIGLAT
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'KKL')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = KKL2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'LTRAN0')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) = LTRAN0
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'MY_DZSEDI')              THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+           VALEURR(1) = MY_DZSEDI
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'NON_ORO_PBOT')           THEN
+!
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = NON_ORO_PBOT
+         ENDIF
+!
+      ELSE IF (NOMC.EQ.'PARSOL')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = PARSOL(I)
+            END DO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'PBL_RICRIT')             THEN
+!
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = PBL_RICRIT(I)
+            ENDDO
+         ENDIF
+!
+      ELSE IF (NOMC.EQ.'QCO2')                   THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = QCO2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'QCH4')                   THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = QCH4
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'QN2O')                   THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = QN2O
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'QCFC11')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = QCFC11
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'QCFC12')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = QCFC12
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'RMSCON')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = RMSCON
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'SCHMSOL_LEV')            THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = SCHMSOL_LEV(I)
+            END DO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TAUFAC')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = TAUFAC
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'TRIGLAT')                THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = TRIGLAT(I)
+            END DO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'VAMIN')                  THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = VAMIN
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'Z0MIN')                  THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = Z0MIN2
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'Z0TLAT')                 THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            DO I=1,NV
+               VALEURR(I) = Z0TLAT(I)
+            END DO
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'ZUA')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = ZUA
+         ENDIF
+
+      ELSE IF (NOMC.EQ.'ZTA')                    THEN
+*
+         IF (MODEC.EQ.'GET')                     THEN
+            VALEURR(1) = ZTA
+         ENDIF
+*
+      ELSE IF (NOMC.EQ.'PTOP_NML')               THEN
+*
+         IF      (MODEC.EQ.'SET')                THEN
+             PTOP_NML = VALEURR(1)
+         ENDIF
+         IF (PROUT) THEN
+            WRITE(6,'(/A,F7.2)') 'PHYSICS OPTION PTOP_NML = ',PTOP_NML
+         ENDIF
+*
+      ELSE
+*
+         if (prout) then
+         WRITE(6,1020) NOMC,'AS, BETA, DELT,                   '
+         WRITE(6,1021)      'EPONGE, ETRMIN, FACDIFV, FACTDT,  '
+         WRITE(6,1021)      'HC, HF, HM, KFCDEPTH, KFCDET,     '
+         WRITE(6,1021)      'KFCDLEV, KFCMOM, KFCPCP, KFCRAD,  '
+         WRITE(6,1021)      'KFCTIMEC, KFCTIMEA, KFCTRIG4,     '
+         WRITE(6,1021)      'KFCTRIGA, KFCTRIGL , KFCTRIGLAT,  '
+         WRITE(6,1021)      'KKL, KTICEFRAC, PARSOL, PBL_RICRIT'
+         WRITE(6,1021)      'QCO2, RMSCON,TAUFAC, TRIGLAT,     '
+         WRITE(6,1021)      'VAMIN, Z0MIN, Z0TLAT, QCH4, QN2O, '
+         WRITE(6,1021)      'QCFC11, QCFC12, NON_ORO_PBOT      '
+         WRITE(6,1022)
+         endif
+         err = -1
+*
+      ENDIF
+*
+      RETURN
+*
+************************************************************************
+*
+*     SECTION COMMUNE AUX POINTS D'ENTREE
+*
+************************************************************************
+*
+500   CONTINUE
+      err = -1
+*
+*     CONVERSION DE MINUSCULES A MAJUSCULES
+*
+      CALL LOW2UP(NOM, NOMC)
+      CALL LOW2UP(MODE,MODEC)
+*
+*     VERIFICATION DU MODE D'OPERATION
+*
+      IF (MODEC.NE.'SET' .AND. MODEC.NE.'GET') THEN
+         if (prout) WRITE(6,1000)
+         return
+      ENDIF
+*
+*     SEULES CERTAINES VARIABLES PEUVENT ETRE DEFINIES
+*     EN MODE "SET". LA PLUPART DES VARIABLES SONT
+*     LUES DIRECTEMENT DU NAMELIST "PHYSICS" PAR PHY_INIT;
+*     POUR CES VARIABLES, PHY_OPT NE PEUT QU'ETRE APPELE
+*     EN MODE "GET".
+      IF (MODEC.EQ.'SET') THEN
+         DO I=1,NVAR_SET
+            IF (NOMC.EQ.VAR_SET(I)) GOTO 600
+         END DO
+         IF (PROUT) WRITE(6,1005) NOMC
+         RETURN
+      ENDIF
+600   CONTINUE
+*
+*     RETOUR AUX POINTS D'ENTREE
+*
+      IF      (TYPE.EQ.'C') THEN
+         GO TO 100
+      ELSE IF (TYPE.EQ.'I') THEN
+         GO TO 200
+      ELSE IF (TYPE.EQ.'L') THEN
+         GO TO 300
+      ELSE IF (TYPE.EQ.'R') THEN
+         GO TO 400
+      ENDIF
+
+************************************************************************
+*
+*     FIN DE LA SECTION COMMUNE
+*
+************************************************************************
+*
+*
+1000   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****',
+     +        / ' *                                       *',
+     +        / ' *     S/R PHY_OPT:  INVALID MODE        *',
+     +        / ' *                                       *',
+     +        / ' *     USE EITHER SET OR GET             *',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+*
+1005   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****',
+     +        / ' *                                       *',
+     +        / ' *     S/R PHY_OPT:                      *',
+     +        / ' *                                       *',
+     +        / ' *     "SET" MODE NOT ALLOWED            *',
+     +        / ' *                                       *',
+     +        / ' *      FOR OPTION ', A16,        '      *',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+*
+1012   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****',
+     +        / ' *                                       *',
+     +        / ' *     S/R PHY_OPT : ILLEGAL NUMBER      *',
+     +        / ' *     OF VALUES FOR OPTION ', A16,     '*',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+1013   FORMAT ( ' *****************************************',
+     +        / ' *****************************************',
+     +        / ' *                                       *',
+     +        / ' ***** ABORT ***** ABORT ***** ABORT *****',
+     +        / ' *                                       *',
+     +        / ' *     S/R PHY_OPT:   OPTION Z0TCST       *',
+     +        / ' *                                       *',
+     +        / ' *     HAS BEEN REPLACED BY Z0TLAT       *',
+     +        / ' *                                       *',
+     +        / ' *****************************************',
+     +        / ' *****************************************')
+*
+1020   FORMAT (2(1x,60('*')/),1x,'*',58(' '),'*'/
+     +         1x,5('***** ABORT'),'*****'/1x,'*',58(' '),'*'/
+     +         ' *',9(' '),"S/R PHY_OPT:  INVALID OPTION: '",A8,"'",
+     +         10(' '),'*'/' *    ','ALLOWED: ',a,13(' '),'*')
+1021   FORMAT (' *             ',a,11(' '),'*')
+1022   FORMAT (1x,'*',58(' '),'*',/2(1x,60('*')/))
+*
+*
+      END
+      BLOCK DATA PHY_OPTIONS_DATA
+!
+#include "phy_master_ctrl.cdk"
+#include "options.cdk"
+!
+!     _________________________________________
+!
+!     INITIALIZATION OF PHYSICS OPTIONS
+!
+!     PLEASE KEEP IN STRICT ALPHABETICAL ORDER!
+!     _________________________________________
+!
+!
+      DATA ADVECTKE        /.FALSE./
+      DATA AGREGAT         /.FALSE./
+      DATA AS2             /12./
+      DATA BETA2           /1.0/
+      DATA BKGALB          /.TRUE./
+      DATA CHAUF           /.TRUE./
+      DATA CLASS_IG        /3/
+      DATA CLIMAT          /.FALSE./
+      DATA CONVEC          /'NIL'/
+      DATA CORTM           /.TRUE./
+      DATA COUPLING        /.FALSE./
+      DATA DATE            /14 * 0/
+      DATA DBGMEM          /.FALSE./
+      DATA DELT            /0/
+      DATA DIFFUW          /.FALSE./
+      DATA DRAG            /.TRUE./
+      DATA DRYLAPS         /.TRUE./
+      DATA DZSEDI          /60./
+      DATA EPONGE          /LEVMAX * 0.0/
+      DATA ETRMIN2         /1.E-4/
+      DATA EVAP            /.TRUE./
+      DATA FACDIFV         /1.0/
+      DATA FACTDT          /1.0/
+      DATA FLUVERT         /'NIL'/
+      DATA FOMIC           /.FALSE./
+      DATA GWDRAG          /'NIL'/
+      DATA HC2             /0.6/
+      DATA HF2             /1.0/
+      DATA hines_flux_filter /0/
+      DATA HM2             /1.0/
+      DATA ICELAC          /.FALSE./
+      DATA ICEMELT         /.FALSE./
+      DATA ICONVEC         /1000/
+      DATA IFLUVERT        /1000/
+      DATA IGWDRAG         /1000/
+      DATA IHEATCAL        /0/
+      DATA IKFCPCP         /1000/
+      DATA ILAKES          /0/
+      DATA ILONGMEL        /1000/
+      DATA IMPFLX          /.FALSE./
+      DATA INILWC          /.FALSE./
+      DATA ININCR          /.FALSE./
+      DATA IPCPTYPE        /1000/
+      DATA IRADIA          /1000/
+      DATA ISCHMSOL        /1000/
+      DATA ISCHMURB        /0/
+      DATA ISHLCVT         /2 * 1000/
+      DATA ISTCOND         /1000/
+      DATA IWF             /0/
+      DATA KFCDEPTH        /4000./
+      DATA KFCDET          /0./
+      DATA KFCDLEV         /0.5/
+      DATA KFCMOM          /.FALSE./
+      DATA KFCPCP          /'ORI'/
+      DATA KFCRAD          /1500./
+      DATA KFCTIMEA        /3600./
+      DATA KFCTIMEC        /3600./
+      DATA KFCTRIG4        /0., 0., 0.05, 0.05/
+      DATA KFCTRIGA        /-1.0/
+      DATA KFCTRIGL        /0.05/
+      DATA KFCTRIGLAT      /.FALSE./
+      DATA KKL2            /0.1/
+      DATA KNTRAD          /0/
+      DATA KTICEFRAC       /.TRUE./
+      DATA LAKES           /'NIL'/
+      DATA LIMSNODP        /.FALSE./
+      DATA LIN_KPH         /0/
+      DATA LIN_PBL         /0/
+      DATA LIN_LSC         /0/
+      DATA LIN_SGO         /0/
+      DATA LIN_V4D         /0/
+      DATA LMETOX          /.FALSE./
+      DATA LONGMEL         /'BLAC62'/
+      DATA LTRAN0          /0.2/
+      DATA MY_CCNTYPE      /1/
+      DATA MY_DIAGON       /.TRUE./
+      DATA MY_DZSEDI       /50./
+      DATA MY_DBLMOM_C     /.TRUE./
+      DATA MY_DBLMOM_R     /.TRUE./
+      DATA MY_DBLMOM_I     /.TRUE./
+      DATA MY_DBLMOM_S     /.TRUE./
+      DATA MY_DBLMOM_G     /.TRUE./
+      DATA MY_DBLMOM_H     /.TRUE./
+      DATA MY_FULL_VERSION /4/
+      DATA MY_ICEON        /.TRUE./
+      DATA MY_INITN        /.TRUE./
+      DATA MY_RAINON       /.TRUE./
+      DATA MY_SEDION       /.TRUE./
+      DATA MY_SNOWON       /.TRUE./
+      DATA MY_WARMON       /.TRUE./
+      DATA MOYHR           /0/
+      DATA NMOS            /0/
+      DATA NON_ORO         /.FALSE./
+      DATA NON_ORO_PBOT    /61000.0/
+      DATA NSLOFLUX        /0/
+      DATA OWFLUX          /.FALSE./
+      DATA OZONE_FILE_S    /'NIL'/
+      DATA PARSOL          /2.3E+06, 1.0E+06, 2.0E+06, 0.5E-06, \
+                            0.6E-06, 1.1E-06/
+      DATA PBL_RICRIT      /1.,1./
+      DATA PCPTYPE         /'NIL'/
+      DATA PHY_PCK_VERSION /'@#$%'/
+      DATA QCFC11          /0.280/
+      DATA QCFC12          /0.530/
+      DATA QCH4            /1.783/
+      DATA QCO2            /380./
+      DATA QN2O            /0.3186/
+      DATA RADFILES        /'STD'/
+      DATA RADFIX          /.TRUE./
+      DATA RADFLTR         /.TRUE./
+      DATA RADIA           /'NIL'/
+      DATA RADNIVL         /LEVMAX * 0, 0/
+      DATA RADSLOPE        /.FALSE./
+      DATA RMSCON          /1.0/
+      DATA SATUCO          /.TRUE./
+      DATA SCHMSOL         /'FCREST'/
+      DATA SCHMSOL_LEV     /0.1, 0.25, 3.75, LEVMAX * 0.0/
+      DATA SCHMURB         /'NIL'/
+      DATA SHLCVT          /2 * 'NIL'/
+      DATA SIMISCCP        /.FALSE./
+      DATA SNOALB_ANL      /.TRUE./
+      DATA SNOWMELT        /.FALSE./
+      DATA STCOND          /'NIL'/
+      DATA STOMATE         /.FALSE./
+      DATA STRATOS         /.FALSE./
+      DATA TAUFAC          /8.E-6/
+      DATA TDIAGLIM        /.FALSE./
+      DATA TRIGLAT         /2*0.0/
+      DATA TS_FLXIR        /.FALSE./
+      DATA TSCONFC         /.FALSE./
+      DATA TYPSOL          /.FALSE./
+      DATA VAMIN           /6.25/   
+      DATA VEGE_FIELDS     /'RPN'/
+      DATA WATER_QS        /.TRUE./
+      DATA WATER_Z0M       /.TRUE./
+      DATA WATER_Z0H       /.TRUE./
+      DATA Z0DIR           /.FALSE./
+      DATA Z0MIN2          /1.5E-5/
+      DATA Z0TLAT          /2*0.0/
+      DATA ZTA             /-1./
+      DATA ZUA             /-1./
+!
+      END BLOCK DATA PHY_OPTIONS_DATA

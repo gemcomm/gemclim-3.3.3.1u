@@ -1,0 +1,917 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#include "phy_macros_f.h"
+***S/P  NEWRAD4
+*
+      SUBROUTINE NEWRAD4 ( D, SIZED, F, SIZEF, V, VSIZ, GV, ESPVOL,
+     +                     LIQWCIN, ICEWCIN, LIQWP, ICEWP, NUAGE,
+     +                     TAU, KOUNT,
+     +                     TRNCH , N , M , NK , ISTAK, ITASK,
+     +                     NKP, NKRD, NKPRD, INRD)
+#include "impnone.cdk"
+*
+      INTEGER SIZED,SIZEF,ESPVOL,KOUNT,TRNCH, VSIZ,
+     +        N,M,NK,ISTAK,ITASK,NKP,NKRD,NKPRD
+      INTEGER INRD(NKPRD)
+      REAL D(SIZED), F(SIZEF), V(VSIZ), GV(ESPVOL)
+      REAL LIQWCIN(M,NK), ICEWCIN(M,NK), NUAGE(N*NK)
+      REAL LIQWP(M,NK), ICEWP(M,NK)
+      REAL TAU
+*
+*Author
+*          L. Garand and J. Mailhot RPN  (June 1989)
+*
+*Revision
+* 001      Louis Garand(October 1989)
+*               Include solar scheme from FOUQUART and BONNEL
+* 002      Louis Garand Add CO2 wing bands
+* 003      G.Pellerin  (Jul 90)
+*                Standardization of thermodynamic functions
+* 004      Y. Delage  (Nov 1990)
+*                  Removal of ZAI from permanent variables
+*                  Replace WC by ILMO
+* 005      N. Brunet  (May91)
+*                 New version of thermodynamic functions
+*                 and file of constants
+* 006      C.Girard (Nov92) New Parameterization of cloud
+*          fraction
+* 007      Y.Chartier (March 1993) Optimisation of RADIR
+* 008      B. Bilodeau (July 1993) New comdecks added
+* 009      B. Bilodeau (May  1993) R0 variable and extra calculations
+*          to take into account the case when sunrise occurs between
+*          2 calls to SUN1
+* 010      B. Bilodeau and C. Girard (Aug 93) - Reformulation of the
+*          modulation of the solar flux between 2 calls to SUN1
+* 011      R. Benoit (Aug 93) Local Sigma
+* 012      B. Bilodeau (November 1993) - Correction to "AP"
+* 013      B. Bilodeau (November 1993) -
+*          Reduce solar constant according to ozone above model roof
+* 014      B. Bilodeau (April 1994) - Change call to pntozon and add
+*             common block ozopnt. New physics interface.
+* 015      Wei Yu (June 94) New cloud water (from Sundqvist, 1978)
+*                           can be used in the solar radiation
+*                           when STCOND.EQ.'NEWSUND' (ISTCOND.EQ.3)
+* 016      M. Gagnon (June 1995) - Reduction mode (optimization)
+* 017      M. Gagnon and B. Bilodeau (Nov 95) - Replace the previous
+*          memory management system by the new "STK" system designed
+*          by Marc Gagnon
+* 018      L. Garand (April 1995) Routine CLDOPTX introduced
+* 019      M. Desgagne (Nov 95) - New interface
+* 020      B. Dugas (Sep 96) - Include comdeck options.cdk and
+*                              add option RADFIX
+* 021      B. Bilodeau (Nov 96) - Replace common block pntclp by
+*                                 common block radbus
+* 022      G. Pellerin (Oct 96) - Zonal extraction corrected
+* 023      P.-A. Michelangeli (Jul 98) - Add option FOMIC in radir4
+* 024      B. Bilodeau (Aug 98) - Perform calculations at kount=0 and
+*                                 at kount=1
+* 025      B. Bilodeau (Nov 98) - Merge phyexe and param4
+* 026      J. Mailhot  (Mar 99) - Changes for new SURFACE interface
+* 027      B. Bilodeau (Aug 99) - Interaction of cloud water/ice with
+*                                 radiation for microphysics schemes
+* 028      B. Dugas (April 1999) - Replace CLDOPTX by CLDOPTX2
+* 025      G. Lemay, A. Patoine and B. Bilodeau (Sep 99) - Correct 
+*                    multitasking bug by removing comdeck "solfact"
+* 026      A.-M. Leduc (April 2000) - Correct bug regarding liquid water
+*                    content passed to cldoptx2 for mixed-phase scheme
+* 027      B. Bilodeau (Nov 2000) - New comdeck phybus.cdk
+* 028      B. Dugas (Jan 2002) - Modifiy call to RADIR, add call to FOMICHEV
+* 029      B. Dugas (March 2002) - Modify stratospheric cloud correction
+* 030      B. Dugas (Sep 2002) - Add QCO2 in call to infrared radiation
+* 031      B. Bilodeau (Nov 2002) - Add ML, CTP and CTT to call to cldoptx
+* 032      B. Bilodeau and J. Mailhot (Feb 2003) - NHAUT, NMOY and NBAS
+*                        added as output to radir
+* 033      M. Lepine (March 2003) -  CVMG... Replacements
+* 034      D. Talbot (June 2003) - IBM conversion
+*               - calls to exponen4 (to calculate power function '**')
+*               - divisions replaced by reciprocals
+* 035      A.-M. Leduc (Jun 2003) - add option RADFLTR
+* 036      F. Lemay  (Sept 2003)  - Move new code for radfix in call sun_radfix
+* 037      B. Bilodeau (Mar 2004) - Move double loop INSIDE sun_radfix
+* 038      L. Spacek (Aug 2004) - cloud clean-up, cloud and liquid/ice water
+*                                 calculations moved out of newrad3
+* 039      A. Lemonsu  (Jun 2005) - flusolis in permanent bus
+* 040      G. Balsamo  (Dec 2005) - solcons in common deck
+* 041      V. Lee      (May 2006) - HZ0 calculation includes seconds
+* 042      L. Spacek (Dec 2007) -  Staggered version, use sigw instead of sigm
+*                                  d(sigw) is defined in subroutine sigmalev
+* 043      J. Toviessi (July 2009) - changing the call from suncos to
+*                                    suncos1 
+*
+*
+*Object
+*          to execute a more advanced scheme in finding the infrared
+*          and solar radiation and calculation of clouds
+*
+*Arguments
+*
+*          - Input/Output -
+* F        field of permanent physics variables
+* SIZEF    dimension of F
+* GV       physics work space ("volatile space")
+* ESPVOL   dimension of G
+*
+*          - Input -
+* T        temperature
+* Q        specific humidity
+* PS       surface pressure
+* S        sigma levels
+* TAU      timestep
+* SATUCO   .TRUE. if water/ice phase for saturation
+*          .FALSE. if water phase only for saturation
+* ISTCOND  switch for condensation scheme (see s/r param)
+* KOUNT    number of timesteps
+* KNTRAD   frequency of call for infra-red radiation
+* TRNCH    index of the vertical plane (NI*NK) for which
+*          calculations are to be done.
+* N        horizontal dimension
+* M        1st dimension of T and Q
+* NK       number of layers
+* ISTAK    stack number to use
+* ITASK    task number
+* NKP      number of layers including ground
+* NKRD     number of reduced layers
+* NKPRD    number of reduced layers including ground
+* INRD     list of reduced layers
+* REDUC    .true. to use inrd and compute on reduced layers
+*          .false. to use full layers (inrd not used)
+* LIQWCIN  in-cloud liquid water content
+* LIQWCIN  in-cloud ice    water content
+* NUAGE    cloud fraction
+*
+*Notes
+*          NEWRAD3 produces:
+*          Infra-red rate (TI) of cooling
+*          Visible rate (T2) of heating
+*          Visible flux to ground (FDSS)
+*          Infra-red flux to ground (FDSI)
+*          Infra-red flux to the top of the atmosphere (EI)
+*          Visible flux to the top of the atmosphere (EV)
+*          Planetary albedo (AP=EV/incident solar flux)
+*
+*
+*IMPLICITES
+*
+#include "indx_sfc.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "stk.cdk"
+#include "clefcon.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "ozopnt.cdk"
+#include "radparam.cdk"
+#include "raddata.cdk"
+#include "radpnt.cdk"
+#include "nocld.cdk"
+*
+*MODULES
+*
+*     REAL JJULIEN
+*     EXTERNAL JJULIEN
+      REAL JULIAND
+      EXTERNAL JULIAND
+*
+*     ROUTINES D'EXTRACTION DE SERIES TEMPORELLES
+*
+      EXTERNAL SERXST
+*
+*     ROUTINES RADIATION ET NUAGES
+*
+      EXTERNAL LIQWC
+      EXTERNAL NUAGES2
+      EXTERNAL RADIR7
+      EXTERNAL FOMICHEV
+      EXTERNAL RADFAC3
+      EXTERNAL PNTG123
+      EXTERNAL PNTOZON
+      EXTERNAL SUN7, SETVIS2, SUNCOS1
+      EXTERNAL CLDOPTX4
+      EXTERNAL SUN_RADFIX1
+*
+*     UTILITAIRES
+*
+*      EXTERNAL PRINTER
+*
+**
+*
+*     CHAMPS DU BUS DYNAMIQUE
+      REAL T(M,NK), Q(M,NK), PS(N), S(N,NK)
+      POINTER (ITMOINS, T), (IHUMOINS, Q), (IPMOINS, PS), (ISIGM, S)
+*
+*     POINTEURS DES VARIABLES VOLATILES DE LA RADIATION
+*     DETERMINES PAR UNE ROUTINE DE GESTION DE MEMOIRE
+*
+      REAL P0 ,P1 ,P2 ,P3 ,P4 ,P5 ,P6 ,P7 ,P8 ,P9 ,P10,P11,P12,P13,P14,
+     +     P15,P16,P17
+*
+      POINTER (PTP0 ,P0 (1)), (PTP1 ,P1 (1)), (PTP2 ,P2 (1)),
+     +        (PTP3 ,P3 (1)), (PTP4 ,P4 (1)), (PTP5 ,P5 (1)),
+     +        (PTP6 ,P6 (1)), (PTP7 ,P7 (1)), (PTP8 ,P8 (1)),
+     +        (PTP9 ,P9 (1)), (PTP10,P10(1)), (PTP11,P11(1)),
+     +        (PTP12,P12(1)), (PTP13,P13(1)), (PTP14,P14(1)),
+     +        (PTP15,P15(1)), (PTP16,P16(1)), (PTP17,P17(1))
+*
+*
+      REAL Q1 ,Q2 ,Q3 ,Q4 ,Q5 ,Q6 ,Q7 ,Q8 ,Q9 ,Q10,Q11,Q12,Q13,Q14,Q15,
+     +     Q16,Q17,Q18,Q19,Q20,Q21,Q22,Q23,Q24,Q25,Q26,Q27,Q28,Q29,Q30,
+     +     Q31,Q32,Q33,Q34,Q35
+*
+      POINTER (PTQ1 ,Q1 (1)), (PTQ2 ,Q2 (1)), (PTQ3 ,Q3 (1)),
+     +        (PTQ4 ,Q4 (1)), (PTQ5 ,Q5 (1)), (PTQ6 ,Q6 (1)),
+     +        (PTQ7 ,Q7 (1)), (PTQ8 ,Q8 (1)), (PTQ9 ,Q9 (1)),
+     +        (PTQ10,Q10(1)), (PTQ11,Q11(1)), (PTQ12,Q12(1)),
+     +        (PTQ13,Q13(1)), (PTQ14,Q14(1)), (PTQ15,Q15(1)),
+     +        (PTQ16,Q16(1)), (PTQ17,Q17(1)), (PTQ18,Q18(1)),
+     +        (PTQ19,Q19(1)), (PTQ20,Q20(1)), (PTQ21,Q21(1)),
+     +        (PTQ22,Q22(1)), (PTQ23,Q23(1)), (PTQ24,Q24(1)),
+     +        (PTQ25,Q25(1)), (PTQ26,Q26(1)), (PTQ27,Q27(1)),
+     +        (PTQ28,Q28(1)), (PTQ29,Q29(1)), (PTQ30,Q30(1)),
+     +        (PTQ31,Q31(1)), (PTQ32,Q32(1)), (PTQ33,Q33(1)),
+     +        (PTQ34,Q34(1)), (PTQ35,Q35(1))
+*
+*
+      REAL TZ, QQ, LL, PG, OZOTOIT
+*
+      POINTER (PTTZ ,TZ   (1)), (PTQQ ,QQ     (1)),
+     +        (PTPG ,PG   (1)), (PTOZO,OZOTOIT(1)),
+     +        (PTLL ,LL   (1))
+*
+*
+      REAL AER(N,NK,5), ASY(N,NK), OPD(N,NK),
+     +     DZZ(N,NK  ), SDZ(N   ), IPB(N   ),
+     +     PBL(N     ), NEF(N,NK), SSA(N,NK)
+*
+      POINTER (PTAER,AER),  (PTASY,ASY), (PTOPD,OPD),
+     +        (PTDZZ,DZZ),  (PTSDZ,SDZ), (PTIPB,IPB),
+     +        (PTPBL,PBL),  (PTNEF,NEF), (PTSSA,SSA)
+*
+      REAL WC
+      POINTER (PTWC ,WC(1))
+*
+      REAL HZP
+      REAL FBAS
+      REAL PRESS
+*
+*     SEUIL DU COS DE L'ANGLE SOLAIRE A PARTIR DUQUEL ON CONSIDERE
+*     QUE LE SOLEIL EST LEVE.
+      REAL SEUIL
+      PARAMETER (SEUIL=1.E-5)
+*
+*     DIMENSIONS ET POINTEURS DES TABLEAUX D'OZONE
+*     (DETERMINES PAR LA ROUTINE DE GESTION PNTOZON)
+*
+*
+      REAL JULIEN,R0R
+
+      REAL DUMMY1(N),DUMMY2(N),DUMMY3(N),DUMMY4(N)
+*
+*     POINTEURS ET DIMENSIONS DES CHAMPS NECESSAIRES
+*     POUR L'OPTION DE REDUCTION DES NIVEAUX
+      integer i, kk, rednk, rednkp, redm
+*
+      real fnrd(n,nk), srd(n,nk), trd(n,nk), qrd(n,nk)
+      real p0rd(n,nk)
+*
+      pointer (ptfnrd,fnrd), (ptsrd,srd), (pttrd,trd), (ptqrd,qrd)
+      pointer (ptp0rd,p0rd)
+*
+      real downrd(n,nkp), uprd(n,nkp)
+      pointer (ptdownrd,downrd), (ptuprd,uprd)
+*
+      real del(n,nk), ss(n,nkp)
+      pointer (ptdel,del), (ptss,ss)
+*
+      real delrd(n,nkrd), ssrd(n,nkprd)
+      pointer (ptdelrd,delrd), (ptssrd,ssrd)
+*
+*
+*     POINTEURS ET DIMENSIONS DES CHAMPS REDUS
+      REAL V1,V2
+      REAL VEC1(N),VEC2(N)
+      REAL SC(N)
+      REAL HZ0,HZ
+      INTEGER J,K,JA,NNK,IS, IT
+      REAL HEURSER
+      INTEGER IERGET
+      EXTERNAL MZONXST, SERGET
+      LOGICAL OPNUA,STRCLD
+C   OPNUA=TRUE : NUAGES INTERACTIFS DANS RADIR
+C  OPNUA=FALSE:PAS DE NUAGES DANS RADIR
+      INTEGER NNCL,IOPT
+      INTEGER NNKP,NNKP2, IK
+      REAL ALB, DELP
+      REAL ozpak
+*
+************************************************************************
+*     AUTOMATIC ARRAYS                                                 *
+************************************************************************
+*
+      AUTOMATIC (TOIT, LOGICAL, (NK) )
+      AUTOMATIC (lwprd,REAL ,(M,NKRD) )
+      AUTOMATIC (iwprd,REAL ,(M,NKRD) )
+*
+************************************************************************
+*
+#include "solcons.cdk"
+*
+*
+*     CHAMPS DU BUS DYNAMIQUE
+      ITMOINS  = LOC (D( TMOINS))
+      IHUMOINS = LOC (D(HUMOINS))
+      IPMOINS  = LOC (D( PMOINS))
+      ISIGM    = LOC (D(SIGW   ))
+*
+*     INITIALISATION DU SYSTEME DE GESTION DE L'ESPACE DE TRAVAIL
+      STK_INITA(GV,ESPVOL)
+
+      STK_ALLOC(ptdel,n*nk )
+      STK_ALLOC(ptss ,n*nkp)
+      call raddel(del,ss,s,n,nk,nkp)
+
+      IS = ISTAK
+      IT = ITASK
+      CALL SERGET ('HEURE', HEURSER, 1, IERGET)
+1000  CONTINUE
+*
+*
+      JA = N*(NK-1)
+      NKP=NK+1
+C     *********NKP EST NB DE NIVEAUX DE FLUX
+      NNKP=N*NKP
+      NNK=N*NK
+      NNKP2=N*NKP*NKP
+*
+C SAUVER T,Q,L,PS
+      STK_ALLOC(PTTZ ,NNK)
+      STK_ALLOC(PTQQ ,NNK)
+      STK_ALLOC(PTLL ,NNK)
+      STK_ALLOC(PTPG ,N  )
+*
+      DO 700 K=1,NK
+*VDIR NODEP
+      DO 700 J=1,N
+      TZ((K-1)*N+J)  = T(J,K)
+      QQ((K-1)*N+J)  = Q(J,K)
+      LL((K-1)*N+J)  = f(LWC+(K-1)*N+J-1)
+ 700  CONTINUE
+*VDIR NODEP
+      DO 701 J=1,N
+ 701  PG(J)= PS(J)
+*
+*     T',Q',PS' -> T,Q,PS
+*
+      DO 1 K=1,NK
+         DO 1 J=1,N
+    1       Q(J,K) = MAX ( Q(J,K) , 0.0 )
+*
+*     DATE(5)=the hour of the day at the start of the run.
+*     DATE(6)=hundreds of a second of the day at the start of the run.
+*
+      HZ0 = DATE(5) + float(DATE(6))/360000.0
+      HZ = AMOD ( HZ0+(FLOAT(KOUNT)*TAU)/3600. , 24. )
+*
+*
+        NNCL=N*NPCL
+        STK_ALLOC(PTP0   , NNKP )
+*
+        STK_ALLOC(PTAER  ,N*NK*5)
+        STK_ALLOC(PTSSA  ,NNK   )
+        STK_ALLOC(PTASY  ,NNK   )
+        STK_ALLOC(PTOPD  ,NNK   )
+        STK_ALLOC(PTNEF  ,NNK   )
+        STK_ALLOC(PTDZZ  ,NNK   )
+        STK_ALLOC(PTPBL  ,N     )
+        STK_ALLOC(PTIPB  ,N     )
+        STK_ALLOC(PTSDZ  ,N     )
+*
+*
+C COMPUTE OPTICAL PARAMETERS FOR VIS AND IR CODE
+C INCLUDES EFFECTIVE IR CLOUD AMOUNT
+C AND FOR VIS: AEROSOLS, OPTICAL DEPTH, ASYMETRY FACTOR,
+C AND SINGLE SCATTERING ALBEDO
+C
+C HAUTEUR DE COUCHE LIMITE TEMPORAIREMENT MISE A 1500 METRES
+C EN ATTENDANT QU'ELLE SOIT PASSEE A NEWRAD1
+C
+      DO 7007 I=1,N
+      PBL(I)=1500.
+ 7007 CONTINUE
+*
+       CALL CLDOPTX4 (LIQWCIN,ICEWCIN,LIQWP,ICEWP,NUAGE,T,S,PS,
+     +                F(DLAT),F(MG),F(ML),M,N,NK,
+     +                PBL,IPB,DZZ,SDZ, NEF,OPD,ASY,
+     +                f(topthw),f(topthi),
+     +                v(ctp),v(ctt),
+     +                SSA,AER,ISTCOND,SATUCO,CW_RAD,IOPTIX)
+*
+*  BOUCLE SUR LE PAS DE RADIATION KNTRAD
+*
+      IF(KOUNT.EQ.0.OR. MOD((KOUNT-1),KNTRAD).EQ.0)THEN
+*
+        CALL PNTOZON
+*
+*
+        STK_ALLOC(PTOZO  , N    )
+        STK_ALLOC (PTP2  , NNCL )
+        STK_ALLOC (PTP3  , N    )
+        STK_ALLOC (PTP4  , N    )
+        STK_ALLOC (PTP5  , N    )
+        STK_ALLOC (PTP6  , N    )
+        STK_ALLOC (PTP7  , N    )
+        STK_ALLOC (PTP8  , N    )
+        STK_ALLOC (PTP10 , NKP  )
+        STK_ALLOC (PTP11 , NKP  )
+*
+*
+*
+      CALL RADFAC3 (P0, OZOTOIT, S, NKP, NK, NPCL,
+     $              F(DLAT), PS, N, N, NKP,
+     $              P2, P3, P4, P5, P6, P7, P8, P10,
+     $              P11,NLACL, GOZ(FOZON), GOZ(CLAT),
+     $              GOZ(PREF))
+*
+
+      STK_DEALL (PTP2)
+*
+*
+      if( reduc ) then
+        STK_ALLOC(ptsrd  , n*nkrd )
+        STK_ALLOC(pttrd  , n*nkrd )
+        STK_ALLOC(ptqrd  , n*nkrd )
+        STK_ALLOC(ptp0rd , n*nkrd )
+        STK_ALLOC(ptfnrd , n*nkrd )
+        STK_ALLOC(ptdelrd, n*nkprd)
+        STK_ALLOC(ptssrd , n*nkprd)
+
+        do kk=1,nkrd
+          k = inrd(kk)
+
+          do i=1,n
+            srd(i,kk) = s(i,k)
+            trd(i,kk) = t(i,k)
+            qrd(i,kk) = q(i,k)
+            p0rd(i,kk)= p0((k-1)*n+i)
+          enddo
+        enddo
+
+        rednk = nkrd
+        rednkp= nkprd
+        redm  = n
+*
+        STK_ALLOC (PTP1, N)
+
+        call raddel(delrd,ssrd,srd,n,nkrd,nkprd)
+        call rdmax(fnrd,nef,p1,inrd,n,nk,nkrd)
+*
+        STK_DEALL (PTP1   )
+
+      else
+
+        ptsrd  = loc(s)
+        pttrd  = loc(t)
+        ptqrd  = loc(q)
+        ptp0rd = loc(p0)
+        ptfnrd = loc(nef)
+        ptdelrd= loc(del)
+        ptssrd = loc(ss)
+
+        rednk  = nk
+        rednkp = nkp
+        redm   = m
+
+      endif
+*
+*
+      STK_ALLOC(PTP1 , NNKP2    )
+      STK_ALLOC(PTP2 , NNKP2    )
+      STK_ALLOC(PTP3 , NNKP     )
+      STK_ALLOC(PTP4 , NNKP     )
+      STK_ALLOC(PTP5 , NNKP     )
+      STK_ALLOC(PTP6 , NNKP     )
+      STK_ALLOC(PTP7 , NNKP     )
+      STK_ALLOC(PTP8 , NNKP     )
+      STK_ALLOC(PTP9 , NNKP     )
+      STK_ALLOC(PTP10, NNKP     )
+      STK_ALLOC(PTP11, N        )
+      STK_ALLOC(PTP12, N        )
+      STK_ALLOC(PTP13, N*NKP*2  )
+      STK_ALLOC(PTP14, N*NKP*NKP)
+      STK_ALLOC(PTP15, N*NKP*3  )
+      STK_ALLOC(PTP16, N        )
+      STK_ALLOC(PTP17, N        )
+*
+      CALL PNTG123
+*
+      IOPT=0
+      OPNUA=.TRUE.
+*
+
+      CALL RADIR8 ( f(ti) , P7 , P5 , FNrd , Trd , Qrd , Srd ,
+     %        F(TSRAD),PS,redNKP,redNK,P0rd,
+     %        redNKP,N,N,redm,NTT,MX,MXX,NO3,NCX,NCO2,
+     %        G(G1),G(G2),G(G3),G(TH2O),G(TRO3),
+     %        G(YG3), G(BCN),G(DBCN),G(BO3),
+     %        G(DBO3),G(TO3),G(UU),G(TT),
+     %        P1, P2, IOPT, OPNUA,
+     %        P3 , P4 , P5 , P6 , P7 , ssrd,
+     %        P9 , delrd, P11 , P12,
+     %        f(nhaut), f(nmoy), f(nbas),
+     %        p13, p14, p15, p16, p17,
+     %        ozpak, ozpak,
+     %        s,ss,del,nk,nkp)
+*
+      if( FOMIC ) then
+         call fomichev( f(TI), T,P0,S,PS, M,N,N,NK )
+      endif
+*
+*     FLUX DESCENDANT A LA SURFACE
+*     ...NON CORRIGE POUR L'EMISSIVITE DE LA SURFACE (S/R FCREST)
+*
+CDIR$ IVDEP
+*VDIR NODEP
+        DO 501 J=0,N-1
+         F(FDSI+J) = P7((NKP-1)*N+J+1)
+C   FLUX IR AU SOMMET DE L'ATMOSPHERE (W/M2)
+      F(EI+J)=P5(J+1)
+C   NUAGES TOTAUX
+       F(NT+J)=P12(J+1)
+  501   CONTINUE
+*
+       STK_DEALL(PTP1)
+*
+*
+C  FIN DU CALCUL DE RADIATION INFRAROUGE
+*
+*
+*
+*     RADIATION SOLAIRE
+*
+      STK_ALLOC(PTP1 , NNKP)
+      STK_ALLOC(PTP2 , NNKP)
+      STK_ALLOC(PTP3 , NNKP)
+      STK_ALLOC(PTP4 , NNK )
+*
+      STK_ALLOC(PTP6 , N   )
+      STK_ALLOC(PTP7 , NNKP)
+      STK_ALLOC(PTP8 , NNKP)
+      STK_ALLOC(PTP9 , NNKP)
+      STK_ALLOC(PTP10, N   )
+      STK_ALLOC(PTP11, N   )
+*
+      K=NNKP*6
+      STK_ALLOC(PTQ1 , K   )
+      STK_ALLOC(PTQ2 , K   )
+*
+      K=NNKP*3
+      STK_ALLOC(PTQ3 , K   )
+*
+      K=NNKP*2
+      STK_ALLOC(PTQ4 , K   )
+      STK_ALLOC(PTQ5 , K   )
+      STK_ALLOC(PTQ6 , NNKP)
+*
+      K=N*8
+      STK_ALLOC(PTQ7 , K   )
+      STK_ALLOC(PTQ8 , K   )
+      STK_ALLOC(PTQ9 , NNKP)
+      STK_ALLOC(PTQ10, NNKP)
+      STK_ALLOC(PTQ11, NNKP)
+      STK_ALLOC(PTQ12, NNKP)
+      STK_ALLOC(PTQ13, NNKP)
+      STK_ALLOC(PTQ14, NNKP)
+      STK_ALLOC(PTQ15, NNKP)
+      STK_ALLOC(PTQ19, N   )
+      STK_ALLOC(PTQ20, N   )
+      STK_ALLOC(PTQ21, N   )
+      STK_ALLOC(PTQ22, N   )
+      STK_ALLOC(PTQ23, N   )
+      STK_ALLOC(PTQ24, N   )
+      STK_ALLOC(PTQ25, N   )
+      STK_ALLOC(PTQ26, N   )
+      STK_ALLOC(PTQ27, N   )
+      STK_ALLOC(PTQ28, N   )
+      STK_ALLOC(PTQ29, N   )
+      STK_ALLOC(PTQ30, N   )
+      STK_ALLOC(PTQ31, N   )
+      STK_ALLOC(PTQ32, N   )
+      STK_ALLOC(PTQ33, N   )
+      STK_ALLOC(PTQ34, N   )
+      STK_ALLOC(PTQ35, N   )
+C
+C   ALBEDO UTILISE DANS P10
+C   ALBEDO LIMITE ENTRE 6% ET 80%
+      DO 1212 J=1,N
+      P10(J)=AMIN1(F(ALVIS+(indx_agrege-1)*N+J-1),0.80)
+      P10(J)=AMAX1(P10(J),0.06)
+ 1212 CONTINUE
+C
+*
+*     CALCUL DE LA VARIATION DE LA CONSTANTE SOLAIRE
+*     julien = jjulien(tau,kount,date(14))
+      JULIEN = JULIAND(TAU,KOUNT,DATE)
+      ALF=JULIEN/365.*2*PI
+      R0R = SOLCONS(ALF)
+*
+C  PARAMETRES D'ENTREE POUR LE SOLAIRE
+C
+      CALL SETVIS2(delrd, P2, P3, P4, P6,
+     + P0rd,Srd,Trd,PS,P0rd,F(DLAT),F(DLON),HZ,
+     x JULIEN,DATE,N,redNK,redm,SATUCO)
+*
+       do i=1,n
+           f(cosz+i-1) = p6(i)
+       end do
+*
+      if( reduc ) then
+        call rdmoy(p7  ,f(lwc) ,q20,inrd,n,nk,nkrd)
+        call rdmoy(p8  ,f(iwc) ,q20,inrd,n,nk,nkrd)
+        call rdmoy(lwprd,liqwp ,q20,inrd,n,nk,nkrd)
+        call rdmoy(iwprd,icewp ,q20,inrd,n,nk,nkrd)
+        call rdmoy(fnrd,nuage  ,q20,inrd,n,nk,nkrd)
+*
+        call cldoptx4 (p7,p8,lwprd,iwprd,fnrd,trd,srd,ps,
+     +                 f(dlat),f(mg),f(ml),n,n,nkrd,
+     +                 pbl,ipb,dzz,sdz,nef,opd,asy,
+     +                 f(topthw),f(topthi),
+     +                 v(ctp),v(ctt),
+     +                 ssa,aer,3,satuco,cw_rad,ioptix)
+      else
+        ptfnrd = loc(nuage)
+      endif
+*
+*     CALCUL DU COSINUS DE L'ANGLE SOLAIRE A KOUNT+KNTRAD-1
+      HZP=AMOD(HZ0+ (FLOAT(KOUNT+KNTRAD-1)*TAU)/3600., 24.)
+      CALL SUNCOS1(F(COSAS),DUMMY1, DUMMY2, DUMMY3, DUMMY4,N,
+     +             F(DLAT),F(DLON),HZP,JULIEN,DATE,.false.)
+*
+*     INITIALISATION DE FDSS,T2,EV.
+*VDIR NODEP
+      DO 487 J=0,N-1
+         F(FDSS+J) = 0.0
+         F(EV  +J) = 0.0
+*        F(COSAS) CONTIENDRA LA VALEUR MOYENNE DES COSINUS
+*        ENTRE 2 APPELS A SUN7
+         F(COSAS+J) = (P6(J+1)+F(COSAS+J))*.5
+487   CONTINUE
+*
+      DO 488 J=0,NNK-1
+         F(T2+J) = 0.0
+488   CONTINUE
+*
+*     ATTENTION! LES CALCULS SONT FAITS POUR UN TEMPS INTERMEDIAIRE
+*     ENTRE KOUNT ET KOUNT+KNTRAD-1
+*
+
+      CALL SUN7( P8, P9, F(T20), F(VOZO), OZOTOIT,
+     X           delrd, P2, P3,
+     X           P4, PS, Trd, Qrd, srd,
+     X           P0rd, FNrd, aer, F(COSAS), P10,
+     X           N, redNK, redNKP, N, redm,
+     X           Q1 , Q2 , Q3 , Q4 , Q5 ,
+     X           Q6 , Q7 , Q8 , Q9 , Q10,
+     X           Q11, Q12, Q13, Q14, Q15,
+     X           ssa, asy, opd, Q19, Q20,
+     X           Q21, Q22, Q23, Q24, Q25,
+     X           Q26, Q27, Q28, Q29, Q30,
+     X           Q31, Q32, Q33, Q34, Q35,
+     X           reduc,
+     X           ss, ssrd, del, s, R0R,
+     X           nk, nkp, RADFIX,RADFLTR)
+
+*
+*
+*     AP   : ALBEDO PLANETAIRE.
+*     EV   : FLUX MONTANT AU SOMMET.
+*     FDSS : FLUX DESCENDANT A LA SURFACE.
+*
+*
+*VDIR NODEP
+      DO 490 J=0,N-1
+*
+         F(EV0+J)  = P9(J+1)
+*
+         F(FDSS0+J)= AMAX1(0.0, P8((NKP-1)*N+J+1))
+*        ON CORRIGE LE FLUX SOLAIRE AU SOL POUR L'ALBEDO (S/P FCREST)
+         F(FDSS0+J)= (1.-P10(J+1)) * F(FDSS0+J)
+*
+ 490  CONTINUE
+*
+*
+*       MODULER LES FLUX ET LES TAUX PAR LE COSINUS DE L'ANGLE SOLAIRE.
+*VDIR NODEP
+        DO 500 J=0,N-1
+*
+*           RAPPORT DES COSINUS : ANGLE ACTUEL SUR ANGLE MOYEN.
+            V1 = P6(J+1)/F(COSAS+J)
+*
+            IF(F(COSAS+J).GT.SEUIL.AND.P6(J+1).GT.SEUIL) THEN
+               F(FDSS+J)  = F(FDSS0+J) * V1
+               F(EV  +J)  = F(EV0  +J) * V1
+            ENDIF
+            F(FLUSOLIS+J) =F(FDSS+J)/(1.-P10(J+1))
+C           ALBEDO PLANETAIRE NUL SI FLUX SOLAIRE INCIDENT < 1 W/M2
+            FBAS = P8(J+1) * V1
+            if (FBAS.GT.1.) then
+               V(AP+J) = F(EV+J)/FBAS
+            else
+               V(AP+J) = 0.
+            endif
+*
+  500   CONTINUE
+*
+        DO 5000 K=1,NK
+*VDIR NODEP
+          DO 5000 J=0,N-1
+             V1 = P6(J+1)/F(COSAS+J)
+             IF(F(COSAS+J).GT.SEUIL.AND.P6(J+1).GT.SEUIL) THEN
+                F(T2+(K-1)*N+J) = F(T20+(K-1)*N+J) * V1
+             ENDIF
+ 5000   CONTINUE
+*
+      STK_DEALL(PTOZO)
+*  **********************************************************
+C   CAS OU MOD(KOUNT-1,KNTRAD) NON ZERO
+      ELSE
+C  AJUSTEMENT DU SOLAIRE AUX PAS NON MULTIPLES DE KNTRAD
+C PAR MODULATION AVEC COSINUS DE L'ANGLE SOLAIRE
+C
+      STK_ALLOC(PTP1 ,N)
+      STK_ALLOC(PTP2 ,N)
+C
+*     CALCUL DU JOUR JULIEN
+*     appel a remplacer par
+*     julien = jjulien(tau,kount,date(14))
+      JULIEN = JULIAND(TAU,KOUNT,DATE)
+      CALL SUNCOS1(P1,DUMMY1, DUMMY2, DUMMY3, DUMMY4,N,
+     +             F(DLAT),F(DLON),HZ,JULIEN,DATE, .false.)
+*
+*       MODULER PAR LE COSINUS DE L'ANGLE SOLAIRE. METTRE A ZERO LES
+*       VALEURS APPROPRIEES DE FDSS, EV ET T2.
+*VDIR NODEP
+        DO 5010 J=0,N-1
+*
+*           RAPPORT DES COSINUS DE L'ANGLE PRESENT ET DE L'ANGLE MOYEN.
+            V1 = P1(J+1)/F(COSAS+J)
+*
+            IF(F(COSAS+J).GT.SEUIL.AND.P1(J+1).GT.SEUIL) THEN
+               F(FDSS +J) = F(FDSS0+J) * V1
+               F(EV   +J) = F(EV0  +J) * V1
+            ELSE
+               F(FDSS +J) = 0.0
+               F(EV   +J) = 0.0
+            ENDIF
+*           ALBEDO LIMITE ENTRE 6% ET 80%
+            ALB = AMIN1(F(ALVIS+(indx_agrege-1)*N+J),0.80)
+            ALB = AMAX1(ALB,0.06)
+            F(FLUSOLIS+J) =F(FDSS+J)/(1.-ALB)
+*
+ 5010   CONTINUE
+*
+        DO 503 K=1,NK
+*VDIR NODEP
+           DO 503 J=0,N-1
+              V1 = P1(J+1)/F(COSAS+J)
+              IF(F(COSAS+J).GT.SEUIL.AND.P1(J+1).GT.SEUIL) THEN
+                 F(T2+(K-1)*N+J) = F(T20+(K-1)*N+J) * V1
+              ELSE
+                 F(T2+(K-1)*N+J) = 0.0
+              ENDIF
+  503   CONTINUE
+*
+C>>>> SEULEMENT SI RADFIX EST VRAI... <<<<<<
+      IF(RADFIX) THEN
+         DO K=1,NK
+            TOIT(K) = .FALSE.
+            IF (K.EQ.1) TOIT(K) = .TRUE.
+         END DO
+         CALL SUN_RADFIX1(S,P1,F(COSAS),PS,F(T2),TOIT,N,NK)
+      ENDIF
+      STK_DEALL(PTP1)
+*
+C  FIN DE BOUCLE SUR RADIATION VISIBLE ET INFRAROUGE
+      ENDIF
+*
+*      EXTRACTION DES SERIES TEMPORELLES ET
+*      DES DIAGNOSTICS ZONAUX DES TENDANCES
+*
+       CALL SERXST ( F(TI), 'TI', TRNCH, N, 0.0, 1.0, -1)
+       CALL MZONXST( F(TI), 'TI', TRNCH, N, HEURSER, PS, -2, IT)
+       CALL SERXST ( F(T2), 'T2', TRNCH, N, 0.0, 1.0, -1)
+       CALL MZONXST( F(T2), 'T2', TRNCH, N, HEURSER, PS, -2, IT)
+*
+       STK_ALLOC(PTP1 , N )
+*
+*      CALCUL DU JOUR JULIEN
+*      julien = jjulien(tau,kount,date(14))
+       JULIEN = JULIAND(TAU,KOUNT,DATE)
+       CALL SUNCOS1(P1, DUMMY1, DUMMY2, DUMMY3, DUMMY4,N,F(DLAT),
+     +              F(DLON),HZ,JULIEN,DATE,.false.)
+       ALF = JULIEN/365.*2.*PI
+       R0R = SOLCONS(ALF)
+*
+       DO J=0,N-1
+         V(CANG+J) = P1(J+1)
+       end do
+*
+*VDIR NODEP
+       DO 508 J=0,N-1
+       V(IV+J)=CONSOL*R0R*P1(J+1)*F(VOZO+J)
+       if (V(IV+J).GT.1.) then
+          V(AP+J) = F(EV+J)/V(IV+J)
+       else
+          V(AP+J) = 0.
+       endif
+508    CONTINUE
+*
+       DO 509 J=0,N-1
+  509  P1(J+1)=V(IV+J)-F(EV+J)-F(EI+J)
+*
+*      EXTRACTION POUR DIAGNOSTICS
+       CALL SERXST (V(CTP )  ,'BP',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(V(CTP)   ,'BP',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (V(CTT)   ,'BE',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(V(CTT)   ,'BE',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(TOPTHW),'W3',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(TOPTHW),'W3',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(TOPTHI),'W4',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(TOPTHI),'W4',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (V(IV)    ,'IV',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(V(IV)    ,'IV',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (P1       ,'NR',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(P1       ,'NR',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(NT)    ,'NT',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(NT)    ,'NT',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(EV)    ,'EV',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(EV)    ,'EV',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(EI)    ,'EI',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(EI)    ,'EI',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (V(AP)    ,'AP',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(V(AP)    ,'AP',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(FDSS)  ,'FS',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(FDSS)  ,'FS',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (F(FLUSOLIS),'FU',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(F(FLUSOLIS),'FU',TRNCH,N,HEURSER,1.0,-1,IT)
+*
+*
+       STK_ALLOC(PTP2 , N )
+       STK_ALLOC(PTP3 , N )
+*
+       do j=1,n
+          delp=ps(j)*0.5*(s(j,2)-s(j,1))
+          p2(j)=f(TI+J-1)*delp
+          p3(j)=f(T2+J-1)*delp
+       end do
+*
+       do k=2,nk-1
+          do j=1,n
+             delp=ps(j)*0.5*(s(j,k+1)-s(j,k-1))
+             p2(j)=p2(j)+f(TI+(K-1)*N+J-1)*delp
+             p3(j)=p3(j)+f(T2+(K-1)*N+J-1)*delp
+          end do
+       end do
+*
+       do j=1,n
+          delp=ps(j)*(1.-0.5*(s(j,nk)+s(j,nk-1)))
+          p2(j)=p2(j)+f(TI+(NK-1)*N+J-1)*delp
+          p3(j)=p3(j)+f(T2+(NK-1)*N+J-1)*delp
+       end do
+*
+       CALL SERXST (p2    ,'T3',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(p2    ,'T3',TRNCH,N,HEURSER,1.0,-1,IT)
+       CALL SERXST (p3    ,'T4',TRNCH,N,0.0    ,1.0,-1   )
+       CALL MZONXST(p3    ,'T4',TRNCH,N,HEURSER,1.0,-1,IT)
+*
+C  RESUBSTITUER T,Q,L ET PS
+      DO 702 K=1,NK
+CDIR$  IVDEP
+*VDIR NODEP
+      DO 702 J=1,N
+      T(J,K)= TZ((K-1)*N+J)
+      Q(J,K)= QQ((K-1)*N+J)
+      F(LWC+(K-1)*N+J-1) = LL((K-1)*N+J)
+ 702  CONTINUE
+CDIR$  IVDEP
+*VDIR NODEP
+      DO 703 J=1,N
+ 703  PS(J) = PG(J)
+*
+*
+      STK_DEALL ( PTTZ )
+
+      STK_FREE
+      RETURN
+      END

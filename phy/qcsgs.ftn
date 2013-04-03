@@ -1,0 +1,200 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P QCSGS
+*
+#include "phy_macros_f.h"
+      SUBROUTINE QCSGS (THL, TVE, QW, QC, C1, ZN, ZE, S, 
+     1                  A, B, C, N, NK)
+*
+#include "impnone.cdk"
+*
+*
+      INTEGER N, NK
+      REAL THL(N,NK), TVE(N,NK), QW(N,NK), QC(N,NK)
+      REAL C1(N,NK), ZN(N,NK), ZE(N,NK), S(N,NK)
+      REAL A(N,NK), B(N,NK), C(N,NK)
+*
+*Author
+*          J. Mailhot (Nov 2000)
+*
+*Revision
+* 001      A.-M. Leduc (Oct 2001) Automatic arrays
+*
+*Object
+*          Calculate the boundary layer sub-grid-scale cloud water content 
+*
+*Arguments
+*
+*          - Input -
+* THL      cloud water potential temperature
+* TVE      virtual temperature on 'E' levels
+* QW       total water content
+*
+*          - Input/Output -
+* QC       total cloud water content
+*
+*          - Input -
+* C1       constant C1 in second-order moment closure
+* ZN       length scale for turbulent mixing (on 'E' levels)
+* ZE       length scale for turbulent dissipationa (on 'E' levels)
+* S        sigma levels
+* A        thermodynamic coefficient
+* B        thermodynamic coefficient
+* C        thermodynamic coefficient
+* N        horizontal dimension
+* NK       vertical dimension
+*
+*
+*Notes
+*          Implicit (i.e. subgrid-scale) cloudiness scheme for unified
+*             description of stratiform and shallow, nonprecipitating
+*             cumulus convection appropriate for a low-order turbulence
+*             model based on Bechtold et al.:
+*            - Bechtold and Siebesma 1998, JAS 55, 888-895
+*            - Cuijpers and Bechtold 1995, JAS 52, 2486-2490
+*            - Bechtold et al. 1995, JAS 52, 455-463
+*            - Bechtold et al. 1992, JAS 49, 1723-1744
+*
+*
+*IMPLICITS
+*
+#include "consphy.cdk"
+*
+**
+*
+      INTEGER J, K, ITOTAL
+*
+* 
+      REAL EPSILON
+*
+*
+*
+***********************************************************
+*     AUTOMATIC ARRAYS
+**********************************************************
+*
+      AUTOMATIC ( DZ       , REAL    , (N,NK)  )
+      AUTOMATIC ( DQWDZ    , REAL    , (N,NK)  )
+      AUTOMATIC ( DTHLDZ   , REAL    , (N,NK)  )
+      AUTOMATIC ( SIGMAS   , REAL    , (N,NK)  )
+      AUTOMATIC ( Q1       , REAL    , (N,NK)  )
+      AUTOMATIC ( QCBL     , REAL    , (N,NK)  )
+      AUTOMATIC ( COEFTHL  , REAL    , (N,NK)  )
+      AUTOMATIC ( COEFQW   , REAL    , (N,NK)  )
+*
+***********************************************************
+*
+*
+*MODULES
+*
+      EXTERNAL DVRTDF
+*
+*------------------------------------------------------------------------
+*
+      EPSILON = 1.0E-10
+*
+*
+*       1.     Vertical derivative of THL and QW
+*       ----------------------------------------
+*
+      DO K=1,NK-1
+      DO J=1,N
+        DZ(J,K) = -RGASD*TVE(J,K)*ALOG( S(J,K+1)/S(J,K) ) / GRAV
+      END DO
+      END DO
+*
+      DO J=1,N
+        DZ(J,NK) = 0.0
+      END DO
+*
+      CALL DVRTDF ( DTHLDZ, THL, DZ, N, N, N, NK)
+      CALL DVRTDF ( DQWDZ, QW, DZ, N, N, N, NK)
+*
+*
+*       2.     Standard deviation of s and normalized saturation deficit Q1
+*       -------------------------------------------------------------------
+*
+      DO K=1,NK-1
+      DO J=1,N
+*                                              sigmas (cf. BCMT 1995 eq. 10)
+*                                              (computation on 'E' levels stored in QCBL)
+        QCBL(J,K) = SQRT( C1(J,K)*ZN(J,K)*ZE(J,K) ) *  
+     1                ABS( 0.5*(A(J,K)+A(J,K+1))*DQWDZ(J,K)
+     1                   - 0.5*(B(J,K)+B(J,K+1))*DTHLDZ(J,K) )
+      END DO
+      END DO
+*
+      DO K=2,NK-1
+      DO J=1,N
+*                                              (back to full levels)
+        SIGMAS(J,K) = 0.5*( QCBL(J,K) + QCBL(J,K-1) )
+*                                              normalized saturation deficit
+        Q1(J,K) = C(J,K) / ( SIGMAS(J,K) + EPSILON )
+        Q1(J,K) = MAX ( -6. , MIN ( 4. , Q1(J,K) ) )
+      END DO
+      END DO
+*
+      DO J=1,N
+        SIGMAS(J,1) = 0.0  
+        SIGMAS(J,NK) = 0.0  
+        Q1(J,1) = 0.0
+        Q1(J,NK) = 0.0
+      END DO
+*
+*
+*       3.     Cloud properties
+*       -----------------------
+*                                              cloud water content
+*                                              (cf. BS 1998 Appendix B)
+      DO K=2,NK-1
+      DO J=1,N
+*
+        IF( Q1(J,K) .GE. 0.0 ) THEN
+          QCBL(J,K) = EXP( -1.0 ) + 0.66*Q1(J,K) + 0.086*Q1(J,K)**2
+        ELSEIF( Q1(J,K) .GE. -6.0 ) THEN
+          QCBL(J,K) = EXP( 1.2*Q1(J,K)-1.0 )
+        ELSE
+          QCBL(J,K) = 0.0
+        ENDIF
+*
+        QCBL(J,K) = MIN ( QCBL(J,K)*( SIGMAS(J,K) + EPSILON )
+     1                  , 1.0E-3 )
+*
+      END DO
+      END DO
+*
+      DO J=1,N
+        QCBL(J,1) = 0.
+        QCBL(J,NK) = 0.
+      END DO
+*
+*
+*       4.     Finalize QC
+*       ------------------
+*
+*
+      DO K=1,NK
+      DO J=1,N
+*                          
+        QC(J,K) = QCBL(J,K) 
+*
+      END DO
+      END DO
+*
+*
+*
+      RETURN
+      END

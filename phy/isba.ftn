@@ -1,0 +1,433 @@
+
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P ISBA2
+*
+#include "phy_macros_f.h"
+      SUBROUTINE ISBA2 (BUS, BUSSIZ,
+     $                 PTSURF, PTSURFSIZ,
+     $                 DT, KOUNT, TRNCH,
+     $                 N, M, NK)
+*
+#include "impnone.cdk"
+*
+      INTEGER BUSSIZ, LONCLEF, VSIZ, N, NK, KOUNT, TRNCH
+      REAL BUS(BUSSIZ), DT
+      INTEGER PTSURFSIZ
+      INTEGER PTSURF(PTSURFSIZ)
+*
+*Author
+*          S. Belair (January 1997) 
+*Revisions
+*
+* 001      J. Mailhot (March 1998)
+*              Add sea ice surface
+*
+* 002      J. Mailhot (October 1998)
+*              New SURFACE interface
+*
+* 003      B. Bilodeau (November 1998)
+*              Merge phyexe and param4
+*
+* 004      S. Belair (December 1998 and January 1999)
+*              New code for frozen soil water and for liquid water
+*              retained in the snow pack
+*
+* 005      S. Belair (March 1999)
+*              New variable names for the buses
+*
+* 006      B. Bilodeau and S. Belair (April 1999)
+*              Adaptation to new surface structure 
+*
+* 007      S. Belair (September 1999)
+*              New tendency for snow density due to water freezing
+*
+* 008      B. Bilodeau (December 1999)
+*              Pass the real downward solar radiation to EBUDGET
+*              Make the distinction between total and vegetation albedoes
+*
+* 009      S. Belair (January 2000)
+*              Changes to the snow model following stand-alone
+*              experiments with the datasets from Col-de-Porte and
+*              Goose Bay
+
+* 010      B. Bilodeau (November 2000)
+*              New comdeck sfcbus.cdk
+*
+* 011      B. Bilodeau (January 2001)
+*              Automatic arrays
+* 012      S. Belair and B. Bilodeau (May 2001) 
+*              New density for fresh snow
+* 013      B. Bilodeau (August 2001)
+*              LOCBUS: a new macro for the management of pointers
+*              in the bus
+* 014      J.-F. Mahfouf (Spring 2003) 
+*                Add implicit boundary condition option for vert. diff.
+* 015      B. Bilodeau (Mar 2004) - Change indexing of BT
+* 016      B. Bilodeau (Mar 2005) - Replace RS by RST
+* 018      M. Faucher (Summer 2006) - If OWFLUX. is .true. in coupling mode,
+*                fluxes over ocean are taken from ocean model.
+* 019      J.P. Toviessi   (sept 2008)  Use fluslop or flusolis variable
+* 020      M. Desgagne (Apr 2009) - Remove coupling block.
+* 021      V. Fortin (Nov 2007) - Add runofftot to 'hydro' call
+* 022      K. Winger (Mar 2010) - Add draintot to 'hydro' call
+* 023      B. Dugas (Jul 2011) - Remove last traces of fccpl, fvcpl
+*
+*Object
+*          Multitasking of the surface scheme ISBA
+*
+*Arguments
+*
+*               - Input/Output -
+* BUS           bus of surface variables
+*
+*               - Input -
+* BUSSIZ        size of the surface bus
+* PTSURF        surface pointers
+* PTSURFSIZ     dimension of ptsurf
+* KOUNT         number of timestep
+* TRNCH         row number
+* DT            timestep
+* N             running length
+* M             horizontal dimension
+* NK            vertical dimension
+*
+*
+**
+*
+*
+      INTEGER I
+*
+      integer fsolis
+*
+*
+      integer ptr, x
+*
+      integer k,j,ik,m
+*
+#include "locbus.cdk"
+      INTEGER INDX_SFC, SURFLEN
+      PARAMETER (INDX_SFC = INDX_SOIL)
+      INTEGER QUELNIVO(MAXVARSURF)
+*
+#include "consphy.cdk"
+*
+#include "clefcon.cdk"
+*
+#include "options.cdk"
+*
+#include "sfcbus.cdk"
+*
+*MODULES
+      EXTERNAL PRELIM1
+      EXTERNAL SOILI
+      EXTERNAL VEGI
+      EXTERNAL DRAG1
+      EXTERNAL EBUDGET1
+      EXTERNAL HYDRO1
+      EXTERNAL UPDATE3
+*
+*
+#include "zuzt.cdk"
+*
+
+*******************************************************
+*     AUTOMATIC ARRAYS
+*******************************************************
+*
+      AUTOMATIC ( VMOD     , REAL , (N) )
+      AUTOMATIC ( VDIR     , REAL , (N) )
+      AUTOMATIC ( TVA      , REAL , (N) )
+      AUTOMATIC ( RHOA     , REAL , (N) )
+      AUTOMATIC ( RNWATER  , REAL , (N) )
+      AUTOMATIC ( CG       , REAL , (N) )
+      AUTOMATIC ( ZC1      , REAL , (N) )
+      AUTOMATIC ( ZC2      , REAL , (N) )
+      AUTOMATIC ( WGEQ     , REAL , (N) )
+      AUTOMATIC ( CT       , REAL , (N) )
+      AUTOMATIC ( ZCS      , REAL , (N) )
+      AUTOMATIC ( PSNZ0    , REAL , (N) )
+      AUTOMATIC ( Z0TOT    , REAL , (N) )
+      AUTOMATIC ( CH       , REAL , (N) )
+      AUTOMATIC ( CD       , REAL , (N) )
+      AUTOMATIC ( HRSURF   , REAL , (N) )
+      AUTOMATIC ( DEL      , REAL , (N) )
+      AUTOMATIC ( TST      , REAL , (N) )
+      AUTOMATIC ( T2T      , REAL , (N) )
+      AUTOMATIC ( WGT      , REAL , (N) )
+      AUTOMATIC ( W2T      , REAL , (N) )
+      AUTOMATIC ( WFT      , REAL , (N) )
+      AUTOMATIC ( WLT      , REAL , (N) )
+      AUTOMATIC ( WRT      , REAL , (N) )
+      AUTOMATIC ( WST      , REAL , (N) )
+      AUTOMATIC ( ALPHAST  , REAL , (N) )
+      AUTOMATIC ( RHOST    , REAL , (N) )
+      AUTOMATIC ( RNICE    , REAL , (N) )
+      AUTOMATIC ( LEFF     , REAL , (N) )
+      AUTOMATIC ( DWATERDT , REAL , (N) )
+      AUTOMATIC ( DSNOWDT  , REAL , (N) )
+      AUTOMATIC ( ZTN      , REAL , (N) )
+      AUTOMATIC ( ZUN      , REAL , (N) )
+      AUTOMATIC ( FREEZS   , REAL , (N) )
+      AUTOMATIC ( RHOMAX   , REAL , (N) )
+      AUTOMATIC ( RSNOW    , REAL , (N) )
+*
+*******************************************************
+*
+      REAL RHO
+*
+      REAL ALVIS_SOL, CMU, CTU
+      REAL FC_SOL, FV_SOL
+      REAL HST_SOL, ILMO_SOL
+      REAL PS, QS, TS
+      REAL Z0H, Z0M
+      REAL ZALFAQ, ZALFAT, ZTSURF, ZTSRAD
+*
+      POINTER (IALVIS_SOL , ALVIS_SOL  (1) )
+      POINTER (ICMU       , CMU        (1) )
+      POINTER (ICTU       , CTU        (1) )
+      POINTER (IFC   _SOL , FC   _SOL  (1) )
+      POINTER (IFV   _SOL , FV   _SOL  (1) )
+      POINTER (IHST  _SOL , HST  _SOL  (1) )
+      POINTER (IILMO _SOL , ILMO _SOL  (1) )
+      POINTER (IPS        , PS         (1) )
+      POINTER (IQS        , QS         (1) )
+      POINTER (ITS        , TS         (1) )
+      POINTER (IZ0H       , Z0H        (1) )
+      POINTER (IZ0M       , Z0M        (1) )
+      POINTER (IZALFAQ    , ZALFAQ     (1) )
+      POINTER (IZALFAT    , ZALFAT     (1) )
+      POINTER (IZTSURF    , ZTSURF     (1) )
+      POINTER (IZTSRAD    , ZTSRAD     (1) )
+*
+*
+      integer sommet
+*
+#include "xptsurf.cdk"
+*
+*     In the offline mode the t-step 0 is (correctly) not performed
+      IF (IFLUVERT.EQ.-1.AND.KOUNT.EQ.0) RETURN
+*
+      SURFLEN = M
+*
+*
+*     EQUIVALENCES
+*
+      INIT_LOCBUS()
+*
+*     Syntax of macro locbus (must be typed in CAPITAL letters):
+*     locbus (pointer, array_name_in_the_bus, level)
+*     If level=0, array chosen automatically as follows:
+*        1) level =  1 if array has  1 level only (e.g. TSURF )
+*        2) level = nk if array has nk levels     (e.g. TMOINS)
+*        3) level = indx_sfc if array has a level for each surface type (e.g. FC)
+*        4) level has to be specified by user if array has more than one level
+*           that all "belong" to the same surface type (e.g. TSOIL)
+*
+      LOCBUS (IALVIS_SOL , ALVIS  ,  0 )
+      LOCBUS (ICMU       , BM     ,  0 )
+      LOCBUS (ICTU       , BT     ,  0 )
+      LOCBUS (IFC   _SOL , FC     ,  0 )
+      LOCBUS (IFV   _SOL , FV     ,  0 )
+      LOCBUS (IHST  _SOL , HST    ,  0 )
+      LOCBUS (IILMO _SOL , ILMO   ,  0 )
+      LOCBUS (IPS        , PMOINS ,  0 )
+      LOCBUS (IQS        , QSURF  ,  0 )
+      LOCBUS (ITS        , TSOIL  ,  1 )
+      LOCBUS (IZ0H       , Z0T    ,  0 )
+      LOCBUS (IZ0M       , Z0     ,  0 )
+      LOCBUS (IZALFAT    , ALFAT  ,  0 )
+      LOCBUS (IZTSURF    , TSURF  ,  0 )
+      LOCBUS (IZTSRAD    , TSRAD  ,  0 )
+*
+      IF (RADSLOPE) THEN
+         FSOLIS = FLUSLOP
+      ELSE
+         FSOLIS = FLUSOLIS
+      ENDIF
+*
+      DO I=1,N
+         ZUN(I) = ZU
+         ZTN(I) = ZT
+      END DO
+*
+*
+      CALL PRELIM1( BUS(X(TMOINS,1,NK)), 
+     1              BUS(X(UMOINS ,1,NK)), BUS(X(VMOINS,1,NK)),
+     1              BUS(X(HUMOINS,1,NK)), BUS(X(PMOINS,1,1 )),
+     1              VMOD, VDIR, TVA, RHOA, N ) 
+*
+*
+      CALL SOILI ( BUS(X(TSOIL  ,1,1)), BUS(X(WSOIL,1,1)),
+     1             BUS(X(WSOIL  ,1,2)), BUS(X(ISOIL,1,1)),
+     1             BUS(X(SNOMA  ,1,1)), BUS(X(SNORO,1,1)),
+     1             BUS(X(VEGFRAC,1,1)), BUS(X(CGSAT,1,1)),
+     1             BUS(X(WSAT   ,1,1)), BUS(X(WWILT,1,1)),
+     1             BUS(X(BCOEF  ,1,1)), BUS(X(C1SAT,1,1)),
+     1             BUS(X(C2REF  ,1,1)), BUS(X(ACOEF,1,1)),
+     1             BUS(X(PCOEF  ,1,1)), bus(x(CVEG ,1,1)),
+     1             bus(x(z0     ,1,indx_soil)),
+     1             CG, ZC1, ZC2, WGEQ, CT, ZCS, 
+     1             bus(x(psn,1,1)), 
+     1             bus(x(PSNG,1,1)), bus(x(PSNV,1,1)), 
+     1             PSNZ0, Z0TOT, BUS(X(Z0T,1,indx_soil)), N )
+*
+*
+      CALL VEGI ( bus(x(fsolis,1,1)),
+     1            bus(x(tmoins ,1,nk)), bus(x(TSOIL ,1,1)),
+     1            bus(x(humoins,1,nk)), bus(x(pmoins,1,1)),
+     1            bus(x(WSOIL   ,1,2)), bus(x(RGL   ,1,1)),
+     1            bus(x(LAI     ,1,1)), bus(x(STOMR ,1,1)),
+     1            bus(x(GAMVEG  ,1,1)), bus(x(WWILT ,1,1)), 
+     1            bus(x(WFC     ,1,1)), bus(x(RST   ,1,1)),
+     1            N )
+*
+*
+      CALL DRAG2 ( bus(x(TSOIL  ,1,1)), bus(x(WSOIL ,1,1)),
+     1             bus(x(WVEG   ,1,1)), bus(x(thetaa,1,1)),
+     1             VMOD, bus(x(humoins,1,nk)),
+     1             bus(x(pmoins ,1,1)), bus(x(RST   ,1,1)),
+     1             bus(x(VEGFRAC,1,1)),
+     1             BUS(X(Z0T,1,indx_soil)), Z0TOT, bus(x(WFC,1,1)), 
+     1             bus(x(PSNG   ,1,1)), bus(x(PSNV  ,1,1)),
+     1             PSNZ0, bus(x(LAI ,1,1)), bus(x(zusl,1,1)), bus(x(ztsl,1,1)),
+     1             bus(x(FCOR,1,1)), bus(x(RESA ,1,1)),
+     1             bus(x(ilmo,1,indx_soil)), bus(x(hst  ,1,indx_soil)),
+     1             bus(x(frv ,1,indx_soil)), bus(x(ftemp,1,indx_soil)),
+     1             bus(x(fvap,1,indx_soil)),
+     1             CH, CD, HRSURF, bus(x(HUSURF,1,1)), 
+     1             bus(x(HV,1,1)),
+     1             DEL, bus(x(qsurf,1,indx_soil)),
+     1             bus(x(bt,1,indx_soil)),
+     1             N ) 
+*
+*
+      CALL EBUDGET1(BUS(X(TMOINS,1,NK)),
+     1              bus(x(TSOIL,1,1)), bus(x(TSOIL,1,2)),
+     1              bus(x(WSOIL,1,2)), bus(x(ISOIL,1,1)), 
+     1              bus(x(WSNOW,1,1)), bus(x(SNOMA,1,1)), DT,
+     1              bus(x(SNOAL,1,1)), CD, bus(x(rainrate,1,1)), 
+     1              VMOD, VDIR, bus(x(fsolis,1,1)),
+     1              bus(x(ALVEG,1,1)), bus(x(ALVIS,1,indx_soil)),
+     1              bus(x(FDSI,1,1)), bus(x(thetaa,1,1)), 
+     1              bus(x(humoins,1,nk)), bus(x(pmoins,1,1)), RHOA,
+     1              bus(x(umoins,1,nk)), bus(x(vmoins,1,nk)), 
+     1              bus(x(VEGFRAC,1,1)), HRSURF, 
+     1              bus(x(HV   ,1,1)), DEL, 
+     1              bus(x(RESA ,1,1)), bus(x(RST  ,1,1)),
+     1              CT, CG, ZCS, 
+     1              bus(x(PSN  ,1,1)), bus(x(PSNV ,1,1)), 
+     1              bus(x(PSNG ,1,1)), bus(x(WSAT ,1,1)), 
+     1              bus(x(ROOTDP,1,1)), bus(x(SNODP,1,indx_soil)),
+     1              TST, T2T, 
+     1              bus(x(RNET_S,1,1)), 
+     1              bus(x(FC   ,1,indx_soil)),
+     1              bus(x(FV   ,1,indx_soil)), 
+     1              bus(x(LEG  ,1,1)), bus(x(LEV  ,1,1)), 
+     1              bus(x(LES,1,1)), bus(x(LER,1,1)), 
+     1              bus(x(LETR ,1,1)), bus(x(FL,1,1)),
+     1              bus(x(EFLUX,1,1)),
+     1              LEFF, DWATERDT, DSNOWDT, FREEZS, RHOMAX, 
+     1              bus(x(MELTS,1,1)), bus(x(MELTSR,1,1)),
+     1              bus(x(FTEMP,1,indx_soil)), BUS(X(FVAP,1,indx_soil)),
+     1              N ) 
+*
+*
+      CALL HYDRO1 ( DT, bus(x(TSOIL,1,1)),
+     1              bus(x(TSOIL,1,2)), bus(x(WSOIL,1,1)),
+     1              bus(x(WSOIL,1,2)), bus(x(ISOIL,1,1)), 
+     1              bus(x(WSNOW,1,1)), bus(x(WVEG ,1,1)),
+     1              bus(x(SNOMA,1,1)), bus(x(SNOAL,1,1)),
+     1              bus(x(SNORO,1,1)), bus(x(SNODP,1,indx_soil)),
+     1              bus(x(rainrate,1,1)), bus(x(snowrate,1,1)),
+     1              bus(x(tdiag,1,1)),
+     1              bus(x(udiag,1,1)),
+     1              bus(x(vdiag,1,1)),
+     1              bus(x(LEV  ,1,1)), bus(x(LETR ,1,1)), 
+     1              bus(x(LEG  ,1,1)), bus(x(LES  ,1,1)), 
+     1              ZC1, ZC2, bus(x(C3REF,1,1)),
+     1              CG, WGEQ, CT, bus(x(LAI,1,1)), bus(x(VEGFRAC,1,1)),
+     1              bus(x(ROOTDP,1,1)), bus(x(WSAT,1,1)),
+     1              bus(x(WFC  ,1,1)), bus(x(PSN  ,1,1)),
+     1              bus(x(PSNG ,1,1)), bus(x(PSNV ,1,1)),
+     1              LEFF, DWATERDT, DSNOWDT, FREEZS, RHOMAX, 
+     1              TST, T2T,
+     1              WGT, W2T, WFT, WLT, WRT, WST, ALPHAST, RHOST,
+     1              bus(x(drain,1,1)), bus(x(draintot,1,indx_soil)),
+     1              bus(x(overfl,1,1)), bus(x(runofftot,1,indx_soil)),
+     1              RSNOW, N ) 
+*
+      CALL UPDATE3( bus(x(TSOIL,1,1)), bus(x(TSOIL,1,2)),
+     1              bus(x(WSOIL,1,1)), bus(x(WSOIL,1,2)),
+     1              bus(x(ISOIL,1,1)), bus(x(WSNOW,1,1)), 
+     1              bus(x(WVEG ,1,1)), bus(x(SNOMA,1,1)),
+     1              bus(x(SNOAL,1,1)), bus(x(SNORO,1,1)),
+     1              bus(x(SNODEN,1,1)), VMOD, CD, RHOA,
+     1              bus(x(FC   ,1,indx_soil)), 
+     1              bus(x(EFLUX,1,1)),
+     1              TST, T2T, WGT, W2T, WFT, WLT, WRT, WST,
+     1              ALPHAST, RHOST, 
+     1              bus(x(BM   ,1,1)), bus(x(FQ   ,1,1)),
+     1              bus(x(ALFAT,1,1)),
+     1              bus(x(ALFAQ,1,1)),
+     1              bus(x(bt,1,indx_soil)),
+     1              bus(x(thetaa,1,1)),
+     1              bus(x(humoins,1,nk)),
+     1              bus(x(za,1,1)), N)
+*
+      call diasurf2(bus(x(udiag ,1,1        )),
+     $              bus(x(vdiag ,1,1        )),
+     $              bus(x(tdiag ,1,1        )),
+     $              bus(x(qdiag ,1,1        )),
+     $              n,
+     $              bus(x(umoins,1,nk       )),
+     $              bus(x(vmoins,1,nk       )),
+     $              bus(x(tsoil ,1,1        )),
+     $              bus(x(qsurf ,1,indx_soil)),
+     $              bus(x(z0    ,1,indx_soil)),
+     $              bus(x(z0t   ,1,indx_soil)),
+     $              bus(x(ilmo  ,1,indx_soil)),
+     $              bus(x(zusl  ,1,1        )),
+     $              bus(x(hst   ,1,indx_soil)),
+     $              bus(x(frv   ,1,indx_soil)),
+     $              bus(x(ftemp ,1,indx_soil)),
+     $              bus(x(fvap  ,1,indx_soil)),
+     $              zun, ztn,
+     $              bus(x(dlat  ,1,1        ))
+     $             )
+*
+*
+  999 continue
+*VDIR NODEP
+      do i=1,n
+*
+*
+        ZTSURF   (I) = TS (I)
+        ZTSRAD   (I) = TS (I)
+*
+*       CALCULATE LAND-ATMOSPHERE OUTCOMING WATER FLUX
+        BUS(X(WFLUX,I,1)) = RHOA(I)*BUS(X(EFLUX,I,1))
+*
+        IF (.NOT.IMPFLX) CTU (I) = 0. 
+*
+      end do
+*
+*     FILL THE ARRAYS TO BE AGGREGATED LATER IN S/R AGREGE
+      CALL FILLAGG ( BUS, BUSSIZ, PTSURF, PTSURFSIZ, INDX_SOIL,
+     +               SURFLEN )
+*
+      RETURN
+      END

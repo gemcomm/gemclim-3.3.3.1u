@@ -1,0 +1,37 @@
+c Version 1.0
+c     computs latent and sensible fluxes
+      subroutine hs_latsens (tsurf, Tcutoff, hice, t2,
+     +                    q2, u2, psurf, delq, evap, qsen)
+c parameters are constants for teten's formula for svp water and ice
+c vapor pressure is in Pa, so divide by 100 to get in mb
+c Fluxes are in kgm-2s-1. Conversion to Wm-2: multiply by 2.453E6
+
+      implicit none
+#include "lakepar.cdk"
+	real tsurf,tcutoff,hice,t2,q2,u2,psurf,delq,evap,qsen,
+     +     ca,cb,c70,c71,c72,c73,eog,psurfpa,qg,rai,cdrx,a,b,
+     +     delt,rash
+      parameter (ca = 6.11e2, cb = 273.15)
+      parameter (c70 = 21.874, c71 = 7.66)
+      parameter (c72 = 17.269, c73 = 35.86)
+c
+      call hs_lake_drag (tsurf, t2, u2, cdrx)   ! calculate drag coef. 
+
+      if (hice.le.0.0.and.tsurf.gt.Tcutoff) then
+        a=c72
+        b=c73
+      else          ! if ice, calc eog over ice
+        a=c70
+        b=c71
+      endif
+      eog=ca*exp(a*(tsurf-cb)/(tsurf-b)) ! surface vapor pressure
+      psurfpa=psurf ! surface pressure
+      qg=0.622*(eog/(psurfpa-0.378*eog)) ! surface specific humidity
+      delq=q2-qg  ! specific humidity gradient
+      rai=cdrx*u2*rhosurf
+      evap=-rai*delq
+      delt=t2-tsurf ! temperature gradient
+      rash=cdrx*u2*rhosurf*cpair
+      qsen=rash*delt
+      return
+      end

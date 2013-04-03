@@ -1,0 +1,228 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  RASOL
+*
+#include "phy_macros_f.h"
+      SUBROUTINE RASOL(RTSJ,FLXVIS,DECLSC,QJ,PSJ,SH,FNJ,
+     1                 NI,MI,NK,DSH,LAT,LON,FRS,HZ,
+     2                 COSZ,CZ07,XK,SFN,SDF,TR,AK,PSJSP0)
+*
+#include "impnone.cdk"
+      INTEGER NI,MI,NK
+      REAL RTSJ(NI,NK)
+      REAL QJ(MI,NK),SH(ni,NK),FNJ(NI,NK),DSH(ni,NK)
+      REAL LAT(NI),LON(NI)
+      REAL FRS(ni,NK),DECLSC(2)
+      REAL PSJ(NI),FLXVIS(NI)
+      REAL COSZ(NI),CZ07(NI),XK(NI),SFN(NI),SDF(NI)
+      REAL TR(NI),AK(NI),PSJSP0(NI)
+      REAL HZ
+*
+*Author
+*          Y.Delage(Sept.1979)
+*
+*Revision
+* 001      C.Beaudoin(August 1988)
+*                  Add in the COMMON physics library
+*
+* 002      J.Mailhot RPN(June 89)- Calculate ground flux
+* 003      N. Brunet  (May90)
+*                 Standardization of thermodynamic functions
+* 004      N. Brunet  (May91)
+*                 New version of thermodynamic functions
+*                 and file of constants
+* 005      R. Benoit (August 93) Using Local sigma coordinate (2D)
+* 006      J.P.Toviessi (June 2003) - IBM conversion
+*               - calls to exponen4 (to calculate power function '**')
+*               - unnecessary calculations removed
+* 007      B. Bilodeau (Aug 2003) - exponen4 replaced by vspown1
+*
+*
+*Object
+*          to calculate solar radiation
+*
+*Arguments
+*
+*          - Output -
+* RTSJ     heating of a column of air caused by absorption
+*          of solar radiation (K/s)
+* FLXVIS   energy flux (W/m2) from the ground
+*
+*          - Input -
+* DECLSC   sines and cosines of declination solar
+* QJ       specific humidity
+* PSJ      surface pressure
+* SH       sigma levels (P/PS)
+* FNJ      cloud fraction in each layer
+* NI       number of points where the calculation is done
+* MI       dimension of the humidity field
+* NK       number of levels
+* DSH      thickness of layers in DSIGMA
+* LAT      latitude in radians
+* LON      longitude in radians
+* FRS      the fraction of heating by ozone attributed to
+*          each layer
+* HZ       Greenwich hour
+*
+*          - Output -
+* COSZ     work field
+*
+*          - Input -
+* CZ07     work field
+* XK       work field
+* SFN      work field
+* SDF      work field
+* TR       work field
+* AK       work field
+* PSJSP0   work field
+*
+*IMPLICITES
+*      AIRSEC: TRANSMISSIVITE D'UNE COLONNE ATMOSPHERIQUE VERTICALE
+*               EN L'ABSENCE DE VAPEUR D'EAU
+*      CABSRP: COEFFICIENT D'ABSORPTION DES NUAGES
+*      CONSOL: CONSTANTE SOLAIRE (W/M2)
+*      FO3   : DEFICIT INTEGRE DU FLUX SOLAIRE CORRESPONDANT AU
+*               MAXIMUM DE L'ABSORPTION TOTALE PAR L'OZONE  (W/M2)
+*      REFLEX: FACTEUR TENANT COMPTE DES REFLECTIONS MULTIPLES
+*                -  TRANSPARENCE MINIMALE DES NUAGES
+*      DIFBAS: FRACTION DU RAYONNEMENT SOLAIRE DIFFUSE VERS LE BAS
+*
+**
+      INTEGER I,K
+      REAL RLONG,DH,SINLAT,COSLAT,FWK,CPFAC,TRDIFF, ARG
+*
+      REAL ctmp1,ctmp2
+      REAL*8 dtmp1
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( tmcos   , REAL  , (NI) )
+      AUTOMATIC ( tmsin   , REAL  , (NI) )
+      AUTOMATIC ( tmp1    , REAL  , (NI) )
+      AUTOMATIC ( tmp2    , REAL  , (NI) )
+      AUTOMATIC ( tmp3    , REAL  , (NI) )
+*
+************************************************************************
+*
+#include "valcon.cdk"
+*
+#include "clefcon.cdk"
+*-----------------------------------------------------------------------
+#include "consphy.cdk"
+*
+      do I = 1, NI 
+        tmp1(I) = HZ*PI/12. +  LON(I) - PI
+      enddo   
+
+      call VSCOS(tmp1,tmp1,NI)
+      call VSCOS(tmcos,LAT,NI)
+      call VSSIN(tmsin,LAT,NI)
+
+      ctmp1 = 1.0/P0
+
+      DO  I=1,NI
+      COSZ(I)=AMAX1(tmsin(I)*DECLSC(1) + tmcos(I)*DECLSC(2)*tmp1(I),0.001)
+      PSJSP0(I)=PSJ(I)/P0
+      enddo
+
+      ctmp1 = 0.7
+      call vspown1 (CZ07,COSZ,ctmp1,NI)
+
+*     PSJSG(I)=PSJ(I)/GRAV
+*
+*-----------------------------------------------------------------------
+*
+*     * CALCUL DU RECHAUFFEMENT (RTSJ) DU A L'ABSORPTION PAR H2O ET O3
+*
+*     * CALCUL DES DF POUR CIEL CLAIR
+      dtmp1 = 1.0/dble(GRAV)
+      DO 15 K=1,NK
+      DO 15 I=1,NI
+   15 RTSJ(I,K) =  FO3*FRS(i,K)*CZ07(I)
+      DO 19 I=1,NI
+   19 XK(I)=0.
+      DO 20 K=1,NK-1
+      DO 20 I=1,NI
+      XK(I)=XK(I)+ (PSJ(I)/GRAV) *SH(i,K)*QJ(I,K)*DSH(i,K)*PSJSP0(I)
+      FWK = 60. * XK(I)**0.3 * CZ07(I)
+      RTSJ(I,K)=RTSJ(I,K) + FWK
+      RTSJ(I,K+1)=RTSJ(I,K+1) - FWK
+   20 CONTINUE
+      DO 21 I=1,NI
+      XK(I) =XK(I)+(PSJ(I)*dtmp1) *SH(i,NK)*QJ(I,NK)*DSH(i,NK)*PSJSP0(I)
+      FWK = 60. * XK(I)**0.3 * CZ07(I)
+      RTSJ(I,NK)=RTSJ(I,NK) + FWK
+   21 CONTINUE
+*
+*
+*     * MODIFICATION DU RECHAUFFEMENT A CAUSE DES NUAGES
+      DO 36 I=1,NI
+   36 SFN(I)=FNJ(I,1)*DSH(i,1)
+      DO 37 K=2,NK
+      DO 37 I=1,NI
+   37 SFN(I)=SFN(I) + FNJ(I,K)*DSH(i,K)
+      DO 38 I=1,NI
+      AK(I)=1.
+      TR(I) = 1.
+   38 CONTINUE
+      DO 39 K=1,NK
+      DO 39 I=1,NI
+      AK(I)= AK(I) * (1.-FNJ(I,K))
+*     * AK(I) EST LA FRACTION DU FLUX SOLAIRE NON-DIFFUSE PAR LES NUAGES
+      RTSJ(I,K)=RTSJ(I,K)*TR(I)*(AK(I)+(1.-AK(I))*1.165*COSZ(I)/CZ07(I))
+     1              * (1. + CABSRP*FNJ(I,K))
+      TR(I) = TR(I)*EXP(-(2.+4.*SH(i,K))*FNJ(I,K)*DSH(i,K)*PSJSP0(I))
+   39 CONTINUE
+      DO 40 I=1,NI
+   40 SDF(I) = 0.
+      DO 41 K=1,NK
+      DO 41 I=1,NI
+      SDF(I) = SDF(I) + RTSJ(I,K)
+      CPFAC = 1.+(CPV/CPD-1.)*QJ(I,K)
+   41 RTSJ(I,K) = RTSJ(I,K) / ((PSJ(I)/GRAV) * CPD * CPFAC * DSH(i,K))
+*-----------------------------------------------------------------------
+*
+*     * CALCUL DU FLUX SOLAIRE AU SOL
+*
+      DO 45 I=1,NI
+      TRDIFF=AIRSEC * (1.-.00125*XK(I))
+      TR(I) = TR(I) + .12*SFN(I)
+*     ARG < 75 / LOG10(TRDIFF)
+      ARG = AMAX1(AMIN1(PSJSP0(i)/COSZ(i),75.),-79.)
+*
+      FLXVIS(I) = CONSOL * TR(I) * COSZ(I) *
+     1  (DIFBAS + (1.-DIFBAS)*TRDIFF**ARG) -SDF(I)
+*
+      FLXVIS(I)=AMAX1(FLXVIS(I),SDF(I))
+   45 CONTINUE
+*-----------------------------------------------------------------------
+*
+*     * LA NUIT
+      DO 50 I=1,NI
+      cz07(I)=SIGN(.5,COSZ(I)-.01)+.5
+      FLXVIS(I)=FLXVIS(I)*cz07(I)
+   50 CONTINUE
+      DO 52 K=1,NK
+      DO 52 I=1,NI
+   52 RTSJ(I,K)=RTSJ(I,K)*cz07(I)
+*
+*-----------------------------------------------------------------------
+*
+ 1000 RETURN
+*
+      END

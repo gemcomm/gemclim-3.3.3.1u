@@ -1,0 +1,63 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  SETTRIV
+*
+      SUBROUTINE SETTRIV(A,B,C,V,W,N)
+*
+#include "impnone.cdk"
+      INTEGER N
+      REAL A(N),B(N),C(N),V(N),W(N)
+*
+*Author
+*          J. Cote (RPN 1983)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      M. Lepine  -  RFE model code revision project (Feb 87)
+*
+*Object
+*          to prepare the solution on a tri-diagonal matrix problem
+*
+*Arguments
+*
+*          - Input -
+* A        lower-diagonal of the matrix
+* B        diagonal of the matrix
+* C        upper diagonal of the matrix
+*
+*          - Output -
+* V        work space
+* W        work space
+*
+*          - Input -
+* N        matrix dimension
+*
+*Notes
+*          The solution is obtained with 'SOLTRIV'. The matrix must
+*          be a dominant diagonal. Refer to R.S. Varga's "Matrix
+*          Iterative Analysis", pp.195 FF
+*
+**
+*
+      INTEGER J
+*
+      V(1)=1.0/B(1)
+      DO 1 J=2,N
+         W(J-1)=C(J-1)*V(J-1)
+    1    V(J)=1.0/(B(J)-A(J)*W(J-1))
+*
+      RETURN
+      END

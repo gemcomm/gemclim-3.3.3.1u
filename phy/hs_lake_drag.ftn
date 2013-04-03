@@ -1,0 +1,35 @@
+c Version 1.0
+c calculates drag coefficient using BATS method 
+      subroutine hs_lake_drag (tlakek, t1k, u1, cdrx)
+      implicit none
+	real tlakek,t1k,u1,cdrx,vk,g,zwater,z1,cdrn,ribn,ribd,rib,
+     +     cdrmin,cdr
+      parameter (vk = 0.4)
+      parameter (g = 9.80616)
+      parameter (zwater = .0004)
+      parameter (z1 = 2.0)
+
+      cdrn=(vk/alog(z1/zwater))**2.  ! neutral drag coefficient
+
+      ribn=z1*g*(1.-tlakek/t1k)  ! neutral bulk Richardson number
+
+      if ((tlakek/t1k).le.1.0) then  ! unstable conditions
+        ribd=u1**2.+0.1**2.  ! other bulk Richardson number
+      else  ! stable conditions
+        ribd=u1**2.+1.0**2.  
+      endif
+
+      rib=ribn/ribd   !  bulk Richardson number
+      if (rib.lt.0.) then ! unstable conditions
+        cdr=cdrn*(1.0+24.5*(-cdrn*rib)**0.5)
+      else   ! stable conditions
+        cdr=cdrn/(1.0+11.5*rib)
+      endif
+      cdrmin=amax1((.25*cdrn),6.e-4)
+
+      if (cdr.lt.cdrmin) cdr=cdrmin
+      cdrx=cdr
+ 
+      return
+      end
+

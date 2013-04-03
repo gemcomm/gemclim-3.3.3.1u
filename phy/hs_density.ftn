@@ -1,0 +1,26 @@
+c Version 1.0
+
+c this is a extended precision version, rhostps is a single
+c precision density that is returned to the call
+c calculate density as a function of temperature and salinity
+c temp is deg C. salinity (s) is ppt, and rhostp is in kg /m3
+      subroutine hs_density (ts,ss,rhostps)
+      implicit none
+	real*8 rhow, rhost, t, s, rhostp
+	real ts,ss,rhostps
+      t=dble(ts)
+      s=dble(ss)
+
+      rhow=999.842594D0+6.793952D-2*t-9.095290D-3*t**2
+     +    +1.001685D-4*t**3-1.120083D-6*t**4+6.536332D-9*t**5
+
+      rhost=rhow+s*(0.824493D0-4.0899D-3*t+7.6438D-5*t**2
+     +   -8.2467D-7*t**3+5.3875D-9*t**4)+
+     +     s**(3.D0/2.D0)*(-5.72466D-3+1.0227D-4*t
+     +    -1.6546D-6*t**2)+4.8314D-4*s**2
+
+c      rhostp=rhost  ! no pressure version
+	rhostp=rhow
+      rhostps=rhostp-1.D3
+      return
+      end

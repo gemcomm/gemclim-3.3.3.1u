@@ -1,0 +1,84 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r modpbus - Modify the physics pointers
+*
+      subroutine modpbus ( F_ni_in, F_ni_out )
+*
+#include "impnone.cdk"
+*
+      integer F_ni_in,F_ni_out
+*
+*author
+*     Bernard Dugas - RPN - august 2002
+*
+*revision
+* v3_72 - Dugas B.          - initial version
+*
+*object
+*     Modifies all of the active pointers used by the physics
+*     to account for the changing first dimensions produced
+*     when the dynamics does more than one call to phyexe1
+*     for each slab (GEM option P_pset_second_L=.true.),
+*
+*Input Arguments
+* F_ni_in  First dimension at entry
+* F_ni_out First dimension at exit
+*
+*----------------------------------------------------------------
+*
+*implicits
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+*
+#include "nbvarsurf.cdk"
+#include "dimsurf.cdk"
+*
+*modules
+*
+      integer position(0:1),i
+      equivalence (phybus_i_first(0),position(0))
+*
+      logical do_it_L
+      integer nvarphy
+      save    nvarphy,do_it_L
+*
+      data do_it_L / .true. /
+*     ---------------------------------------------------------------
+*
+      if (do_it_L) then
+         nvarphy = COMPHY_SIZE(phybus)
+         do_it_L = .false.
+      end if
+*
+*C    modify the phybus pointeurs (defined initially in phy_ini)
+*
+      do i=1,nvarphy
+         position(i) = (((position(i) - 1) / F_ni_in) * F_ni_out) + 1
+      end do
+*
+*C    modify the sfcbus pointers (defined initially in iniptsurf)
+*
+      do i=1,nvarsurf
+         if (ptdebut(i).ne.0) then
+            ptdebut(i) = (((ptdebut(i) - 1) / F_ni_in) * F_ni_out) + 1
+         endif
+      end do
+*
+      return
+      end
+
+
+

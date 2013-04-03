@@ -1,0 +1,556 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ##################
+      MODULE MODE_SNOW3L
+!     ##################
+!
+!!****  *MODE_SNOW * - contains explicit snow (ISBA-ES) characteristics functions
+!!                     for total liquid water holding capacity of a snow layer (m)
+!!                     and the thermal heat capacity of a layer (J K-1 m-3)
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!    direct calculation
+!!
+!!    EXTERNAL
+!!    --------
+!!       
+!!    IMPLICIT ARGUMENTS
+!!    ------------------ 
+!!
+!!    REFERENCE
+!!    ---------
+!!    Boone and Etchevers, J. HydroMeteor., 2001
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!	A. Boone       * Meteo France *
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original        01/08/02
+!!      V. Masson       01/2004  add snow grid computations
+!-----------------------------------------------------------------------------
+!
+!*       0.    DECLARATIONS
+!
+!
+INTERFACE SNOW3LSCAP
+  MODULE PROCEDURE SNOW3LSCAP_3D
+  MODULE PROCEDURE SNOW3LSCAP_2D
+  MODULE PROCEDURE SNOW3LSCAP_1D
+END INTERFACE
+INTERFACE SNOW3LHOLD
+  MODULE PROCEDURE SNOW3LHOLD_3D
+  MODULE PROCEDURE SNOW3LHOLD_2D
+  MODULE PROCEDURE SNOW3LHOLD_1D
+END INTERFACE
+INTERFACE SNOW3LWLIQMAX
+  MODULE PROCEDURE SNOW3LWLIQMAX_3D
+  MODULE PROCEDURE SNOW3LWLIQMAX_2D
+  MODULE PROCEDURE SNOW3LWLIQMAX_1D
+END INTERFACE
+!
+!-------------------------------------------------------------------------------
+CONTAINS
+!
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LWLIQMAX_3D(PSNOWRHO) RESULT(PWLIQMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,      &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:,:), INTENT(IN)                                  :: PSNOWRHO ! (kg/m3)
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2),SIZE(PSNOWRHO,3)) :: PWLIQMAX ! (kg/m3)
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2),SIZE(PSNOWRHO,3)) :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:,:,:) = MIN(XRHOSMAX_ES, PSNOWRHO(:,:,:))
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:,:,:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*    &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:,:,:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (kg/m3):
+!
+PWLIQMAX(:,:,:) = ZHOLDMAXR(:,:,:)*ZSNOWRHO(:,:,:)
+!
+!
+END FUNCTION SNOW3LWLIQMAX_3D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LWLIQMAX_2D(PSNOWRHO) RESULT(PWLIQMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,      &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:), INTENT(IN)                   :: PSNOWRHO ! (kg/m3)
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2)) :: PWLIQMAX ! (kg/m3)
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2)) :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:,:) = MIN(XRHOSMAX_ES, PSNOWRHO(:,:))
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:,:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*    &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:,:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (kg/m3):
+!
+PWLIQMAX(:,:) = ZHOLDMAXR(:,:)*ZSNOWRHO(:,:)
+!
+!
+END FUNCTION SNOW3LWLIQMAX_2D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LWLIQMAX_1D(PSNOWRHO) RESULT(PWLIQMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,      &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:), INTENT(IN)  :: PSNOWRHO ! (kg/m3)
+!
+REAL, DIMENSION(SIZE(PSNOWRHO)) :: PWLIQMAX ! (kg/m3)
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO)) :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:) = MIN(XRHOSMAX_ES, PSNOWRHO(:))
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*    &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (kg/m3):
+!
+PWLIQMAX(:) = ZHOLDMAXR(:)*ZSNOWRHO(:)
+!
+!
+END FUNCTION SNOW3LWLIQMAX_1D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LHOLD_3D(PSNOWRHO,PSNOWDZ) RESULT(PWHOLDMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,      &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:,:), INTENT(IN)                 :: PSNOWDZ, PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2),SIZE(PSNOWRHO,3)) :: PWHOLDMAX
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2),SIZE(PSNOWRHO,3)) :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:,:,:) = MIN(XRHOSMAX_ES, PSNOWRHO(:,:,:))
+!
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:,:,:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*    &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:,:,:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (m):
+!
+PWHOLDMAX(:,:,:) = ZHOLDMAXR(:,:,:)*PSNOWDZ(:,:,:)*ZSNOWRHO(:,:,:)/XRHOLW
+!
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LHOLD_3D
+!####################################################################
+!####################################################################
+!####################################################################
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LHOLD_2D(PSNOWRHO,PSNOWDZ) RESULT(PWHOLDMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,      &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:), INTENT(IN)                   :: PSNOWDZ, PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2)) :: PWHOLDMAX
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2)) :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:,:) = MIN(XRHOSMAX_ES, PSNOWRHO(:,:))
+!
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:,:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*    &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:,:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (m):
+!
+PWHOLDMAX(:,:) = ZHOLDMAXR(:,:)*PSNOWDZ(:,:)*ZSNOWRHO(:,:)/XRHOLW
+!
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LHOLD_2D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LHOLD_1D(PSNOWRHO,PSNOWDZ) RESULT(PWHOLDMAX)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the maximum liquid water holding capacity of
+!     snow layer(s).
+!
+!
+USE MODD_CSTS,     ONLY : XRHOLW
+USE MODD_SNOW_PAR, ONLY : XRHOSMAX_ES, XSNOWRHOHOLD,     &
+                          XWSNOWHOLDMAX2, XWSNOWHOLDMAX1
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:), INTENT(IN)                     :: PSNOWDZ, PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO))                    :: PWHOLDMAX
+!
+!*      0.2    declarations of local variables
+!
+REAL, DIMENSION(SIZE(PSNOWRHO))                    :: ZHOLDMAXR, ZSNOWRHO
+!
+!-------------------------------------------------------------------------------
+!
+! Evaluate capacity using upper density limit:
+!
+ZSNOWRHO(:) = MIN(XRHOSMAX_ES, PSNOWRHO(:))
+!
+!
+! Maximum ratio of liquid to SWE:
+!
+ZHOLDMAXR(:) = XWSNOWHOLDMAX1 + (XWSNOWHOLDMAX2-XWSNOWHOLDMAX1)*     &
+                 MAX(0.,XSNOWRHOHOLD-ZSNOWRHO(:))/XSNOWRHOHOLD
+!
+!
+! Maximum liquid water holding capacity of the snow (m):
+!
+PWHOLDMAX(:) = ZHOLDMAXR(:)*PSNOWDZ(:)*ZSNOWRHO(:)/XRHOLW
+!
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LHOLD_1D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LSCAP_3D(PSNOWRHO) RESULT(PSCAP)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the heat capacity of a snow layer.
+!
+USE MODD_CSTS, ONLY : XCI
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:,:), INTENT(IN)                                  :: PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2),SIZE(PSNOWRHO,3)) :: PSCAP
+!
+!-------------------------------------------------------------------------------
+!
+!     The method of Verseghy (1991), Int. J. Climat., 11, 111-133.
+!
+PSCAP(:,:,:) = PSNOWRHO(:,:,:)*XCI      ! (J K-1 m-3)
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LSCAP_3D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LSCAP_2D(PSNOWRHO) RESULT(PSCAP)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the heat capacity of a snow layer.
+!
+USE MODD_CSTS, ONLY : XCI
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:,:), INTENT(IN)                   :: PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO,1),SIZE(PSNOWRHO,2)) :: PSCAP
+!
+!-------------------------------------------------------------------------------
+!
+!     The method of Verseghy (1991), Int. J. Climat., 11, 111-133.
+!
+PSCAP(:,:) = PSNOWRHO(:,:)*XCI      ! (J K-1 m-3)
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LSCAP_2D
+!####################################################################
+!####################################################################
+!####################################################################
+      FUNCTION SNOW3LSCAP_1D(PSNOWRHO) RESULT(PSCAP)
+!
+!!    PURPOSE
+!!    -------
+!     Calculate the heat capacity of a snow layer.
+!
+USE MODD_CSTS, ONLY : XCI
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:), INTENT(IN)                   :: PSNOWRHO
+!
+REAL, DIMENSION(SIZE(PSNOWRHO))                  :: PSCAP
+!
+!-------------------------------------------------------------------------------
+!
+!     The method of Verseghy (1991), Int. J. Climat., 11, 111-133.
+!
+PSCAP(:) = PSNOWRHO(:)*XCI      ! (J K-1 m-3)
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION SNOW3LSCAP_1D
+!####################################################################
+!####################################################################
+!####################################################################
+      SUBROUTINE SNOW3LGRID(PSNOWDZ,PSNOW)
+!
+!!    PURPOSE
+!!    -------
+!     Once during each time step, update grid to maintain
+!     grid proportions. Similar to approach of Lynch-Steiglitz,
+!     1994, J. Clim., 7, 1842-1855. Corresponding mass and
+!     heat adjustments made directly after the call to this
+!     routine. 3 grid configurations:
+!     1) for very thin snow, constant grid spacing
+!     2) for intermediate thicknesses, highest resolution at soil/snow
+!        interface and at the snow/atmosphere interface
+!     3) for deep snow, vertical resoution finest at snow/atmosphere
+!        interface (set to a constant value) and increases with snow depth.
+!        Second layer can't be more than an order of magnitude thicker
+!        than surface layer.
+!
+!
+USE MODD_SURF_PAR,   ONLY : XUNDEF
+USE MODD_SNOW_PAR,   ONLY : XSNOWCRITD
+!
+IMPLICIT NONE
+!
+!*      0.1    declarations of arguments
+!
+REAL, DIMENSION(:), INTENT(IN)    :: PSNOW
+!
+REAL, DIMENSION(:,:), INTENT(OUT) :: PSNOWDZ
+!
+!*      0.1    declarations of local variables
+!
+INTEGER JJ
+!
+INTEGER                           :: INLVLS
+!
+! ISBA-ES snow grid parameters
+!
+REAL, PARAMETER, DIMENSION(3)     :: ZSGCOEF1  = (/0.25, 0.50, 0.25/) 
+REAL, PARAMETER, DIMENSION(2)     :: ZSGCOEF2  = (/0.05, 0.34/)       
+!
+! Minimum total snow depth at which surface layer thickness is constant:
+!
+REAL, PARAMETER                   :: ZSNOWTRANS = 0.20                ! (m)
+!
+!-------------------------------------------------------------------------------
+!
+! 0. Initialization:
+! ------------------
+!
+INLVLS = SIZE(PSNOWDZ(:,:),2)
+!
+! 1. Calculate current grid for 3-layer (default) configuration):
+! ---------------------------------------------------------------
+! Based on formulation of Lynch-Stieglitz (1994)
+! except for 3 modifications: 
+! i) smooth transition here at ZSNOWTRANS
+! ii) constant ratio for very thin snow:
+! iii) ratio of layer 2 to surface layer <= 10
+!
+IF(INLVLS == 3)THEN
+!
+   WHERE(PSNOW <= XSNOWCRITD+0.01)
+      PSNOWDZ(:,1) = MIN(0.01, PSNOW(:)/INLVLS)
+      PSNOWDZ(:,3) = MIN(0.01, PSNOW(:)/INLVLS)
+      PSNOWDZ(:,2) = PSNOW(:) - PSNOWDZ(:,1) - PSNOWDZ(:,3)
+   END WHERE
+!
+   WHERE(PSNOW <= ZSNOWTRANS .AND. PSNOW > XSNOWCRITD+0.01)
+      PSNOWDZ(:,1) = PSNOW(:)*ZSGCOEF1(1)
+      PSNOWDZ(:,2) = PSNOW(:)*ZSGCOEF1(2)
+      PSNOWDZ(:,3) = PSNOW(:)*ZSGCOEF1(3)
+   END WHERE
+!
+   WHERE(PSNOW > ZSNOWTRANS)
+      PSNOWDZ(:,1) = ZSGCOEF2(1)
+      PSNOWDZ(:,2) = (PSNOW(:)-ZSGCOEF2(1))*ZSGCOEF2(2) + ZSGCOEF2(1)
+!
+! When using simple finite differences, limit the thickness
+! factor between the top and 2nd layers to at most 10
+! 
+      PSNOWDZ(:,2) = MIN(10*ZSGCOEF2(1),  PSNOWDZ(:,2))
+      PSNOWDZ(:,3) = PSNOW(:) - PSNOWDZ(:,2) - PSNOWDZ(:,1)
+   END WHERE
+!
+ELSE
+!
+!
+! 2. For more than 3-layers:
+! --------------------------
+! For the case when more than 3 layers are to be used, specifiy how
+! grid should be defined here. For now, a very simple arbitrary method
+! herein. WARNING: Detailed testing using more than 3-layers has not been done
+! to date, only minor tests.
+!   
+   DO JJ=1,INLVLS
+      PSNOWDZ(:,JJ)  = PSNOW(:)/INLVLS
+   ENDDO
+!
+   PSNOWDZ(:,INLVLS) = PSNOWDZ(:,INLVLS) + (PSNOWDZ(:,1) - MIN(0.05, PSNOWDZ(:,1)))
+   PSNOWDZ(:,1)      = MIN(0.05, PSNOWDZ(:,1))
+!
+ENDIF
+!
+DO JJ=1,INLVLS
+  WHERE(PSNOW(:)==XUNDEF)
+    PSNOWDZ(:,JJ) = XUNDEF
+  END WHERE
+END DO
+!
+END SUBROUTINE SNOW3LGRID
+!####################################################################
+!####################################################################
+!####################################################################
+END MODULE MODE_SNOW3L

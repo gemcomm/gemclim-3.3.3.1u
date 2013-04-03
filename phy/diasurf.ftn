@@ -1,0 +1,148 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P  DIASURF
+*
+#include "phy_macros_f.h"
+      SUBROUTINE DIASURF2(UZ,VZ,TZ,QZ,NI,U,V,TG,QG,Z0,Z0T,ILMO,ZA,
+     1                  H,UE,FTEMP,FVAP,ZU,ZT,LAT)
+#include "impnone.cdk"
+      INTEGER NI
+      REAL ZT(NI),ZU(NI)
+      REAL UZ(NI),VZ(NI),TZ(NI),QZ(NI),ZA(NI),U(NI),V(NI)
+      REAL TG(NI),QG(NI),UE(NI),FTEMP(NI),FVAP(NI)
+      REAL LAT(NI),ILMO(NI),Z0T(NI),Z0(NI),H(NI)
+*Author
+*          Yves Delage  (Aug1990)
+*
+*Revision
+* 001      G. Pellerin(JUN94)
+*          Adaptation to new surface formulation
+* 002      B. Bilodeau (Nov 95) - Replace VK by KARMAN
+* 003      R. Sarrazin (Jan 96) - Prevent problems if zu < za
+* 004      G. Pellerin (Feb 96) - Rewrite stable formulation
+* 005      Y. Delage and B. Bilodeau (Jul 97) - Cleanup
+* 006      Y. Delage (Feb 98) - Addition of HMIN
+* 007      G. Pellerin (Mai 03) - Conversion IBM
+*               - calls to vslog routine (from massvp4 library)
+* 008      Y. Delage (Oct 03) - Change UE2 by UE and rename subroutine
+*             - Introduce log-linear profile for near-neutral cases
+*             - Put stability functions into local functions via stabfunc.cdk
+* 009      R. McTaggart-Cowan and B. Bilodeau (May 2006)
+*             - Clean up stabfunc.cdk
+*
+*Object
+*          to calculate the diagnostic values of U, V, T, Q
+*          near the surface (ZU and ZT)
+*
+*Arguments
+*
+*          - Output -
+* UZ       U component of the wind at Z=ZU
+* VZ       V component of the wind at Z=ZU
+* TZ       temperature in kelvins at Z=ZT
+* QZ       specific humidity at Z=ZT
+*
+*          - Input -
+* NI       number of points to process
+* U        U component of wind at Z=ZA
+* V        V component of wind at Z=ZA
+* TG       temperature at the surface (Z=0) in Kelvins
+* QG       specific humidity
+* PS       surface pressure at the surface
+* ILMO     inverse of MONIN-OBUKHOV lenth
+* H        height of boundary layer
+* UE       friction velocity
+* Z0       roughness lenth for winds
+* Z0T      roughness lenth for temperature and moisture
+* FTEMP    temperature flux at surface
+* FVAP     vapor flux at surface
+* ZA       heights of first model level above ground
+* ZU       heights for computation of wind components
+* ZT       heights for computation of temperature and moisture
+* LAT      LATITUDE
+*
+      REAL ANG,ANGI,VITS
+      REAL CT,DANG,CM
+      REAL FH,FM,HI,XX,XX0,YY,YY0
+      INTEGER J
+*
+*
+*******************************************************
+*     AUTOMATIC ARRAYS
+*******************************************************
+*
+      AUTOMATIC ( LZZ0T , REAL , (NI) )
+      AUTOMATIC ( LZZ0  , REAL , (NI) )
+*
+*******************************************************
+
+*Implicites
+#include "surfcon.cdk"
+#include "consphy.cdk"
+*
+*MODULES
+
+      DO J=1,NI
+       LZZ0T(J)=ZT(J)/Z0T(J)+1       
+       LZZ0 (J)=ZU(J)/Z0(J)+1       
+      ENDDO
+*
+      call vslog(LZZ0T,LZZ0T,NI)
+      call vslog(LZZ0 ,LZZ0 ,NI)
+*
+      DO 10 J=1,NI
+      IF(ILMO(J).LE.0.) THEN
+*---------------------------------------------------------------------
+*                      UNSTABLE CASE
+*
+           hi=0.
+*CDIR IEXPAND
+           fh=fhi(ZT(J)+Z0T(J),Z0T(j),LZZ0T(J),ILMO(J),YY,YY0)
+*CDIR IEXPAND
+           fm=fmi(ZU(J)+Z0 (J),Z0 (J),LZZ0(J) ,ILMO(J),XX,XX0)
+      ELSE
+*---------------------------------------------------------------------
+*                        STABLE CASE
+         hi=1/MAX(HMIN,H(J),(ZA(J)+10*Z0(J))*factn,factn/
+     1        (4*AS*BETA*ilmo(j)))
+*CDIR IEXPAND
+         fh=BETA*(LZZ0T(J)+min(psi(ZT(J)+Z0T(J),HI,ILMO(J))-psi(Z0T(J),HI,ILMO(J)),
+     1                        ASX*ILMO(J)*ZT(J)))
+*CDIR IEXPAND
+         fm=LZZ0(J)+min(psi(zu(J)+Z0(J),HI,ILMO(J))-psi(Z0(J),HI,ILMO(J)),
+     1                 ASX*ILMO(J)*ZU(J))
+      ENDIF
+*---------------------------------------------------------------------
+      CT=KARMAN/FH
+      CM=KARMAN/FM
+      TZ(J)=TG(J)-FTEMP(J)/(CT*UE(J))-GRAV/CPD*ZT(J)
+      QZ(J)=QG(J)-FVAP(J)/(CT*UE(J))
+      VITS=UE(J)/CM
+
+* CALCULATE WIND DIRECTION CHANGE FROM TOP OF SURFACE LAYER
+      DANG= (ZA(J)-ZU(J))*HI*ANGMAX*SIN(LAT(J))
+      ANGI=ATAN2(V(J),SIGN(ABS(U(J))+1.e-05,U(J)))
+!
+      ANG=ANGI+DANG
+*
+      UZ(J)=VITS*COS(ANG)
+      VZ(J)=VITS*SIN(ANG)
+   10 CONTINUE
+*
+      RETURN
+      CONTAINS
+#include "stabfunc2.cdk"
+      END

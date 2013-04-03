@@ -1,0 +1,52 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!   ################################
+    MODULE MODI_PREP_HOR_SNOW_FIELD
+!   ################################
+!
+INTERFACE
+!
+SUBROUTINE PREP_HOR_SNOW_FIELD( HPROGRAM,                       &
+                                HFILE,HFILETYPE,KLUOUT,OUNIF,   &
+                                HSNSURF,KPATCH,                 &
+                                PLAT,PLON,TPSNOW,PF,            &
+                                PDEPTH,PPATCH                   )
+!
+USE MODD_TYPE_SNOW
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=28),  INTENT(IN)  :: HFILE     ! file name
+CHARACTER(LEN=6),   INTENT(IN)  :: HFILETYPE ! file type
+INTEGER,            INTENT(IN)  :: KLUOUT    ! logical unit of output listing
+LOGICAL,            INTENT(IN)  :: OUNIF     ! flag for prescribed uniform field
+CHARACTER(LEN=8)                :: HSNSURF   ! type of field
+INTEGER,            INTENT(IN)  :: KPATCH    ! patch number for output scheme
+REAL, DIMENSION(:), INTENT(IN)  :: PLAT      ! output latitudes
+REAL, DIMENSION(:), INTENT(IN)  :: PLON      ! output longitudes
+TYPE(SURF_SNOW)                 :: TPSNOW    ! snow fields
+REAL,DIMENSION(:,:),  INTENT(OUT),OPTIONAL :: PF     ! output field (x,kpatch)
+REAL,DIMENSION(:,:,:),INTENT(IN), OPTIONAL :: PDEPTH ! thickness of each snow layer
+REAL,DIMENSION(:,:),  INTENT(IN), OPTIONAL :: PPATCH ! fraction of each patch
+!
+END SUBROUTINE PREP_HOR_SNOW_FIELD
+!
+!
+END INTERFACE
+!
+!
+END MODULE MODI_PREP_HOR_SNOW_FIELD

@@ -1,0 +1,88 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_INICHAMP1_TL
+*
+      SUBROUTINE LIN_INICHAMP1_TL(E, ESIZ, F, FSIZ, 
+     $                            V, VSIZ, D, DSIZ,
+     $                            TRAV2D, SELOC, KOUNT, TRNCH,
+     $                            DT, CDT1, NI, NK)
+*
+#include "impnone.cdk"
+*
+      INTEGER I, IK, K, ESIZ, FSIZ, VSIZ, DSIZ, KOUNT, NI, NK, TRNCH
+      REAL E(ESIZ), F(FSIZ), D(DSIZ), V(VSIZ), DT, CDT1
+      REAL SELOC(NI,NK)
+      REAL TRAV2D (NI,NK)
+*
+*Author
+*          S. Laroche (Dec 2002) Initialization for TLM
+*
+*Revision
+* 001   L. Spacek (Jun 2008)     - Staggered version
+*
+*
+*Object
+*          To initialize arrays.
+*
+* Arguments
+*
+*          - Input -
+* F        field for permanent physics variables
+* FSIZ     dimension of F
+* V        volatile bus
+* VSIZ     dimension of V
+* D        dynamics bus
+* DSIZ     dimension of D
+* TRAV2D   work field
+* SELOC    intermediate (staggered) sigma levels (2D)
+* KOUNT    timestep number
+* TRNCH    row number
+* DT       length of timestep
+* CDT1     =   DT for 2-time level models
+*          = 2*DT for 3-time level models
+* NI       horizontal dimension
+* NK       vertical dimension
+*
+**
+*
+#include "indx_sfc.cdk"
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "consphy.cdk"
+      INTEGER NIK
+*
+      NIK = NI*NK
+*
+*
+************************************************************************
+*        INITIALISATIONS FAITES A KOUNT = 1 SEULEMENT                  *
+*        --------------------------------------------                  *
+************************************************************************
+*
+      IF (KOUNT.EQ.1) THEN
+*
+         DO I=0,NI-1
+            F(ASC + I) = 0.0
+            F(ALC + I) = 0.0
+            F(ASS + I) = 0.0
+            F(ALS + I) = 0.0
+         END DO 
+*
+      ENDIF
+*
+      RETURN
+      END

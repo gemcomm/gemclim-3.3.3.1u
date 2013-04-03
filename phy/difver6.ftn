@@ -1,0 +1,654 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  DIFVER6
+*
+      SUBROUTINE DIFVER6 (DB, DSIZ, F, FSIZ, V, VSIZ,
+     +                    G, ESPG, TL, SELOC, TAU, 
+     +                    KOUNT, TRNCH, N, NK, STACK)
+*
+#include "impnone.cdk"
+*
+      INTEGER DSIZ,FSIZ,VSIZ,KOUNT,TRNCH,N,NK,STACK,IERROR,ESPG
+      REAL DB(DSIZ),F(FSIZ),V(VSIZ),G(ESPG)
+      REAL TL(N,NK),SELOC(N,NK)
+      REAL TAU
+*
+*Author
+*          J. Cote (Oct 1984)
+*
+*Revision
+* 001      B. Bilodeau (Spring 1994) - New physics interface.
+*          Change name from POSTIMP (SEF model) to DIFVER.
+* 002      R. Sarrazin, J. Mailhot and B. Bilodeau (Jan 1996) -
+*          Bug fixes for time-series extraction of "KM"
+*          Change name from DIFVER to DIFVER2.
+* 003      M. Desgagne (Oct 1995) - Unified physics interface.
+*          Change name from DIFVER2 to DIFVER3.
+* 004      B. Bilodeau (Sept 96) - Install the new memory
+*          management system (STK).
+* 005      B. Bilodeau (Nov 96) - Replace common block pntclp by
+*                                 common block turbus
+* 006      C. Girard (Feb 1996) - New option ISHLCVT, diffusion
+*          of temperature and cloud water.
+* 007      G. Pellerin (mars 97) - New calling sequence and change
+*          name to difver4.
+* 008      Y. Delage and B. Bilodeau (Jul 97)
+*          Move FQ calculation from flxsurf to difver
+* 009      M. Desgagne (Spring 97) - Diffuse W
+* 010      M. Roch     (Nov 1997)  - Introduce sponge modulation factor
+* 011      S. Belair   (June 1998) - Turulent fluxes as output
+*                                    (subroutine ATMFLUX)
+* 012      J. Mailhot  (Oct 1998) - New SURFACE interface and
+*                                   change name to DIFVER5
+* 013      B. Bilodeau (Nov 1998) - Merge phyexe and param4
+* 014      B. Bilodeau (Dec 1999) - NSLOFLUX
+* 015      B. Bilodeau (Nov 2000) - New comdeck phybus.cdk
+* 016      B. Bilodeau (Aug 2001) - Add call to CTMDIAG and
+*                                   change name to difver6
+* 017      J. Mailhot  (May 2000) - Changes to add MOISTKE option (ifluvert=3)
+* 018      J. Mailhot  (Jun 2000) - Changes to add mixed-phase mode in
+*                                   MOISTKE option (ifluvert=3)
+* 019      J. Mailhot  (Oct 2000) - New calling sequence and
+*                                   change name to DIFVER6
+* 020      B. Dugas    (Nov 2001) - Save the USTRESS and VSTRESS vector
+*                                   components as well as their module FQ
+* 021      B. Bilodeau (Mar 2002) - HU tendency=0 if wet=.false.
+* 022      B. Bilodeau (Mar 2002) - Eliminate unit conversion for
+*                                   KM, KT, BM and BT
+* 023      J. Mailhot  (Avr 2002) - New calling sequence and
+*                                   change name to BAKTOTQ1
+* 024      J. Mailhot  (Feb 2003) - MOISTKE option based on implicit clouds only
+*                                   Change call to baktotq2
+*
+* 025      A-M. Leduc  (Jan 2003) - ISHLCVT becomes ISHLCVT(1)
+* 026      A. Plante   (Jun 2003) - IBM conversion
+*             - divisions replaced by reciprocals (call to vsrec from massvp4 library)
+* 027      F. Lemay (Spring 2003) - use average of BT for implicit boundary condition
+* 028      L. Spacek (Aug 2004)   - cloud clean-up fn changes to fbl
+* 029      J. Mailhot (Oct 2004) - Multiply BT by FSLOFLX for slow 
+*                                  start when impflx=.true.
+* 030      C. Pelletier (Mar 2005) - Eliminate KM(NK) = KM(NK-1)
+* 031      Y. Delage (Apr 2005)   - add return for ifluver = -1
+* 032      L. Spacek/J. Mailhot (Dec 2007)   - add "vertical staggering" option
+*
+*Object
+*          to perform the implicit vertical diffusion
+*
+*Arguments
+*          - Input/Output -
+* DB       dynamic bus
+* F        field for permanent physics variables
+* V        volatile bus
+* DSIZ     dimension of DB
+* FSIZ     dimension of F
+* VSIZ     dimension of V
+* G        physics work space
+* ESPG     dimension of G
+*
+*          - Output -
+* TU       U  tendency
+* TV       V  tendency
+* TT       T  tendency
+* TQ       Q  tendency
+* TL       L tendency
+* T        temperature
+* UU       x component of the wind
+* VV       y component of the wind
+* Q        specific humidity
+* QL       liquid water
+* PS       surface pressure
+* TM       temperature at time t-dt
+*
+*          - Input -
+* SG       sigma levels
+* SELOC    staggered sigma levels
+* SPONMOD  sponge modulation factor
+* TAU      timestep * factdt * facdifv
+*          see common block "options"
+* KOUNT    timestep number
+* TRNCH    row number
+* N        horizontal dimension
+* NK       vertical dimension
+* STACK    task number
+*
+**
+*
+      EXTERNAL DIFUVDFJ,SERXST,SERGET,MZONXST
+      EXTERNAL DIFUVDF, ATMFLUX1
+      EXTERNAL BAKTOTQ3, FICEMXP
+*
+      REAL HEURSER,DQ,gsrt,rhortvsg,mrhocmu
+      REAL tplusnk,qplusnk,uplusnk,vplusnk
+      INTEGER J,K,TYPE
+      LOGICAL shconly
+      REAL MAXIMUM, MINIMUM, RSG
+*
+#include "indx_sfc.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "stk.cdk"
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+*
+      AUTOMATIC (  KMSG , REAL , (N,NK  ) )
+      AUTOMATIC (  KTSG , REAL , (N,NK  ) )
+      AUTOMATIC (  BMSG , REAL , (N     ) )
+      AUTOMATIC (  BTSG , REAL , (N     ) )
+      AUTOMATIC (  RGAM0, REAL , (N,NK  ) )
+*
+*
+************************************************************************
+
+*     POINTEURS POUR ALLOCATION  DYNAMIQUE
+      REAL A,C,D,R,R1,R2,ZERO
+      REAL AQ, BQ, SE, SIG, LSCP
+      REAL UFLUX, VFLUX, TFLUX, QFLUX, GAM0, FSLOFLX
+      REAL QCLOCAL, FICELOCAL
+      POINTER (PAA, A(N)), (PAC,C(N,NK)),( PAD,D(N,NK)), (PAR,R(N,NK))
+      POINTER (PAR1, R1(N,NK)), (PAR2,R2(N,NK)), (PAZERO,ZERO(N,NK))
+      POINTER (IAQ, AQ(N)), (IBQ, BQ(N)), (ISE, SE (NK)), (ISIG,SIG(NK))
+      POINTER (  IUFLUX    , UFLUX    (N,NK+1)  )
+      POINTER (  IVFLUX    , VFLUX    (N,NK+1)  )
+      POINTER (  ITFLUX    , TFLUX    (N,NK+1)  )
+      POINTER (  IQFLUX    , QFLUX    (N,NK+1)  )
+      POINTER (  IGAM0     , GAM0     (N,NK+1)  )
+      POINTER (  IFSLOFLX  , FSLOFLX  (N     )  )
+      POINTER (  IQCLOCAL  , QCLOCAL  (N,NK  )  )
+      POINTER (  IFICELOCAL, FICELOCAL(N,NK  )  )
+*
+*     POINTEURS POUR CHAMPS DEJA DEFINIS DANS LES BUS
+      REAL TU, TV, TW, TT, TQ, UU, VV, W
+      REAL T, Q, QL, SG, PS, SPONMOD, TM
+      POINTER ( TU_ , TU       (N,NK))
+      POINTER ( TV_ , TV       (N,NK))
+      POINTER ( TW_ , TW       (N,NK))
+      POINTER ( TT_ , TT       (N,NK))
+      POINTER ( TQ_ , TQ       (N,NK))
+      POINTER ( UU_ , UU       (N,NK))
+      POINTER ( VV_ , VV       (N,NK))
+      POINTER ( W _ , W        (N,NK))
+      POINTER ( T _ , T        (N,NK))
+      POINTER ( Q _ , Q        (N,NK))
+      POINTER ( QL_ , QL       (N,NK))
+      POINTER ( SG_ , SG       (N,NK))
+      POINTER ( TM_ , TM       (N,NK))
+      POINTER ( PS_ , PS       (N   ))
+      POINTER ( SP_ , SPONMOD  (N   ))
+*
+*     POINTEURS POUR SIGMA EFFECTIF THERMO
+      REAL SIGEF, SIGEX
+      POINTER (  SIGEF_, SIGEF(N,NK  )  )
+      POINTER (  SIGEX_, SIGEX(N,NK  )  )
+*
+
+      DATA shconly /.TRUE./
+      SAVE shconly
+*
+      integer jk
+*     fonction-formule
+      jk(j,k) = (k-1)*n + j - 1
+*
+*---------------------------------------------------------------------
+*
+      IF(IFLUVERT.LE.0) RETURN
+*
+*     EQUIVALENCES AVEC CHAMPS DEJA INCLUS DANS LES BUS
+      TU_ = LOC(V (UDIFV  ))
+      TV_ = LOC(V (VDIFV  ))
+      TW_ = LOC(V (WDIFV  ))
+      TT_ = LOC(V (TDIFV  ))
+      TQ_ = LOC(V (QDIFV  ))
+      UU_ = LOC(DB(UPLUS  ))
+      VV_ = LOC(DB(VPLUS  ))
+      W _ = LOC(DB(OMEGAP ))
+      T _ = LOC(DB(TPLUS  ))
+      Q _ = LOC(DB(HUPLUS ))
+      QL_ = LOC(DB(QCPLUS ))
+      SP_ = LOC(DB(EPONMOD))
+      SG_ = LOC(DB(SIGM   ))
+      TM_ = LOC(DB(TMOINS ))
+      PS_ = LOC(DB(PMOINS ))
+*
+*     EQUIVALENCE POUR LES NIVEAUX "DIFFUSION TEMPERATURE"
+      IF(DB(SIGT)>0) THEN
+         SIGEF_ = LOC(DB(SIGT   ))
+         SIGEX_ = LOC(DB(SIGT   ))
+      ELSE
+         SIGEF_ = LOC(SELOC(1,1 ))
+         SIGEX_ = LOC(DB(SIGM   ))
+      ENDIF
+*
+*     INITIALISATION DU SYSTEME DE GESTION DE L'ESPACE DE TRAVAIL
+      STK_INITA(G,ESPG)
+*
+*
+*     ALLOCATION DES POINTEURS
+      STK_ALLOC(PAA       , N        )
+      STK_ALLOC(IAQ       , N        )
+      STK_ALLOC(IBQ       , N        )
+      STK_ALLOC(ISE       , NK       )
+      STK_ALLOC(ISIG      , NK       )
+      STK_ALLOC(PAC       , N*NK     )
+      STK_ALLOC(PAD       , N*NK     )
+      STK_ALLOC(PAR       , N*NK     )
+      STK_ALLOC(PAR1      , N*NK     )
+      STK_ALLOC(PAR2      , N*NK     )
+      STK_ALLOC(PAZERO    , N*NK     )
+      STK_ALLOC(IUFLUX    , N*(NK+1) )
+      STK_ALLOC(IVFLUX    , N*(NK+1) )
+      STK_ALLOC(ITFLUX    , N*(NK+1) )
+      STK_ALLOC(IQFLUX    , N*(NK+1) )
+      STK_ALLOC(IGAM0     , N*(NK+1) )
+      STK_ALLOC(IFSLOFLX  , N        )
+      STK_ALLOC(IQCLOCAL  , N*NK     )
+      STK_ALLOC(IFICELOCAL, N*NK     )
+*
+*
+*     normalization factors for vertical diffusion in sigma coordinates
+*
+      RSG = (GRAV/RGASD)
+      DO K=1,NK
+*VDIR NODEP
+         DO J=1,N
+            GAM0(J,K) = RSG*SELOC(J,K)/V(TVE+jk(J,K))
+            KMSG(J,K) = V(KM +JK(J,K))*GAM0(J,K)**2
+            KTSG(J,K) = V(KT +JK(J,K))*GAM0(J,K)**2
+         END DO
+      END DO
+      CALL VSREC(RGAM0,GAM0,N*(NK))
+      DO K=1,NK
+*VDIR NODEP
+         DO J=1,N
+            V(GTE+JK(J,K)) = V(GTE+JK(J,K))*RGAM0(J,K)
+            V(GQ +JK(J,K)) = V(GQ +JK(J,K))*RGAM0(J,K)
+            V(GQL+JK(J,K)) = V(GQL+JK(J,K))*RGAM0(J,K)
+         END DO
+      END DO
+*
+*     "SLOW START"
+*
+      DO J=1,N
+         FSLOFLX(J) = 1.
+      END DO
+*
+      IF (NSLOFLUX.GT.0) THEN
+         DO J=1,N
+*           OVER THE CONTINENT, WE PERFORM A SLOW START FOR 
+*           FLUXES "FC" AND "FV" UNTIL TIMESTEP "NSLOFLUX",
+*           BECAUSE OF IMBALANCES BETWEEN ANALYSES OF TEMPERATURE
+*           AT THE GROUND AND JUST ABOVE THE SURFACE.
+            IF (F(MG+J-1).GT.0.5) THEN
+*              MAX IS USED TO AVOID DIVISION BY ZERO
+               FSLOFLX(J) = (FLOAT(KOUNT-1))/MAX(FLOAT(NSLOFLUX),1.)
+               IF (KOUNT.EQ.0) FSLOFLX(J) = 0.0
+            ENDIF
+         END DO
+      ENDIF
+*
+*
+*VDIR NODEP
+      DO J=1,N
+         AQ(J)=-RSG/(F(TSURF+J-1)*(1. +
+     +               DELTA * F(QSURF+ (indx_agrege-1)*N + J-1)))
+         BMSG(J)      = V(BM   +J-1)*AQ(J)
+         BTSG(J)      = V(BT   + (indx_agrege-1)*N +J-1)*AQ(J)*FSLOFLX(J)
+         V(ALFAT+J-1) = V(ALFAT+J-1)*AQ(J)*FSLOFLX(J)
+         V(ALFAQ+J-1) = V(ALFAQ+J-1)*AQ(J)*FSLOFLX(J)
+      END DO
+*
+*
+      DO K=1,NK+1
+      DO J=1,N
+        GAM0(J,K) = 0.0
+      END DO
+      END DO
+*
+      DO K=1,NK
+         SE (K) = SELOC(1,K)
+         SIG(K) = SG (1,K)
+      END DO
+*
+* DIFFUSION VERTICALE IMPLICITE
+*
+      gsrt = grav/(rgasd*250.)
+      DO 1 K=1,NK
+*VDIR NODEP
+         DO 1 J=1,N
+            ZERO(J,K)=0.
+*           couche eponge
+            IF (SPONMOD(J)*EPONGE(K).GT.0.0) THEN
+             V(KM+JK(J,K)) = SPONMOD(J)*EPONGE(K)
+             KMSG(J,K) = MAX( KMSG(J,K),
+     +              V(KM+JK(J,K)) * (seloc(j,k)*gsrt)**2 )
+            ENDIF
+1     CONTINUE
+      TYPE=1
+      if(db(sigt)>0)TYPE=2
+*
+* DIFFUSE U
+*
+      CALL DIFUVDFJ(TU,UU,KMSG,ZERO,ZERO,ZERO,BMSG,SG,SEloc,TAU,
+     +              TYPE,1.,C,D,R,R1,N,N,N,NK)
+*
+      CALL ATMFLUX1(UFLUX,UU,TU,KMSG,GAM0,ZERO(1,NK),
+     1             BMSG,PS,T,Q,TAU,SG,V(AT2E),
+     1             SELOC,C,D,0,N,NK,TRNCH)
+*
+*
+* DIFFUSE V
+*
+      CALL DIFUVDFJ(TV,VV,KMSG,ZERO,ZERO,ZERO,BMSG,SG,SEloc,TAU,
+     +              TYPE,1.,C,D,R,R1,N,N,N,NK)
+*
+      CALL ATMFLUX1(VFLUX,VV,TV,KMSG,GAM0,ZERO(1,NK),
+     1             BMSG,PS,T,Q,TAU,SG,V(AT2E),
+     1             SELOC,C,D,1,N,NK,TRNCH)
+*
+*
+* DIFFUSE W (OMEGAP)
+*
+      if(db(sigt)>0)TYPE=5
+      if (diffuw) then
+      CALL DIFUVDFJ(TW,W,KMSG,ZERO,ZERO,ZERO,ZERO,SG,SIGEF,TAU,
+     +              TYPE,1.,C,D,R,R1,N,N,N,NK)
+      endif
+*
+* DIFFUSE MOISTURE
+*
+      IF(EVAP) THEN
+         DO J=1,N
+            AQ(J) = V(ALFAQ+J-1)
+            BQ(J) = BTSG(J)
+         END DO
+*
+      ELSE
+*
+*     LA CLE 'EVAP' EST VALIDE POUR PARAMETRAGES CLEF ET SIMPLIFIES
+*     METTRE TERMES DE SURFACE A ZERO
+         DO J=1,N
+           AQ(J) = 0.0
+           BQ(J) = 0.0
+         END DO
+*
+      ENDIF
+*
+      IF(IFLUVERT.EQ.3) THEN
+*                                       diffuse conservative variable qw
+*
+*       QTBL contains the implicit cloud water from previous time step.
+        DO K=1,NK
+        DO J=1,N
+           QCLOCAL(J,K) = MAX( 0.0 , F(QTBL+JK(J,K)) )
+           Q(J,K) = Q(J,K) + MAX( 0.0 , QCLOCAL(J,K) )
+        END DO
+        END DO
+*
+      ENDIF
+*
+      CALL DIFUVDFJ(TQ,Q,KTSG,V(GQ),ZERO,AQ,BQ,SG,SIGEF,TAU,
+     +              TYPE,1.,C,D,R,R1,N,N,N,NK)
+*
+      IF (.NOT.WET) THEN
+         DO J=1,N*NK
+            TQ(J,1) = 0.0
+         END DO
+      ENDIF
+*
+      CALL ATMFLUX1(QFLUX,Q,TQ,KTSG,GAM0,
+     1             AQ,BQ,PS,T,Q,TAU,SG,V(AT2E),
+     1             SIGEF,C,D,2,N,NK,TRNCH)
+*
+*
+*
+* DIFFUSE L'EAU LIQUIDE OPTIONNELLEMENT
+*
+      if( ISHLCVT(1).eq.4 ) then
+*
+         DO J=1,N
+            BQ(J) = 0.
+         END DO
+*
+         CALL DIFUVDFJ(TL,QL,KTSG,V(GQL),ZERO,ZERO,BQ,SG,SIGEF,TAU,
+     +                 TYPE,1.,C,D,R,R1,N,N,N,NK)
+*
+      endif
+*
+* DIFFUSE TEMPERATURE
+*
+      IF (CHAUF) THEN
+         DO J=1,N
+            AQ(J) = V(ALFAT+J-1)
+            BQ(J) = BTSG(J)
+         END DO
+*
+      ELSE
+*
+*     LA CLE 'CHAUF' EST VALIDE POUR PARAMETRAGES CLEF ET SIMPLIFIES
+*     METTRE TERMES DE SURFACE A ZERO
+         DO J=1,N
+           AQ(J) = 0.0
+           BQ(J) = 0.0
+         END DO
+*
+      ENDIF
+*
+*
+      IF(IFLUVERT.EQ.3) THEN
+*                                       diffuse conservative variable thetal
+*
+         CALL FICEMXP(FICELOCAL,R1,R2,TM,N,N,NK)
+         DO K=1,NK
+         DO J=1,N
+*                                       copy current T in R2 for later use in BAKTOTQ
+            R2(J,K) = T(J,K)
+            T(J,K) = T(J,K)
+     1         - ((CHLC+FICELOCAL(J,K)*CHLF)/CPD)
+     1            *MAX( 0.0 , QCLOCAL(J,K) )
+            T(J,K) = T(J,K) * SIGEX(J,K)**(-CAPPA)
+         END DO
+         END DO
+      ENDIF
+*
+      CALL DIFUVDFJ(TT,T,KTSG,V(GTE),ZERO,AQ,BQ,SG,SIGEF,TAU,
+     +              TYPE,1.,C,D,R,R1,N,N,N,NK)
+*
+*
+      IF(IFLUVERT.EQ.3) THEN
+*                                       back to non-conservative variables T and Q
+*                                       and their tendencies
+*
+         CALL BAKTOTQ3 (T, Q, QCLOCAL, R2, SG, DB(SIGW), PS, TM, FICELOCAL,
+     1                 TT, TQ, TL, V(TVE), F(QTBL),
+     1                 F(FNN), F(FBL), F(ZN), F(ZD),
+     1                 V(AT2T),V(AT2M),V(AT2E),TAU, N, N, NK)
+*
+*
+      ENDIF
+*
+*
+*                           Counter-gradient term = -g/cp
+*                           because temperature is used in
+*                           subroutine DIFUVDF (instead of
+*                           potential temperature).
+*
+      DO K=1,NK+1
+      DO J=1,N
+        GAM0(J,K) = -GRAV/CPD
+      END DO
+      END DO
+*
+
+      CALL ATMFLUX1(TFLUX,T,TT,KTSG,GAM0,
+     1             AQ,BQ,
+     1             PS,T,Q,TAU,SG,V(AT2E),SIGEF,C,D,3,N,NK,TRNCH)
+*
+*
+* DIFFUSE AVEC CONDENSATION OPTIONNELLEMENT
+*
+      IF( ISHLCVT(1).eq.4 ) THEN
+*
+*        soit avec condensation seulement
+*
+*        lscp permet de convertir les variables du type
+*        ps*dq/dt en flux d'energie (W/m2)
+         lscp = chlc/cpd
+*
+         if( shconly ) then
+*
+            DO k = 1, NK
+               DO j = 1, N
+                  DQ = min(TL(j,k),-QL(j,k)/TAU)+QL(j,k)/TAU
+                  TQ(j,k) = TQ(j,k) + DQ
+                  TL(j,k) = max( TL(j,k) , - QL(j,k)/TAU )
+                  TT(j,k) = TT(j,k) - lscp*DQ
+               END DO
+            END DO
+*
+         else
+*
+*        soit avec condensation/evaporation
+*
+            DO k = 1, NK
+               DO j = 1, N
+                  DQ = TL(j,k)
+                  TQ(j,k) = TQ(j,k) + DQ
+                  TL(j,k) = 0.0
+                  TT(j,k) = TT(j,k) - lscp*DQ
+               END DO
+            END DO
+         endif
+*
+      ENDIF
+*
+* CALCUL FINAL DU BILAN DE SURFACE
+*
+*VDIR NODEP
+      do j = 1, n
+         rhortvsg = ps(j)/grav
+         mrhocmu  = ps(j)/grav*bmsg(j)
+         tplusnk  = t (j,nk)+tau*tt(j,nk)
+         qplusnk  = q (j,nk)+tau*tq(j,nk)
+         uplusnk  = uu(j,nk)+tau*tu(j,nk)
+         vplusnk  = vv(j,nk)+tau*tv(j,nk)
+*
+*        RECALCULER LES FLUX PARTOUT
+*
+*        USTRESS et VSTRESS sont calcules apres diffusion car
+*        on utilise toujours une formulation implicite pour
+*        la condition aux limites de surface pour les vents.
+*        Par contre, la formulation est explicite pour
+*        la temperature et l'humidite.
+*        A noter que, puisque la formulation est explicite,
+*        on agrege les flux FC et FV dans le sous-programme 
+*        AGREGE; on pourrait aussi les calculer ici en tout
+*        temps, mais on ne le fait que pendant le "depart lent".
+*        Si on utilisait une formulation implicite pour 
+*        FC et FV, il faudrait que ces derniers soient 
+*        toujours calcules ici.
+*
+         IF (NSLOFLUX.GT.0.AND.KOUNT.LE.NSLOFLUX) THEN
+         v(fc+(indx_agrege-1)*N+j-1) =  CPD * rhortvsg *
+     $                                (v(alfat+j-1)+btsg(j)*tplusnk)
+         v(fv+(indx_agrege-1)*N+j-1) = CHLC * rhortvsg *
+     $                                (v(alfaq+j-1)+btsg(j)*qplusnk)
+         ENDIF
+*
+         v(ustress+j-1) = -mrhocmu*uplusnk
+         v(vstress+j-1) = -mrhocmu*vplusnk
+         f(fq+j-1)      = -mrhocmu*sqrt(uplusnk**2 + vplusnk**2)
+*
+         IF (.NOT.CHAUF)  v(FC+(indx_agrege-1)*N+j-1) = 0.0
+         IF (.NOT.EVAP )  v(FV+(indx_agrege-1)*N+j-1) = 0.0
+*
+         A(j) = f(FDSI+j-1)*f(EPSTFN+j-1)/STEFAN
+         V(FNSI+J-1) = A(j)-f(EPSTFN+j-1)*f(TSRAD+j-1)**4
+         V(FL  +J-1) = V(FNSI                +j-1)    +
+     $                 f(FDSS                +j-1)    -
+     $                 V(FV+(indx_agrege-1)*n+j-1)    -
+     $                 V(FC+(indx_agrege-1)*n+j-1)
+      enddo
+*
+*     DIAGNOSTICS
+*
+      CALL SERGET  ('HEURE', HEURSER, 1, IERROR )
+      CALL SERXST  ( TU,    'TU',  TRNCH,  N,  0.0,   1.0,  -1        )
+      CALL SERXST  ( TV ,   'TV',  TRNCH,  N,  0.0,   1.0,  -1        )
+      CALL MVZNXST(TU,TV,'TU','TV',TRNCH,  N,  1.,   -1,        stack )
+*
+      CALL SERXST  ( TT,    'TF',  TRNCH,  N,  0.0,    1.0, -1        )
+      CALL MZONXST ( TT,    'TF',  TRNCH,  N,  HEURSER,PS,  -2, stack )
+      CALL SERXST  ( TQ,    'QF',  TRNCH,  N,  0.0,    1.0, -1        )
+      CALL MZONXST ( TQ,    'QF',  TRNCH,  N,  HEURSER,PS,  -2, stack )
+      CALL SERXST  ( TL,    'LF',  TRNCH,  N,  0.0,    1.0, -1        )
+      CALL MZONXST ( TL,    'LF',  TRNCH,  N,  HEURSER,PS,  -2, stack )
+*
+      CALL SERXST  (F(FQ),  'FQ',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (F(FQ),  'FQ',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+*
+      CALL SERXST  (V(FC+(indx_soil   -1)*N),  'F4',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FC+(indx_soil   -1)*N),  'F4',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FC+(indx_glacier-1)*N),  'F5',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FC+(indx_glacier-1)*N),  'F5',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FC+(indx_water  -1)*N),  'F6',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FC+(indx_water  -1)*N),  'F6',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FC+(indx_ice    -1)*N),  'F7',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FC+(indx_ice    -1)*N),  'F7',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FC+(indx_agrege -1)*N),  'FC',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FC+(indx_agrege -1)*N),  'FC',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+*
+      CALL SERXST  (V(FV+(indx_soil   -1)*N),  'H4',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FV+(indx_soil   -1)*N),  'H4',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FV+(indx_glacier-1)*N),  'H5',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FV+(indx_glacier-1)*N),  'H5',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FV+(indx_water  -1)*N),  'H6',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FV+(indx_water  -1)*N),  'H6',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FV+(indx_ice    -1)*N),  'H7',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FV+(indx_ice    -1)*N),  'H7',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FV+(indx_agrege -1)*N),  'FV',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FV+(indx_agrege -1)*N),  'FV',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+*
+      CALL SERXST  ( A,     'FI',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST ( A,     'FI',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FNSI),'SI',  TRNCH,  N,  0.,1.,-1               )
+      CALL MZONXST (V(FNSI),'SI',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+      CALL SERXST  (V(FL)  ,'FL',  TRNCH,  N,  0.,     1.,  -1        )
+      CALL MZONXST (V(FL)  ,'FL',  TRNCH,  N,  HEURSER,1.,  -1, stack )
+*
+*
+*     DIAGNOSTICS POUR LE MODELE CTM
+CCC   IF (IFLUVERT.EQ.2.OR.IFLUVERT.EQ.3) THEN
+CCC      CALL CTMDIAG(DB,F,V,DSIZ,FSIZ,VSIZ,N,NK)
+CCC      CALL SERXST  ( v(ue), 'UE',  TRNCH,  N,  0.0,   1.0,  -1        )
+CCC   ENDIF
+*
+*
+      CALL SERXST  ( V(KM), 'KM',  TRNCH,  N,  0.0,    1.0, -1        )
+      CALL MZONXST ( V(KM), 'KM',  TRNCH,  N,  HEURSER,1.0, -1, stack )
+      CALL SERXST  ( V(KT), 'KT',  TRNCH,  N,  0.0,    1.0, -1        )
+      CALL MZONXST ( V(KT), 'KT',  TRNCH,  N,  HEURSER,1.0, -1, stack )
+*
+*
+*     RELACHEMENT DES POINTEURS
+      STK_DEALL(PAA)
+      STK_FREE
+*
+      RETURN
+      END

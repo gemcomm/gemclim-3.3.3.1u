@@ -1,0 +1,89 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/R ADILWC
+*
+      SUBROUTINE ADILWC(LWC, T, Q, OMGA, DT, PS, SE, NI, NN, NK)
+#include "impnone.cdk"
+*
+      INTEGER NI,NN,NK,j,k
+      REAL LWC(NI,NK), T(NN,NK), Q(NN,NK), OMGA(NI,NK)
+      REAL DT, PS(NI), SE(NI,NK)
+      REAL TE,QE,TVE,QSAT,BETA,GAMAS,DSGDZ
+*
+*Author
+*          C.Girard (1996)
+*Objet
+*          To calculate the adiabatic liquid water content produced
+*          during a saturated parcel ascent: dz = - omga*dt/dsgdz
+*
+*          Order of magnitude: dlwc/dz = 2.5 ppm/m
+*
+*                   LWC = GAMAS*dz/(L/cp)
+*
+*                 GAMAS = GAMAD*(1-ALFA/BETA)*BETA/(1+BETA)
+*                 GAMAD = grav/cp
+*
+*                  BETA = L/cp dqs/dT
+*                  BETA = eps*L*L/Rd/cp * qs/T/Tv
+*                  BETA =    1.35e7     * qs/T/Tv
+*                  ALFA = -L/Rd/Tv dqs/dlnp = L*qs/Rd/T
+*                  ALFA/BETA = cp/eps/L * T
+*                  ALFA/BETA =  6.46e-4 * T
+*
+*Arguments
+*
+*          - Output -
+* LWC      liquid water content (kg water per kg air)
+*          - Input -
+* SE       sigma levels
+* T        temperature
+* Q        specific humidity
+* OMGA     (1/ps) dp/dt
+* DT       timestep
+* PS       surface pressure
+* NI       number of rows
+* NN       number of rows for T and Q
+* NK       number of layers
+*
+**
+*
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+      DO k=1,NK
+         DO j=1,NI
+*
+            TE=0.5*(T(j,k)+T(j,k+1))
+            QE=0.5*(Q(j,k)+Q(j,k+1))
+            TVE=FOTVT(TE,QE)
+*
+            QSAT=FOQST(TE,SE(j,k)*PS(j))
+            BETA=1.35E7*QSAT/(TE*TVE)
+            GAMAS=(GRAV/CPD)*(1.-6.46E-4*TE)*BETA/(1.+BETA)
+*
+            DSGDZ=GRAV*SE(j,k)/(RGASD*TVE)
+*
+            LWC(j,k)=-GAMAS*OMGA(j,k)*DT/(DSGDZ*2.5E3)
+            LWC(j,k)=max(LWC(j,k),0.)
+*
+         ENDDO
+      ENDDO
+
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

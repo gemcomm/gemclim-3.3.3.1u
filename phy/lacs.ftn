@@ -1,0 +1,129 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#include "phy_macros_f.h"
+*** S/P LACS3
+      SUBROUTINE LACS3 (F, FSIZ, CLIMAT,LACINT, NI)
+#include "impnone.cdk"
+*
+      logical climat,lacint
+      integer fsiz, ni
+      real f(fsiz)
+*
+*Author
+*          Bernard Bilodeau (June 2001)
+*
+*Revisions
+* 001     B. Dugas (Jul 03)   - Introduce CRITLAC
+* 002     A. Plante and B. Bilodeau (Jun 04) - Fix Georgia Strait bug
+* 003     A. Plante (Mar 05) - correct bug on ice depth f(icedp)
+* 004     A. Plante (Apr 06) - Add iceline
+* 005     R. McTaggard-Cowan (Aug 2007)
+*                            - Correct the previous BugFix: relates to the
+*                              availablility of VEGF with lakes in climate mode
+* 006     Dugas/Winger (Feb 2008)
+*                            - leadfrac is no longer used in climate mode
+*                            - Do not apply the leadfrac correction to the
+*                              sea ice points in climate mode, as it causes
+*                              excessive warming of the polar boundary layer
+*                            - rename to lacs2 (remove entry bus arguments)
+* 007     B. Dugas (nov 11)  - account for interactive lakes
+*
+*Object
+*          define sea ice fraction and thickness over lakes
+*
+*Arguments
+*          - Input/Output -
+* F        permanent bus of the physics variables
+*
+*          - Input -
+* FSIZ     dimension of F
+* CLIMAT   climate mode logical key
+* LACINT   active interactive lake logical key
+* NI       horizontal length
+*
+*Implicites
+*
+#include "surfacepar.cdk"
+#include "phybus.cdk"
+#include "consphy.cdk"
+#include "leads.cdk"
+*
+***
+*
+       integer i
+       real twater_ini
+*         
+*
+*VDIR NODEP
+      DO i=0,ni-1
+*
+*        keep a copy of the original water temperature
+         twater_ini = f(twater+i)
+*
+*        Array ML is the fraction of lakes.
+*
+         IF (f(ml+i).lt.critlac) then         ! Not over lakes
+*
+*           Leadfrac is the climatological value of % of leads in
+*           MARINE ice. The ice-covered lakes remain untouched.
+*           GLSEA0 contains the original value of the sea-ice
+*           analysis (updated if needed with daily increments
+*           if switch "CLIMAT" is true in subroutine CLIMPHS).
+*
+CCC  Most current analysis already incorporate this feature.
+CCC  This approach MAY have been appropriate for older datasets,
+CCC  but it clearly deteriorates results today (BD, Feb '08).
+*
+            if (.not.climat)
+     +      f(glsea +i) = f(glsea +i) * (1. - leadfrac)
+*
+*           Set minimal ice depth if zero ice thickness in 
+*           analysis (or climatology) while ice fraction is non zero
+            if (f(glsea+i).ge.0..and.f(icedp+i).le.0.) then
+               f(icedp+i) = max(minicedp, 0.25 * f(glsea+i))
+            endif
+*
+         ELSE IF (.not.lacint) then ! Over (non-interactive) lakes
+*
+*           Water temperature of ice-covered lakes is 0 C. only
+*           if point is "north" of ice line.
+            if (f(glsea+i) .gt. 10.*critmask .and.
+     $          f(iceline+i).ge.0.5) f(twater+i) = TRPL
+*
+*           Over lakes, ice thickness is set to a minimum of 30 cm
+*           if GL > 50%. GL is then changed to 100% since the lakes
+*           are usually fully frozen. Otherwise, linear interpolation
+*           of ice thickness (varying between 0 and 30 cm) is performed
+*           when GL ranges from 0 to 50%.
+*
+            IF (f(glsea+i).gt.0.50) then
+               f(icedp   +i              ) = max(0.30,f(icedp+i))
+               f(glsea   +i              ) = 1.00
+            ELSE
+               f(icedp   +i              ) = 0.60 * f(glsea+i)
+            END IF 
+*
+         END IF
+*
+*        RESTORE ORIGINAL WATER TEMPERATURE OVER SALT WATER POINTS IF GL < 5%
+*        THIS FIXES A BUG OVER GEORGIA STRAIT IN REG15 MODEL.
+         IF (F(VEGF+I).GT.CRITMASK.AND.f(glsea+i).LT.0.05) 
+     $        f(twater+i) = twater_ini
+*
+      END DO
+*
+      RETURN
+      END

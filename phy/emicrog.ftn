@@ -1,0 +1,1039 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/p emicrog_new -- explicit microphysics for cold cloud (warm + cold,
+*                 graupel category included)
+*
+#include "phy_macros_f.h"
+      subroutine emicrog ( W,T,Q,QC,QR,QI,QG,PS,TM,QM,QCM,QRM,QIM,QGM,
+     $			PSM,SATUCO2,S,SR,IR,ZSTE,ZSQE,ZSQCE,ZSQRE,
+     +			ZSQIE,ZSQGE, DT,NI,N,NK,J,KOUNT)
+ 
+#include "impnone.cdk"
+*
+      logical SATUCO2
+      integer NI,NK,N,J,KOUNT
+      real W(NI,NK+1),T(NI,NK),Q(NI,NK),QC(NI,NK),QR(NI,NK),QI(NI,NK)
+      real TM(NI,NK+1),QM(NI,NK),QCM(NI,NK),QRM(NI,NK),QIM(NI,NK)
+      real ZSTE(NI,NK),ZSQE(NI,NK),ZSQCE(NI,NK),ZSQRE(NI,NK)
+      real ZSQIE(NI,NK),ZSQGE(NI,NK),QG(NI,NK),QGM(NI,NK)
+      real PS(NI),PSM(NI),SR(NI),IR(NI)
+      real S(NI,NK)
+      real DT
+*
+*Author
+*          Kong,Yau (McGill University)         Feb 1995
+*
+*Revision
+* 001  F.-Y. Kong 			May 1996
+*	- splitting time step numbers (nsplit/nspliti) for
+*	  sedimentation are automatically determined in "physlb5.ftn"
+*	  and transferred via "sedipara.cdk"
+* 002  M.K.Yau				Aug 1998
+*	- combined Kong & Yau (1997, AO, Gamma distribution for ice/snow)
+*          microphysics with graupel
+*       - collectc constant numbers in a list of named parameter 
+* 003 				        jan 1999
+*       - lamda and de2 initialisation problem solved
+*       - vectorization
+*       - improve the precision in the tendencies computation
+*
+* 004   P. Vaillancourt                 Apr 2002
+*       - correct dt2 bug
+* 005   B. Bilodeau and P. Vaillancourt Jun 2002
+*       - vr initialization problem solved
+* 006   B. Bilodeau                     Jan 2007
+*       - check dzsedi
+*
+*Language       Fortran 77
+*
+*Object
+*
+*Arguments
+*
+*		-input -
+* W        vertical velocity
+* T        virtual temperature
+* Q        specific humidity
+* QC       cloud mixing ratio
+* QR       rain  mixing ratio
+* QI       ice & snow mixing ratio
+* QG       graupel or snowflake mixing ratio
+* PS       surface pressure
+* TM       virtual temperature at (t-dt)
+* QM       specific humidity   at (t-dt)
+* QCM      cloud mixing ratio  at (t-dt)
+* QRM      rain  mixing ratio  at (t-dt)
+* QIM      ice & snow mixing ratio  at (t-dt)
+* QG       graupel or snowflake mixing ratio at (t-dt)
+* PSM      surface pressure    at (t-dt)
+* SATUCO2  .TRUE. to have water/ice phase for saturation
+*          .FALSE. to have water phase only for saturation
+* S        sigma values
+*
+*          - Output -
+* SR       liquid precipitation rate (rain)
+* IR       solid  precipitation rate (snow)
+* ZSTE     tendency on virtual temperature
+* ZSQE     tendency on specific humidity
+* ZSQCE    tendency on cloud      mixing ratio
+* ZSQRE    tendency on rain       mixing ratio
+* ZSQIE    tendency on ice & snow mixing ratio
+* ZSQGE    tendency on graupel or snowflake mixing ratio
+*
+*          - Input -
+* DT       timestep
+* NI       1st horizontal dimension
+* N        NI or NIxNJ (first dimension of T, Q etc)
+* NK       vertical dimension
+* J        index of the row
+* KOUNT    number of timestep
+*
+*  NOTE
+*    1) The determination of 'nspliti' also depends on the vertical
+*       levelling (Gal-Chen). If higher vertical resolution would be
+*       used, the small time step should also decrease, and in turn
+*       'nspliti' increase [see the documentation] -- This is already
+*       done automatically in "physlb5.ftn" since May 1996
+*    2) Both precipitation rates from QI & QG are stored in IR
+*    3) W and TM are "oversized" (dimensions (NI,NK+1) )
+*
+**
+      logical log1,log2,log3,log4
+      integer i,k,niter,ll,ll0
+      real min_delz
+      real*8 ac, EPSQC,EPSQR,EPS, vdmax
+      real*8 K1,K2,K3,CK1,CK2,CK3,CK41,CK42,CK5,CK6,CK7,CK8,CK9
+c      real*8 x,D,DEL,ER,ES,LCP,LFP,LSP,DT2,CQR,CSR,CQI,CIR
+c      real CLOUDNC,CDC,rqr,rqr2,rqr4,esi,si,ani,ami,di,dc
+c      real*8 Kst,Re,Ev,Ep,fre,ckice,x1,x2,ev1,re60,Eic,rim
+c      real source,sink,sour,ratio,tdep,tsub
+c      real anuvi,ahnuci,anurg,ahnurg,avdvi,avdgv,amvdgv,acnig,aclci
+c      real aclcg,aclig,aclrg,afrrg,amlir,amlgr,amurgi,amufgi
+c      real ag,clcg,clig,clrg,cligw,clwet,acl,aclcr,cwet,cklf
+c      real CM,CR,CK,CKC,CKW,CKM,ck00,CK0,vr,qvs0,rqg,rqg1,rqg2,rqg4
+c      real*8 DEI,ANI0,CK01,CK02,vi0,de1,lamda,lamdai,si0
+c      real GK1,GK2,GK3,armda,fr,r2,de2,vg0
+      real*8 TM40, TM25, TM10, TM5, TM2
+      real*8 DIRIM, QCRIM, QCMUR,EPSILON
+      real*8 CKK1,CKK2,CKC1,CKC2,CKW1,CKW2, CKM1,CKM2
+      real*8 GK1A, GK1B, GK2A, GK2B,GK3A, GK3B
+      real*8 P1, P2, P3, P4, P5, P6, P7, P8, P9
+      real*8 AMLGR0, AMUFGI0, AMURGI0, ANURG0, ARMDA0
+      real*8 AR0, BETA, CI, CKLF0, CKLF1,CLAMDA
+      real*8 CLIG0, CLRG0, DIMUFGI, EGIW
+      real*8 CNT1, CNT2, CNUVI0, CNUVI1, CRIM0, CVENTI, CVI0, DI0
+      real*8 FK, FD, FKI0, FDI0, FKI1, FDI1, FKG0, FDG0, FKG1
+      real*8 FDG1, T1, T2
+      real*8 VR0, XLVD, XKAPPA
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+     AUTOMATIC (  LIST , INTEGER, (ni*nk))
+     AUTOMATIC (  LIST2, INTEGER, (ni*nk))
+*
+     AUTOMATIC (  DE   , REAL   , (ni,nk))
+     AUTOMATIC (  VT   , REAL   , (ni,nk))
+     AUTOMATIC (  VI   , REAL   , (ni,nk))
+     AUTOMATIC (  VG   , REAL   , (ni,nk))
+     AUTOMATIC (  DP   , REAL   , (ni,nk))
+     AUTOMATIC (  QS   , REAL   , (ni,nk))
+     AUTOMATIC (  QSW  , REAL   , (ni,nk))
+     AUTOMATIC (  QSI  , REAL   , (ni,nk))
+     AUTOMATIC (  B1   , REAL   , (ni,nk))
+     AUTOMATIC (  DELZ , REAL   , (ni   ))
+*
+************************************************************************
+
+*
+c-------------
+      real*8  rtmp,ovdt
+
+      integer nbpts,ik,ji,jtop,step,ipts,is,i2
+      parameter (step=256)
+
+      real*8 CLOUDNC,CDC,ani,ami,di,dc,anidble
+      real*8 Kst,Re,Ev,Ep,fre,x1,x2,ev1,re60,Eic,rim
+      real*8 source,sink,sour,ratio
+      real*8 acl,cklf,tdep,tsub
+      real*8 CM,CR,CK,CKC,CKW,ck00,CK0,rqg,rqg1,rqg4
+      real*8 GK1,GK2,GK3,armda,fr,r2,vg0
+      real*8 DEI,ANI0,CK01,CK02,si0
+      real*8 x,D,DEL,ER,LCP,LFP,LSP,DT2,CQR,CSR,CQI,CIR
+      real*8 ES2
+
+      real*8 rqr(step),rqr2(step),rqr4(step),rqg2(step),CKM(step),
+     $     ag(step),clcg(step),clig(step),clrg(step),vr(step),
+     $     cligw(step),cwet(step),clwet(step),de2(step),qvs0(step),
+     $     de1(step),lamda(step),ES(step)
+     $     ,vi0(step),lamdai(step),ckice(step),esi(step),si(step)
+      real*8 amlir(step),amlgr(step),amvdgv(step),anuvi(step),
+     $     ahnuci(step),avdvi(step),aclci(step),acnig(step),anurg(step),
+     $     ahnurg(step),afrrg(step),avdgv(step),aclcr(step),aclrg(step),
+     $     aclcg(step),aclig(step),amurgi(step),amufgi(step)
+
+*
+      parameter(EPSQC=1e-12)
+      parameter(EPSQR=1e-6 )
+      parameter(EPS  =1e-32)
+      parameter(K1 = 0.001 )
+      parameter(K2 = 0.0005)
+      parameter(K3 = 2.54  )
+      parameter(CLOUDNC=3e8)
+      parameter(DEI=900.0, ANI0=1e3)
+*
+#include "options.cdk"
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "sedipara.cdk"
+#include "fintern.cdk"
+*
+*     check if dzsedi is too large
+      if (kount.eq.0) then
+         do i=1,ni   
+*           delz is approximately the thickness of the next-to-last model layer
+            delz(i) = rgasd*(t(i,nk)+t(i,nk-1))*(s(i,nk)-s(i,nk-1))/(grav*(s(i,nk)+s(i,nk-1)))
+         end do
+         min_delz = minval(delz)
+         if (min_delz.lt.dzsedi) then
+            print *,'******************************************'
+            print *,' '
+            print *,'abort in s/r emicrog : dzsedi is too large'
+            print *,' '
+            print *,'******************************************'
+            call qqexit(1) 
+         endif
+      endif
+*
+      LCP=CHLC/CPD
+      LFP=CHLF/CPD
+      LSP=LCP+LFP
+      CDC=(6.0/(1000.*PI*CLOUDNC))**(1./3.)
+      DT2=DT
+      CK0=1./3.
+      CK01=0.25*CK0
+      CK02=1.0+CK01
+      CK1=DT2*K1
+      CK2=K2
+      CK3=DT2*K3
+      CK41=14.08
+      CK42=26.62
+      CNUVI0= 5806.485
+      CNUVI1= 4098.171
+      CK5=CNUVI1*LCP
+      CK6=CNUVI0*LSP
+      CK7=1.0/(DT2*GRAV)
+      CK8=1./(PI*DEI*ANI0)**CK0
+      CK9=3.1752e-11*DT2/GRAV
+      CR=1.64e-3
+      CLIG0 =0.1
+      CLRG0= 2.82
+      CM=1e-9
+      DI0= 6.0** CK0
+      EGIW=10.0
+      TM40=233.16
+      TM25=248.16
+      TM10=263.16
+      TM5=268.16
+      TM2=271.16
+      DIRIM=2.0e-4
+      QCRIM=1.0e-5
+      QCMUR=5.0e-4
+      CKK1= 1.76
+      CKC1=39.97
+      CKW1=28.9
+      CKM1= 8.66e-5
+      CKK2= 1.31
+      CKC2= 38.14
+      CKW2= 23.6
+      CKM2= 7.08e-5
+      GK1A= 0.0135
+      GK2A= 3.39
+      GK3A= 2.53
+      GK1B= 0.0122
+      GK2B= 3.06
+      GK3B= 2.07
+      EPSILON=62.2
+      P1=0.125
+      P2=0.1875
+      P3=0.25
+      P4=0.875
+      P5=1.125
+      P6=2.25
+      P7=0.375
+      P8=0.625
+      P9=0.5
+      AMLGR0= 0.0126
+      AMUFGI0=.15
+      AMURGI0=3.5e-3
+      ANURG0=8.42e-8
+      ARMDA0= 421.01
+      AR0= 11.69
+      BETA=0.6
+      CI= 2.106e3
+      CKLF0= 3.34e5
+      CKLF1= 4.218e3
+      CLAMDA= 2.375e-3
+      CNT1= 12.96
+      CNT2= 0.639
+      CRIM0= 10.6508
+      CVENTI= 217.7331
+      CVI0= 7.3455
+      DIMUFGI= 2.5e-4
+      FK= 2.02e4
+      FD=1.55e5
+      FKI0= 1.7276e6
+      FDI0= 0.9161e7
+      FKI1= 9.0929
+      FDI1= 48.2164
+      FKG0= 4.13e5
+      FDG0=2.19e6
+      FKG1= 2.88e5
+      FDG1= 2.13e6
+      T1= 35.86
+      T2= 7.66
+      VR0= 14.12
+      XLVD= 56.25
+      XKAPPA= 0.024
+*
+*
+***   copie des champs T, Q, QC, QR, QI et QG
+      do k=1,nk
+         do i=1,ni
+            ZSTE(i,k)   = T(i,k)
+            ZSQE(i,k)   = Q(i,k)
+            ZSQCE(i,k)  = QC(i,k)
+            ZSQRE(i,k)  = QR(i,k)
+            ZSQIE(i,k)  = QI(i,k)
+            ZSQGE(i,k)  = QG(i,k)
+         end do
+      end do
+*
+c   prepare PS, T, and Q field
+      do 12 i=1,ni
+         PSM(i)= 0.5*(PSM(i)+PS(i))
+   12 continue
+      do 40 k=1,nk
+*
+c   To calculate (t) level fields
+          do 22 i=1,ni
+            TM(i,k)= 0.5*(TM(i,k)+T(i,k))
+            QM(i,k)= 0.5*(QM(i,k)+Q(i,k))
+            QCM(i,k)=0.5*(QCM(i,k)+QC(i,k))
+            QRM(i,k)=0.5*(QRM(i,k)+QR(i,k))
+            QIM(i,k)=0.5*(QIM(i,k)+QI(i,k))
+            QGM(i,k)=0.5*(QGM(i,k)+QG(i,k))
+   22 continue
+*
+          do 24 i=1,ni
+            DE(i,k)=S(i,k)*PSM(i)/(RGASD*TM(i,k))
+   24 continue
+          do 26 i=1,ni
+            VT(i,k)=CK41/max(0.,DE(i,k))**P7
+            VG(i,k)=CK42/max(0.,DE(i,k))**P7
+            VI(i,k)=0.0
+*
+c   Here, VI must be zeroed, since it will not be fully assigned later.
+*
+   26    continue
+*
+*
+   40 continue
+*
+      do 50 k=1,nk
+         do 50 i=1,ni
+            if(QR(i,k).lt.EPSQC) then
+               Q(i,k)= Q(i,k)+QR(i,k)
+               QR(i,k)= 0.0
+            endif
+            if(QI(i,k).lt.EPSQC) then
+               Q(i,k)= Q(i,k)+QI(i,k)
+               QI(i,k)= 0.0
+            endif
+            if(QG(i,k).lt.EPSQC) then
+               Q(i,k)= Q(i,k)+QG(i,k)
+               QG(i,k)= 0.0
+            endif
+            if(QRM(i,k).lt.EPSQC) then
+               QM(i,k)= QM(i,k)+QRM(i,k)
+               QRM(i,k)= 0.0
+            endif
+            if(QIM(i,k).lt.EPSQC) then
+               QM(i,k)= QM(i,k)+QIM(i,k)
+               QIM(i,k)= 0.0
+            endif
+            if(QGM(i,k).lt.EPSQC) then
+               QM(i,k)= QM(i,k)+QGM(i,k)
+               QGM(i,k)= 0.0
+            endif
+   50 continue
+*
+c   calculate DP for sedimentation term
+*
+      do 60 k=2,nk-1
+         do 60 i=1,ni
+            DP(i,k)=PSM(i)*(S(i,k+1)-S(i,k-1))*0.5
+   60 continue
+      do 70 i=1,ni
+         DP(i,1)=PSM(i)*(S(i,2)-S(i,1))
+         DP(i,nk)=PSM(i)*(S(i,nk)-S(i,nk-1))
+   70 continue
+*
+c   saturate mixing ratio: 	QSW   vs. liquid water
+c                               QS    vs. ice surface  at (*)
+c                               QSI   vs. ice surface
+      do 80 k=1,nk
+         do 80 i=1,ni
+            QSW(i,k)= FOQSA(TM(i,k),PSM(i)*S(i,k))
+            QS(i,k) = FOQST(T(i,k), PS(i)*S(i,k))
+            QSI(i,k)= FOQST(TM(i,k),PSM(i)*S(i,k))
+   80 continue
+
+c================================================================
+c --PART I: Cold Microphysics Processes
+c================================================================
+c----------------------------------------------------------------
+c     get the list of points on which calculations have to be done
+c----------------------------------------------------------------
+      nbpts=0
+      do k=2,nk
+         do i=1,ni
+            ik=i+(k-1)*ni
+            log1= .not.((TM(ik,1).lt.TRPL.and.
+     $           (QSW(ik,1).gt.QM(ik,1)
+     $           .and.(QCM(ik,1)+QIM(ik,1)).lt.EPSQC
+     +           .and. (QRM(ik,1)+QGM(ik,1)).lt.EPSQR))
+     $           .or.
+     $           (TM(ik,1).ge.TRPL.and.
+     $           (QIM(ik,1).lt.EPSQC.and.QGM(ik,1).lt.EPSQR)))
+
+            if(log1) then
+               nbpts=nbpts+1
+               list(nbpts)=ik
+               list2(nbpts)=i
+            endif           
+         enddo
+      enddo
+
+c----------------------------------------------------------------
+c   calculating source and sink terms
+c----------------------------------------------------------------
+      do 999 is=1,nbpts,step
+         jtop=min(nbpts-(is-1),step)
+
+*VDIR NODEP
+         do 181 ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+
+            de1(ji)=sqrt(max(0.,DE(ik,1)))
+            qvs0(ji)=FOQSA(TRPL,psm(i2)*S(ik,1))
+            es(ji)=QSW(ik,1)*psm(i2)*S(ik,1)/EPSILON
+            de2(ji)=1.0/sqrt(max(0.,DE(ik,1)))
+
+               if(TM(ik,1).le.TM40) then
+                  QCM(ik,1)= 0.0
+                  QRM(ik,1)= 0.0
+               endif
+               if(QRM(ik,1).ge.EPSQR) then
+                  rqr(ji)=DE(ik,1)*QRM(ik,1)
+                  rqr2(ji)= sqrt(max(0.d0,rqr(ji)))
+                  rqr4(ji)= sqrt(max(0.d0,rqr2(ji)))
+                  lamda(ji)= CLAMDA*rqr4(ji)
+*                 Initialization of VR
+                  vr(ji)=VR0*de2(ji)*sqrt(max(0.d0,rqr4(ji)))
+               endif
+               if(QGM(ik,1).ge.EPSQR) then
+                  vg0=VG(ik,1)*max(0.,QGM(ik,1))**P1
+                  rqg=DE(ik,1)*QGM(ik,1)
+                  rqg1=max(0.d0,rqg)**P4
+                  rqg2(ji)=sqrt(max(0.d0,rqg))
+                  rqg4=sqrt(max(0.d0,rqg2(ji)))
+                  if(rqg.lt.CR) then
+                     CK=CKK1
+                     CKC=CKC1
+                     CKW=CKW1
+                     CKM(ji)=CKM1
+                     GK1=GK1A
+                     GK2=GK2A
+                     GK3=GK3A
+                  else
+                     CK=CKK2
+                     CKC=CKC2
+                     CKW=CKW2
+                     CKM(ji)=CKM2
+                     GK1=GK1B
+                     GK2=GK2B
+                     GK3=GK3B
+                  end if
+                  ag(ji)=1.0+CKC*max(0.,QGM(ik,1))**P2
+                  ck00=CK*de2(ji)*rqg1
+                  clcg(ji)=ck00*QCM(ik,1)
+                  clig(ji)=CLIG0*ck00*QIM(ik,1)
+                  if(QRM(ik,1).lt.EPSQR) then
+                     clrg(ji)=0.0
+                  else
+                     clrg(ji)=GK1*abs(vr(ji)-vg0)*QRM(ik,1)*rqg4
+     $                    *(CLRG0*rqr2(ji)+GK2
+     +                    *rqr4(ji)* rqg4+GK3*rqg2(ji))
+                  end if
+c   calculating clwet(ji)
+                  cligw(ji)=EGIW*clig(ji)
+                  cwet(ji)=ag(ji)*rqg2(ji)*(XLVD*(qvs0(ji)
+     $                 -QM(ik,1))+XKAPPA*
+     +                 (TRPL-TM(ik,1))/DE(ik,1))
+                  cklf=CKLF0+CKLF1*(TM(ik,1)-TRPL)
+                  clwet(ji)=CKW*cwet(ji)/cklf
+     $                 +cligw(ji)*(1.-CI*(TM(ik,1)-TRPL)/cklf)
+                  clwet(ji)=max(0.d0,clwet(ji))
+               else
+                  clcg(ji)=0.0
+                  clig(ji)=0.0
+                  clrg(ji)=0.0
+                  cligw(ji)=0.0
+                  clwet(ji)=0.0
+               endif
+ 181     continue
+*
+*VDIR NODEP
+         do 186 ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+
+            amvdgv(ji)=0.0
+            amurgi(ji)=0.0
+            anurg(ji)=0.0
+            afrrg(ji)=0.0
+            amufgi(ji)=0.0
+            avdgv(ji)=0.0
+            aclcr(ji)=0.0
+            amlir(ji)=0.0
+            amlgr(ji)=0.0
+            ahnuci(ji)= 0.0
+            ahnurg(ji)= 0.0
+            anuvi(ji)=0.0
+            aclci(ji)=0.0
+            acnig(ji)=0.0
+            avdvi(ji)=0.0
+            aclrg(ji)=0.0
+            aclcg(ji)=0.0
+            aclig(ji)=0.0
+c  T>T0
+            if(TM(ik,1).ge.TRPL) then
+                  QIM(ik,1)= 0.0
+                  amlir(ji)=QI(ik,1)
+                  if (.not.(QGM(ik,1).lt.EPSQR)) then
+                     amlgr(ji)=DT2*(-CKM(ji)*cwet(ji)
+     $                    +AMLGR0*(TM(ik,1)-TRPL)
+     +                    *(clcg(ji)+clrg(ji)))
+                     amlgr(ji)=max(0.d0,amlgr(ji))
+                     amlgr(ji)=min(amlgr(ji),dble(QG(ik,1)))
+                     if (.not.(qvs0(ji).le.QM(ik,1))) then
+                        amvdgv(ji)=DT2*(1.-QM(ik,1)/qvs0(ji))
+     $                       *ag(ji)*rqg2(ji)/(FKG1+
+     +                       FDG1/es(ji))/DE(ik,1)
+                        amvdgv(ji)=min(amvdgv(ji),amlgr(ji))
+                     endif
+                  endif
+                  aclcr(ji)=DT2*clcg(ji)
+               endif
+ 186     continue
+*VDIR NODEP
+         do 188 ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+
+c   T < To
+            if (.not.(TM(ik,1).ge.TRPL)) then
+                  esi(ji)= QSI(ik,1)*PSM(i2)*S(ik,1)/EPSILON
+                  si(ji)= min( QM(ik,1)/QSI(ik,1), 5. )
+                  si0=QSW(ik,1)/QSI(ik,1)
+                  anidble=(CNT1*(si(ji)-1.0)-CNT2)
+                  ani=max(ANI0*dexp(anidble),ANI0)
+                  if(TM(ik,1).le.TM40) then
+                     ahnuci(ji)= QC(ik,1)
+                     ahnurg(ji)= QR(ik,1)
+                  endif
+                  if (.not.(QM(ik,1).lt.QSW(ik,1)
+     $                 .or.TM(ik,1).gt.TM5)) then
+                     anuvi(ji)= CK9* ( W(ik-ni,1)+  W(ik+ni,1))*
+     $                               (TM(ik-ni,1)- TM(ik+ni,1))*
+     $                     ani*si0*( CNUVI0/max(0.d0,(dble(TM(ik,1))-T2))**2-
+     $                               CNUVI1/max(0.d0,(dble(TM(ik,1)-T1)))**2
+     $                             )  / ( DP(ik,1)*DE(ik,1) )
+                     anuvi(ji)=max(0.d0,anuvi(ji))
+                  endif
+                  if(QIM(ik,1).lt.EPSQC) then
+                     VI(ik,1)=0.0
+                     ani=0.0
+                     di=0.0
+                     vi0(ji)=0.0
+                  else
+                     lamdai(ji)=max(0.d0,(DE(ik,1)/(PI*DEI*ani)))**CK0
+                     VI(ik,1)= CVI0*max(0.d0,lamdai(ji))**P3/de1(ji)
+                     vi0(ji)=VI(ik,1)*max(0.,QIM(ik,1))**CK01
+                     lamdai(ji)=lamdai(ji)*max(0.,QIM(ik,1))**CK0
+                     di= DI0*lamdai(ji)
+                     fre=1.0+CVENTI*max(0.d0,lamdai(ji))**P8
+     $                    /sqrt(max(0.d0,de1(ji)))
+                     ckice(ji)= ani*DT2/DE(ik,1)
+                     if ((.not.(si(ji).le.1.0)).and.
+     $                   (.not.(QCM(ik,1).lt.QCRIM.or.di.lt.DIRIM))) 
+     $                    then
+                           rim=CRIM0*de1(ji)*QCM(ik,1)
+     $                       *max(0.d0,lamdai(ji))**P6
+                           acnig(ji)=ckice(ji)*ddim(rim,CM)
+                           aclci(ji)=ckice(ji)*rim
+                     endif
+                     avdvi(ji)=ckice(ji)*(si(ji)-1.)*fre*lamdai(ji)
+     $                    /(FKI0+FDI0
+     +                    /esi(ji))-aclci(ji)/ (FKI1+FDI1/esi(ji))
+                     if(si(ji).gt.1.) avdvi(ji)=max(0.d0,avdvi(ji))
+                     vdmax=(Q(ik,1)-QS(ik,1))/(1.0+CK6*QS(ik,1)
+     $                    /max(0.d0,(dble(T(ik,1))-T2))**2)
+                     if(si(ji).ge.1.0) then
+                        avdvi(ji)=min(avdvi(ji),vdmax)
+                     else
+                        avdvi(ji)=max(avdvi(ji),vdmax)
+                     endif
+                  endif
+               endif
+ 188     continue
+*VDIR NODEP
+         do 183 ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+
+            if (.not.(TM(ik,1).ge.TRPL)) then
+               if(QRM(ik,1).ge.EPSQR) then
+                  anurg(ji)=ANURG0*DT2*(exp(BETA*(TRPL
+     +                 -TM(ik,1)))-1.0)*QRM(ik,1)*rqr2(ji)*rqr4(ji)
+                  if(QIM(ik,1).ge.EPSQC) 
+     $                 afrrg(ji)= PI*ckice(ji)*rqr(ji)
+     $                 *abs(vr(ji)-vi0(ji))
+     +                 *(5.*lamda(ji)*lamda(ji)+ 2.*lamda(ji)*lamdai(ji)
+     $                 +0.5*lamdai(ji)*lamdai(ji))
+                  
+                  afrrg(ji)=min(afrrg(ji),dble(QR(ik,1)))
+               endif
+               if((TM(ik,1).le.TM5.and.TM(ik,1).ge.TM25).and.
+     $              (QRM(ik,1).ge.EPSQR)) then
+                  armda=ARMDA0/rqr4(ji)
+                  fr=afrrg(ji)+anurg(ji)
+                  r2=min(1.d0,fr/dble(QRM(ik,1)))
+                  amufgi(ji)=AMUFGI0*r2*exp(-DIMUFGI*armda)/armda/
+     +                 DE(ik,1)
+               endif
+               if (.not.(si(ji).ge.1.0.or.QGM(ik,1).lt.EPSQR)) then
+                  avdgv(ji)=DT2*(1.-si(ji))*ag(ji)*rqg2(ji)
+     $                 /(FKG0+FDG0/esi(ji))/DE(ik,1)
+               endif
+               aclcg(ji)=DT2*clcg(ji)
+            endif
+ 183     continue
+*VDIR NODEP
+         do ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+ 
+            if ((.not.(TM(ik,1).ge.TRPL)).and. 
+     $           (clwet(ji).gt.(clcg(ji)+clig(ji)+clrg(ji)))) then
+c  dry-growth
+                     aclig(ji)=DT2*clig(ji)
+                     aclrg(ji)=DT2*clrg(ji)
+                     if (.not.(TM(ik,1).gt.TM2.or.TM(ik,1).lt.TM10)) 
+     $                    then
+                        acl=aclrg(ji)
+                        if(QCM(ik,1).ge.QCMUR) acl=acl+aclcg(ji)
+                        amurgi(ji)=AMURGI0*acl
+                     endif
+               endif
+         enddo
+*VDIR NODEP
+         do ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+
+            if ((.not.(TM(ik,1).ge.TRPL)).and.
+     $          (.not.(clwet(ji).gt.(clcg(ji)+clig(ji)+clrg(ji))))) 
+     $           then
+c     wet-growth
+               aclig(ji)=DT2*cligw(ji)
+               aclrg(ji)=DT2*(clwet(ji)-cligw(ji)-clcg(ji))
+               avdgv(ji)=0.0
+               if (.not.(QGM(ik,1).lt.EPSQR)) then
+                  amvdgv(ji)=DT2*(1.-QM(ik,1)/qvs0(ji))*ag(ji)
+     $                 *rqg2(ji)/(FKG1+FDG1
+     +                 /es(ji))/DE(ik,1)
+                  if(amvdgv(ji).gt.0.0)
+     $                 amvdgv(ji)=min(amvdgv(ji),
+     $                 DT2*clrg(ji)-aclrg(ji))
+               end if
+            end if
+         enddo
+*
+c----------------------------------------------------------------
+c    iterating the sink terms for each mixing ratio quantity
+c----------------------------------------------------------------
+
+               do 180 niter=1,2
+*
+*VDIR NODEP
+            do 185 ji=1,jtop
+               ipts=is+ji-1
+               i2=list2(ipts)
+               ik=list(ipts)
+c  (1) for Qi
+                  source=QI(ik,1)+anuvi(ji)+ahnuci(ji)
+     $              +ddim(avdvi(ji),0.0d0)+aclci(ji)
+     +              +amurgi(ji)+amufgi(ji)
+                  sink=amlir(ji)+acnig(ji)+aclig(ji)
+     $                 +ddim(-avdvi(ji),0.0d0)
+                  sour=max(source,0.d0)
+                  if(sink.gt.sour) then
+                     ratio=sour/sink
+                     amlir(ji)=ratio*amlir(ji)
+                     acnig(ji)=ratio*acnig(ji)
+                     aclig(ji)=ratio*aclig(ji)
+                     if(avdvi(ji).lt.0.0) avdvi(ji)=ratio*avdvi(ji)
+ 
+                  endif
+*
+c   (2) for Qg
+                  source=QG(ik,1)+anurg(ji)+ahnurg(ji)+acnig(ji)
+     $                 +afrrg(ji)+aclcg(ji)
+     $                 +ddim(aclrg(ji),0.0d0)+ aclig(ji)
+                  sink=avdgv(ji)+amlgr(ji)+ddim(-aclrg(ji),0.0d0)
+     $                 +amurgi(ji)+amufgi(ji)
+                  sour=max(source,0.d0)
+                  if(sink.gt.sour) then
+                     ratio=sour/sink
+                     avdgv(ji)=ratio*avdgv(ji)
+                     amlgr(ji)=ratio*amlgr(ji)
+                     amurgi(ji)=ratio*amurgi(ji)
+                     amufgi(ji)=ratio*amufgi(ji)
+                     if(aclrg(ji).lt.0.0) aclrg(ji)=ratio*aclrg(ji)
+ 
+                  endif
+c  (3) for Qr
+                  source=QR(ik,1)+amlgr(ji)+ddim(-aclrg(ji),0.0d0)
+     $                 +aclcr(ji)+ddim(-amvdgv(ji),0.0d0) + amlir(ji)
+                  sink=anurg(ji)+ahnurg(ji)+afrrg(ji)
+     $                 +ddim(aclrg(ji),0.0d0)
+     $                 +ddim(amvdgv(ji),0.0d0)
+                  sour=max(source,0.d0)
+                  if(sink.gt.sour) then
+                     ratio=sour/sink
+                     anurg(ji)=ratio*anurg(ji)
+                     ahnurg(ji)=ratio*ahnurg(ji)
+                     afrrg(ji)=ratio*afrrg(ji)
+                     if(amvdgv(ji).gt.0.0) amvdgv(ji)=ratio*amvdgv(ji)
+ 
+  160                if(aclrg(ji).gt.0.0) aclrg(ji)=ratio*aclrg(ji)
+ 
+                  endif
+*
+c  (4) for Qc
+                  source=QC(ik,1)
+                  sink=ahnuci(ji)+aclci(ji)+aclcg(ji)+aclcr(ji)
+                  sour=max(source,0.d0)
+                  if(sink.gt.sour) then
+                     ratio=sour/sink
+                     ahnuci(ji)=ratio*ahnuci(ji)
+                     aclci(ji)=ratio*aclci(ji)
+                     aclcg(ji)=ratio*aclcg(ji)
+                     aclcr(ji)=ratio*aclcr(ji)
+                  endif
+*
+c  (5) for Qv
+                  source=Q(ik,1)+avdgv(ji)+ddim(amvdgv(ji),0.0d0)
+     $                 +ddim(-avdvi(ji),0.0d0)
+                  sink=anuvi(ji)+ddim(avdvi(ji),0.0d0)
+     $                 +ddim(-amvdgv(ji),0.0d0)
+                  sour=max(source,0.d0)
+                  if(sink.gt.sour) then
+                     ratio=sour/sink
+                     anuvi(ji)=ratio*anuvi(ji)
+                     if(amvdgv(ji).lt.0.0) amvdgv(ji)=ratio*amvdgv(ji)
+ 
+  170                if(avdvi(ji).gt.0.0) avdvi(ji)=ratio*avdvi(ji)
+ 
+                  endif
+*
+ 185        continue
+  180          continue
+*
+*VDIR NODEP
+         do 187 ji=1,jtop
+            ipts=is+ji-1
+            i2=list2(ipts)
+            ik=list(ipts)
+c   c   adjusting all related quantities
+
+
+ 
+               Q(ik,1)= Q(ik,1)+avdgv(ji)+amvdgv(ji)-anuvi(ji)-avdvi(ji)
+               QC(ik,1)= QC(ik,1)-ahnuci(ji)-aclci(ji)
+     $              -aclcg(ji)-aclcr(ji)
+               QR(ik,1)= QR(ik,1)+amlgr(ji)+aclcr(ji)-anurg(ji)
+     $              -ahnurg(ji)-afrrg(ji)-aclrg(ji)
+     +              -amvdgv(ji) +amlir(ji)
+               QI(ik,1)= QI(ik,1)+anuvi(ji)+ahnuci(ji)+avdvi(ji)
+     $              +aclci(ji)+amurgi(ji)+amufgi(ji)
+     +              -amlir(ji) -acnig(ji)-aclig(ji)
+               QG(ik,1)=QG(ik,1)+anurg(ji)+ahnurg(ji)+acnig(ji)
+     $              +afrrg(ji)+aclcg(ji)+aclrg(ji)
+     +              +aclig(ji) -avdgv(ji)-amlgr(ji)
+     $              -amurgi(ji)-amufgi(ji)
+*
+               T(ik,1)= T(ik,1)+LFP*(ahnuci(ji)+anurg(ji)+ahnurg(ji)
+     $              +aclci(ji)+afrrg(ji)+aclrg(ji)
+     +              +aclcg(ji) -amlir(ji)-amlgr(ji))+LSP*(anuvi(ji)
+     $              +avdvi(ji)-avdgv(ji))-LCP*amvdgv(ji)
+*
+c   total deposition and sublimation
+c      tdep=tdep+DE(ik,1)*(anuvi(ji)+dim(avdvi(ji),0.0))
+c      tsub=tsub+DE(ik,1)*dim(-avdvi(ji),0.0)
+*
+c   positive adjustment for all new hydrometeor fields
+               if(QC(ik,1).lt.EPSQC) then
+                  Q(ik,1)= Q(ik,1)+QC(ik,1)
+                  QC(ik,1)= 0.0
+               endif
+               if(QR(ik,1).lt.EPSQC) then
+                  Q(ik,1)= Q(ik,1)+QR(ik,1)
+                  QR(ik,1)= 0.0
+               endif
+               if(QI(ik,1).lt.EPSQC) then
+                  Q(ik,1)= Q(ik,1)+QI(ik,1)
+                  QI(ik,1)= 0.0
+               endif
+               if(QG(ik,1).lt.EPSQC) then
+                  Q(ik,1)= Q(ik,1)+QG(ik,1)
+                  QG(ik,1)= 0.0
+               endif
+               Q(ik,1)=max(Q(ik,1),0.0)
+ 187        continue
+
+ 999  continue
+*
+c   end of ice phase microphysics
+*
+c================================================================
+c --PART II: Warm Microphysics Processes
+c================================================================
+*
+c   re-calculate QS with new T  (vs. liquid water here!)
+      do 200 k=1,nk
+         do 200 i=1,ni
+            QS(i,k) = FOQSA(T(i,k), PS(i)*S(i,k))
+  200 continue
+*
+c   autoconversion & coalescence
+*
+      do 210 k=2,nk
+         do 210 i=1,ni
+            if (.not.(QCM(i,k).le.EPSQC.and.QRM(i,k).lt.EPSQR)) then
+               if(QRM(i,k).lt.EPSQR) then
+                  ac= CK1*ddim(dble(QCM(i,k)), CK2)
+
+               else
+                  ac= CK1*ddim(dble(QCM(i,k)), CK2)+CK3*QCM(i,k)
+     $                 *(max(0.,(DE(i,k)*QRM(i,k))) **P4)
+     $                 /sqrt(max(0.,DE(i,k)))
+
+               endif
+             
+               if(ac.gt.QC(i,k)) then
+                  QR(i,k)= QR(i,k)+QC(i,k)
+                  QC(i,k)= 0.0
+               else
+                  QC(i,k)= QC(i,k)- ac
+                  QR(i,k)= QR(i,k)+ ac
+               endif
+            endif
+  210 continue
+*
+c   microphysical adjustment for condensation/evaporation
+*
+      do 260 k=1,nk
+         do 260 i=1,ni
+            x= Q(i,k)- QS(i,k)
+            if (.not.(x.le.0.0.and.
+     $           QC(i,k).le.0.0.and.QR(i,k).le.0.0)) then
+               x= x/(1.0+ CK5*QS(i,k)/max(0.d0,(dble(T(i,k))-T1))**2)
+               D=0.0
+               if ((x.lt.(-QC(i,k))).and.
+     $              ((QR(i,k).gt.EPSQC).and.(QM(i,k).lt.QSW(i,k)))) then
+*
+c   ES2 = P*QS/(0.622*100)  with unit of hPa (mb)
+*
+                        ES2=QSW(i,k)*PSM(i)*S(i,k)/EPSILON
+                        ER= DT2*(1.0-QM(i,k)/QSW(i,k))*(1.0+AR0
+     $                       *max(0.,(DE(i,k)*QRM(i,k)))**P2)
+     $                       *max(0.,(DE(i,k)*QRM(i,k)))**P9
+     $                       /(FK+FD/ES2)/DE(i,k)
+                        DEL= -1.*min(ER,dble(QR(i,k)))
+  240                   D= max(x+QC(i,k), DEL)
+               endif
+               if(x.lt.(-QC(i,k))) then
+  250             x= D - QC(i,k)
+                  QR(i,k)= QR(i,k)+ D
+                  QC(i,k)= 0.0
+                  T(i,k)= T(i,k) + LCP*x
+                  Q(i,k)= Q(i,k) - x
+               else  
+                  T(i,k)= T(i,k)+ LCP*x
+                  Q(i,k)= Q(i,k)- x
+                  QC(i,k)= QC(i,k)+ x
+               endif
+            endif
+
+  260 continue
+*
+
+c      finish the warm microphysics processes
+*
+c   sedimentation term for RL, RI, & RG
+      do  270 i=1,ni
+         IR(i)=0.0
+         SR(i)=0.0
+  270    continue
+         do 340 ll=1,nspliti
+*
+c   solid (snow) precipitation terms
+            do 280 k=1,nk
+            do 280 i=1,ni
+               B1(i,k)=ci6*DE(i,k)*VI(i,k)*max(0.d0,dble(QI(i,k)))**CK02
+  280       continue
+            do 290 k=2,nk
+            do 290 i=1,ni
+               QI(i,k)=ddim(dble(QI(i,k)+(B1(i,k-1)-B1(i,k))/DP(i,k))
+     $              , EPS)
+  290       continue
+            do 292 i=1,ni
+            IR(i)=B1(i,nk)+IR(i)
+  292       continue
+*
+c   melting sub-adjusting caused by sedimentation
+            do 300 k=2,nk
+            do 300 i=1,ni
+               if(T(i,k).gt.TRPL) then
+                  T(i,k)=T(i,k)-LFP*QI(i,k)
+                  QR(i,k)=QR(i,k)+QI(i,k)
+                  QI(i,k)=0.0
+               endif
+  300       continue
+*
+c   rain-drop sedimentation
+            do 330 ll0=1,nsplit
+               do 310 k=1,nk
+               do 310 i=1,ni
+                       B1(i,k)=0.
+                 if ( QR(i,k) .gt. epsqc )
+     $                 B1(i,k)=cr6*DE(i,k)*VT(i,k)*dble(QR(i,k))**P5
+  310          continue
+               do 320 k=2,nk
+               do 320 i=1,ni
+                  QR(i,k)=ddim(dble(QR(i,k)+(B1(i,k-1)-B1(i,k))/DP(i,k))
+     $                 , EPS)
+  320          continue
+               do 322 i=1,ni
+               SR(i)=B1(i,nk)+SR(i)
+  322          continue
+  330       continue
+*
+  340    continue
+*
+c   graupel/hail sedimentation
+         do 380 ll=1,nsplitg
+            do 360 k=1,nk
+            do 360 i=1,ni
+                    B1(i,k)=0.
+              if ( QG(i,k) .ge. epsqc )
+     $              B1(i,k)=cg6*DE(i,k)*VG(i,k)*dble(QG(i,k))**P5
+  360       continue
+            do 370 k=2,nk
+            do 370 i=1,ni
+               QG(i,k)=ddim(dble(QG(i,k)+(B1(i,k-1)-B1(i,k))/DP(i,k))
+     $              , EPS)
+  370       continue
+            do 372 i=1,ni
+            IR(i)=B1(i,nk)+IR(i)
+  372       continue
+  380    continue
+*
+         do 390 i=1,ni
+         IR(i)=CK7*IR(i)
+         SR(i)=CK7*SR(i)
+  390 continue
+*
+c   finish the microphysics adjustment
+*
+*
+*
+      do 410 k=1,nk
+         do 410 i=1,ni
+            Q(i,k)= max(Q(i,k), 0.0)
+  410 continue
+*
+c================================================================
+c     compute the tendencies of  T, Q, QC, QR, QI et QG
+c     and reset the fields to their initial (saved) values
+c================================================================
+      ovdt = DT       !!!these 2 steps are needed to have a real8 precision
+      ovdt = 1./ovdt  !!! while computing ovdt since DT is a real4
+      do k=1,nk
+         do i=1,ni
+            rtmp       = ZSTE(i,k)
+            ZSTE(i,k)  = (T(i,k) - ZSTE (i,k))  *ovdt
+            T(i,k)     = rtmp
+
+            rtmp       = ZSQE(i,k)
+            ZSQE(i,k)  = (Q(i,k) - ZSQE (i,k))  *ovdt
+            Q(i,k)     = rtmp
+
+            rtmp       = ZSQCE(i,k)
+            ZSQCE(i,k) = (QC(i,k)-ZSQCE (i,k))  *ovdt
+            QC(i,k)    = rtmp
+
+            rtmp       = ZSQRE(i,k)
+            ZSQRE(i,k) = (QR(i,k)-ZSQRE (i,k))  *ovdt
+            QR(i,k)    = rtmp
+
+            rtmp       = ZSQIE(i,k)
+            ZSQIE(i,k) = (QI(i,k)-ZSQIE (i,k))  *ovdt
+            QI(i,k)    = rtmp
+
+            
+
+            rtmp       = ZSQGE(i,k)
+            ZSQGE(i,k) = (QG(i,k)-ZSQGE (i,k))  *ovdt
+            QG(i,k)    = rtmp
+         end do
+      end do
+c
+      return
+      CONTAINS
+#include "fintern90.cdk"
+      end

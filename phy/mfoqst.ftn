@@ -1,0 +1,121 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/R MFOQST  -  CALCULE HUMIDITE SPECIFIQUE SATURANTE.
+*
+#include "phy_macros_f.h"
+      SUBROUTINE MFOQST(QS,TT,PX,LNPS,MODP,NI,NK,N)
+*
+#include "impnone.cdk"
+*
+      INTEGER NI, NK, N, MODP
+      REAL QS(NI,NK), TT(NI,NK)
+      REAL PX(*), LNPS(NI,*)
+      REAL TEMP1
+*
+*Author
+*          N. Brunet  (Jan91)
+*
+*Revision
+* 001      B. Bilodeau  (August 1991)- Adaptation to UNIX
+* 002      B. Bilodeau (January 2001) - Automatic arrays
+* 003      L. Spacek   (May 2003)     - IBM conversion
+*                - calls to vexp routine (from massvp4 library)
+*
+*Object
+*          to calculate saturation specific humidity (water and ice
+*          phase considered according to temperature)
+*
+*Arguments
+*
+*          - Output -
+* QS       saturation specific humidity in kg/kg
+*
+*          - Input -
+* TT       temperature in Kelvins
+* PX       see MODP
+* LNPS     see MODP
+* MODP     pressure mode (SI units only):
+*          =0; pressure level in PX
+*          =1; sigma level in PX and PS(surface pressure) in LNPS
+*          =2; sigma level in PX and logarithm of sigma level in
+*          LNPS
+*          =3; all points of pressure in LNPS(NI,*) in Pascals
+*          =4; sigma level in PX and logarithm of sigma level in
+*          LNPS(in millibars unless using SI units)
+*          =5; logarithm of pressure level in PX(in millibars unless
+*          using SI units)
+* NI       horizontal dimension
+* NK       vertical dimension
+* N        number of points to process
+*
+*
+*IMPLICITES
+#include "consphy.cdk"
+*MODULES
+      EXTERNAL INCTPHY
+*
+**
+*--------------------------------------------------------------------
+      INTEGER K, I
+      REAL*8 DEPS1,DEPS2,DTRPL,DTEMP
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( PN , REAL   , (N     ) )
+      AUTOMATIC ( XT , REAL*8 , (NI, NK) )
+*
+************************************************************************
+*
+c      FOEW1(TTT) = DMIN1(DSIGN(17.269D0,
+c     W DBLE(TTT)-DBLE(TRPL)),DSIGN
+c     W (21.875D0,DBLE(TTT)-DBLE(TRPL)))*DABS(DBLE(TTT)-DBLE(TRPL))/
+c     W (DBLE(TTT)-35.86D0+DMAX1(0.D0,DSIGN
+c     W (28.2D0,DBLE(TRPL)-DBLE(TTT))))
+*--------------------------------------------------------------------
+#include "initcph.cdk"
+*
+*
+      DTRPL=DBLE(TRPL)
+      DEPS1=DBLE(EPS1)
+      DEPS2=DBLE(EPS2)
+
+      DO K=1,NK
+         DO I=1,NI
+         DTEMP=DBLE(TT(I,K))
+         XT(I,K)=(DMIN1(DSIGN(17.269D0,DTEMP-DTRPL),
+     W        DSIGN(21.875D0,DTEMP-DTRPL)))*DABS(DTEMP-DTRPL)/
+     W        (DTEMP-35.86D0+DMAX1(0.D0,DSIGN(28.2D0,DTRPL-DTEMP)))
+         ENDDO
+      ENDDO
+*
+      CALL VEXP(XT,XT,NI*NK)
+*
+      DO 10 K=1,NK
+*
+#include "modpr2.cdk"
+*
+      DO 15 I=1,N
+         DTEMP = DBLE(PN(I))
+         QS(I,K) = DEPS1/(DMAX1(1.0D0,DTEMP/
+     *                    (610.78D0*XT(I,K)))-DEPS2)
+15    CONTINUE
+10    CONTINUE
+*
+*
+      RETURN
+      END

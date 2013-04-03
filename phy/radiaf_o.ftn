@@ -1,0 +1,120 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***s/r radiaf_o  -- Initialisation of climatological ozone data
+*                   and radiation table
+*
+      subroutine radiaf_o (fichier, chemin, cible, n, flag)
+#include "impnone.cdk"
+*
+      character* (*) fichier, chemin
+      logical flag
+      integer n
+      real cible (n)
+*
+*Author
+*          M. Desgagne (Oct 1998)
+*
+*Revision
+*001       B. Bilodeau (Sept 1999) - Eliminate unit 26. 
+*          Use FNOM instead of OPEN. Change name from 
+*          radfile to radiaf_o.
+*
+*Object
+*          Default file manager for the physics radiation package.
+*
+*Arguments
+*          - Input -
+* fichier  name of the file to manage
+*          - Input/Output -
+* chemin   possible path to find fichier
+*          - Output -
+* cible    reception adresss for the data to be read
+*          - Input -
+* n        dimension of cible
+* flag     logical flag to indicate ozone (.t.) or radiation table (.f.)
+*
+***
+*
+      character*26 datatype(2)
+      logical ielocal,iela,isfst
+      integer iun,ilir,inbr,indice,long,status,ityp
+      integer fnom,fstouv,fstopc,fstfrm,fclos,fstnbr
+      data datatype /'CLIMATOLOGICAL OZONE FILE ',
+     $               'RADIATION TABLE FILE '/
+*-----------------------------------------------------------------
+*
+      iun    = 0
+      inbr   = fstopc ('MSGLVL','SYSTEM',.false.)
+      status = -1
+      ityp = 1
+      if (.not.flag) ityp=2
+*
+*
+      inquire (FILE=fichier,EXIST=ielocal)
+      if (ielocal) then
+         chemin = fichier
+         iela   = .true.
+         indice = 0
+         long   = len (fichier)
+      else
+         indice = index(chemin,' ')
+         long   = len(fichier)
+         chemin(indice:indice+long-1) = fichier
+         inquire (FILE=chemin,EXIST=iela)
+      endif
+*
+      if (iela) then
+         ilir   = fnom (iun,chemin,'STD+RND+OLD',0)
+         ilir   = FSTNBR(iun)
+         if (ilir.ge.0) then
+            ilir  = fstouv (iun,'RND')
+            isfst = .true.
+         else
+            inbr = fclos (iun)
+            iun = 0
+            ilir = fnom (iun,chemin,'SEQ+FTN+UNF',0)
+            isfst = .false.
+         endif
+*
+         print*
+         if (isfst) then
+            print *, datatype(ityp),'(FST): ',chemin(1:indice+long)
+            inbr   = fstopc ('MSGLVL','INFORM',.false.)
+         else
+            print *, datatype(ityp),'(SEQ): ',chemin(1:indice+long)
+         endif
+*
+         call rdradf (cible,iun,isfst,n,flag,status)
+*
+         if (isfst) then            
+            inbr = fstfrm (iun)
+         endif
+*
+         inbr = fclos  (iun)    
+*
+      else
+*
+         print*
+         print *,'********************************************'
+         print *,'   CAN NOT FIND ',datatype(ityp)
+         print *,'********************************************'
+*
+      endif
+*  
+*-----------------------------------------------------------------
+*
+      return
+      end

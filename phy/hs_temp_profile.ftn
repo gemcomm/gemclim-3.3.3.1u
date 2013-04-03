@@ -1,0 +1,142 @@
+c Version 1.0
+c     this is the implicit crank-nicholson version -- sept 5 1996
+c     implimented for speed and to minimize possible CFL problems
+      subroutine hs_temp_profile( iwater, qbot, qw, 
+     +                         t, sw, lnet, Qe, Qh, dnsty, de,
+     +                         eta, depth, salty)
+      implicit none
+#include "lakes.cdk"
+#include "lakepar.cdk"
+	real qbot,qw,sw,lnet,Qe,Qh,area_2,t1,cnextra,swtop,eta,
+     +     dist12,area_1,top,bot
+      integer az,k,iwater
+
+
+      parameter (az = 1000 ) ! length of arrays first dimensioned here
+c     real area(depth)
+      real t(depth,2), de(depth), dnsty(depth)
+      real cpz(az), z(az), zhalf(az) ! spec heat, yz, and yz.5
+      real a(az), b(az), c(az), d(az)  ! arrays for tridia matrix
+      real told(az), tnew(az)
+      real work1(az), work2(az)  ! set up space arrays for tridia mat
+      real salty(INL,n_trace)
+
+c z is an array of delz with depth
+c zhalf is array of delz between i and i+1
+c so, zhalf(3) = dist from mid of 3 to mid of 4
+c zhalf = .5*(yz(i)+yz(i+1))
+c here all 1 except for zhalf(1) = .8
+
+  
+      dist12=surf*0.5+yz*0.5 ! dist for grad t calc between
+
+      do k= 1,depth ! init density, spec_ht, zhalf through col
+        t(k,2)=t(k,1)
+        told(k)=t(k,1)
+        call hs_density(t(k,1),salty(k,n_trace),dnsty(k))
+        call hs_specheat(t(k,1),salty(k,n_trace),cpz(k))
+        z(k)=yz
+        zhalf(k)=yz
+      enddo
+
+        z(1)=surf                ! make top slice z = surf
+        zhalf(1)=0.5*(z(1)+z(2)) ! calc zhalf between 1 and 2
+
+c-----------------------------------------------------------------------
+c   2. calculate d array, which includes heating terms
+c      so seperate for ice and water fraction of cell
+c     cnextra is extra term in d array for crank-nicholson
+c------------------------------------------------------------------------
+
+c   2.1   First do top slice of column
+           k = 1 
+           area_1 =(area(k) + area(k)) / 2. ! because 
+c 0.6m above base of yz is almost = to where basin area is assigned 
+           area_2 =(area(k) + area(k+1)) / 2.
+          if (iwater.eq.1) then  ! open water calculation
+           t1 = sw*betavi +
+     +          (1.-betavi)*sw*(1.-exp(-eta*surf))*area_2/area(k) +
+     +          (Lnet+Qe+Qh) * area_1/area(k)
+          else                   ! calculation beneath ice
+           t1 = qbot*betavi +       
+     +          (1.-betavi)*qbot*(1.-exp(-eta*surf))*area_2/area(k) -
+     +          qw * area_1/area(k) 
+          endif
+
+        cnextra = 0.5 * area_2/area(k) * ! for k = 1, top slice in column
+     + ((de(1)/zhalf(1)) * (dt/z(1)) * (t(2,1) - t(1,1)))
+
+        d(1) = t(1,1)+t1*dt/((1.e3+dnsty(1))*cpz(1)*z(1))+cnextra
+
+c	if(iwater.ne.1) d(1)=0.0
+
+c   2.2   Remainder of water column, excluding top and bottom slice 
+       swtop = qbot   ! use ice value
+       if (iwater.eq.1) swtop = sw ! set to water value if wat frac.
+       do  k=2,depth-1           ! loop through water column 
+         top = (surf+(k-2)*yz)
+         bot = (surf+(k-1)*yz)
+         area_1 =(area(k-1) + area(k)) / 2. 
+         area_2 =(area(k) + area(k+1)) / 2. 
+         t1 = (1.-betavi)*swtop*
+     +        ((area_1*exp(-eta*top)-area_2*exp(-eta*bot))/area(k))
+
+c      terms below reversed for C-N
+
+         cnextra = 0.5 *1./area(k)*
+     +       (((de(k)/zhalf(k))*(dt/z(k))*(t(k+1,1)-t(k,1))) *area_2 - 
+     +       ((de(k-1)/zhalf(k-1))*(dt/z(k))*(t(k,1)-t(k-1,1)))*area_1)
+         d(k) = t(k,1)+t1*dt/((1.e3+dnsty(k))*cpz(k)*z(k))+cnextra
+
+       enddo                   ! do next slice in column 
+
+c    2.3  Bottom slice of the water column 
+c         No mud heating 
+      k=depth
+      area_1 =(area(k-1) + area(k)) / 2.
+      swtop = qbot   ! use ice value
+      if (iwater.eq.1) swtop = sw ! set to water value if wat frac.
+      top = (surf+(k-2)*yz)
+
+      t1 = (1.-betavi)*swtop*(exp(-eta*top))*area_1/area(k)
+c      t1=0.0
+      cnextra = 0.5 * area_1/area(k) *  ! for k = depth
+     + ((de(k-1)/zhalf(k-1)) * (dt/z(k)) * (t(k,1) - t(k-1,1)))
+      d(k) = t(k,1)+t1*dt/((1.e3+dnsty(k))*cpz(k)*z(k))+cnextra
+
+c-----------------------------------------------------------------------
+c   3. calculate arrays for tridiagonal matrix, top and bot slice seperate
+c------------------------------------------------------------------------
+
+      k = 1  ! do top slice
+      area_2 =(area(k) + area(k+1)) / 2.
+      b(1) = -0.5 * (de(1)/zhalf(1)) *
+     +        (dt/z(1)) * area_2/area(k)
+      a(1) = 1. - b(1)  ! no factor of 0.5 here, already done
+
+      do  k = 2,depth-1 ! do all but top and bottom slices
+        area_1 =(area(k-1) + area(k)) / 2.
+        area_2 =(area(k) + area(k+1)) / 2.
+        b(k) = -0.5 * (de(k)/zhalf(k)) *
+     +        (dt/z(k))*area_2/area(k)
+        c(k) = -0.5 * (de(k-1)/zhalf(k-1)) *
+     +        (dt/z(k))*area_1/area(k)
+        a(k) = 1. - b(k) - c(k) ! no 0.5 here, already done
+      enddo
+      k=depth  ! do bottom slice
+      area_1 =(area(k-1) + area(k)) / 2.
+      c(depth) = -0.5 * (de(depth)/zhalf(depth) ) *
+     +        (dt/z(depth)) * area_1/area(k)
+      a(depth) = 1. - c(depth)
+
+c-------------------------------------------------------------
+c    4. call matrix solution, and reset temp and density arrays
+c-------------------------------------------------------------
+       call hs_tridiag_solve(1,1,depth,c,a,b,d,tnew,work1,work2)
+       do k = 1, depth  ! change temps and densities
+          t(k,2) = tnew(k)
+          t(k,1) = t(k,2)
+          call hs_density (t(k,2),salty(k,n_trace),dnsty(k))
+       enddo
+      return
+      end

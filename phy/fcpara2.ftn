@@ -1,0 +1,1296 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P FCPARA2
+#include "phy_macros_f.h"
+      SUBROUTINE FCPARA2 (IX,KX,PTOP,FACTDT,DELT,
+     $                    NCA,PSB,TP1,QP1,CLOUDS,UB,VB,
+     $                    SCR3,AREAUP,DTDT,DQDT,RAINCV,A,
+     $                    SIGMA,DXDY,FCPMASK,ICONVEC,
+     $                    ZCRR)
+
+#include "impnone.cdk"
+*
+C
+
+C
+      INTEGER IX,KX
+      INTEGER NCA(IX), ICONVEC 
+      REAL PTOP,PSB(IX),TP1(IX,KX)
+      REAL QP1(IX,KX)
+      REAL CLOUDS(IX,KX)
+      REAL UB(IX,KX),VB(IX,KX)
+      REAL AREAUP(IX,KX)
+      REAL DTDT(IX,KX),DQDT(IX,KX),RAINCV(IX)
+      REAL DXDY(IX)
+      REAL ZCRR(IX)
+C
+C
+      REAL A(IX,KX),SIGMA(IX,KX+1),FACTDT,DELT,SCR3(IX,KX)
+      REAL FCPMASK(IX)
+C
+C
+*
+*Author
+*          Fritsch, Chappell and Zhang (Sept 25, 1986)
+*
+*Revision
+* 001      Stephane Belair (1990)
+*          Incorporation into the RFE model, coupling to
+*          the subroutine INTERFC
+* 002      Stephane Belair (July 1994)
+*          Incorporation into the official physics library
+* 003      B. Bilodeau (Nov 95) - Optimization
+* 004      Bernard Bilodeau (Dec 1995) - Cloud fraction diagnostic
+*                                        and fcpmask
+* 005      S. Belair (Jan 1998) - Correct NCA bug 
+* 006      S. Belair (Feb 1998) - Adjust the trigger parameter WKLCL
+* 007      A. Methot (May 1999) - Correct bug when NCA < 0
+* 008      B. Bilodeau (Jan 2001) - Automatic arrays
+* 009      M. Lepine (March 2003) -  CVMG... Replacements
+*
+*Object
+*          to compute convective effects using modified
+*          Fritsch/Chappell cumulus scheme. (MKS units)
+*
+*Arguments
+*
+*          - Input -
+* IX       X dimension of the model grid (NI)
+* JX       Y dimension of the model grid (NJ)
+* KX       Z dimension of the model grid (NK)
+* J        row number
+* PTOP     the pressure at the top of the atmosphere
+* FACTDT   factor (1 or 2) for time integration scheme
+*          (see s/r param)
+* DELT     length of timestep in seconds
+*
+*          - Input/Output -
+* NCA      counter for whether convection is activated
+*
+*          - Input -
+* PSB      the pressure at the bottom of the atmosphere
+* TP1      temperature at time (T+1)
+* QP1      specific humidity at time (T+1)
+* CLOUDS   cloud fraction
+* UB       wind in the X direction at time (T+1)
+* VB       wind in the Y direction at time (T+1)
+* SCR3     vertical velocity at time (T+1)
+*
+*          - Input/Output -
+* AREAUP   area of updraft
+* DTDT     convective effects of heating
+* DQDT     convective effects of moistening
+* RAINCV   rainfall amount
+*
+*          - Input -
+* A        where all the variables are defined except
+*          for SIGMA (corresponding to the levels of the
+*          RFE model.
+* SIGMA    where SIGMA is defined
+* DXDY     area of each tile of the grid
+* FCPMASK  switch to indicate which convection scheme is used for a
+*          given point for CONVEC="FCP" or CONVEC="FCPKUO" options
+*          =  2   FCP yes
+*                 KUO no
+*          =  1   FCP possible
+*                 KUO no
+*          =  0   FCP no
+*                 KUO yes
+*          = -1   FCP possible
+*                 KUO yes
+*          = -2   FCP yes
+*                 KUO yes
+* ICONVEC  switch that controls the convection options
+*          = 5 for FCP
+*          =11 for FCPKUO
+*
+*          - Output -
+* ZCRR     convective rainfall rate
+*
+*
+*
+*Notes
+*          References
+*          Fritsch and Chappell (1980), J. Atmos. Sci., 1722-1733.
+*          Zhang and Fritsch (1986), J. Atmos. Sci., 1913-1943.
+*
+**
+C
+      INTEGER NCAPRE
+      REAL DTFRZ,TP
+C
+      INTEGER I,KL,NK,KFIN,L5,L4,LLFC,ILXM
+      INTEGER LC,LOW,LB,LC1,KLCL,K,LCL,LET,KLM,LTOP,NK1,LTOP1
+      INTEGER LTOPM1,LVF,NIC,NLFS,NLL,IFLG,IFLAG,LFS,LFSML
+      INTEGER ML,LDB,ND,ND1,NUMAX,KLEVAP,NCOUNT,N1,NN
+      INTEGER NSTEP,N,NTC,NJ,NKP,KPBL
+C
+C
+      REAL P300,B61,R,CELL,ROVG,POO,ROVCP,WT,TMIX,QMIX
+      REAL PMIX,ZMIX,RLL,C1,C2,C3,C4,TDPT,RV,TLCL,ZLCL,GDRY
+      REAL DZLDZA,TENV,WKLCL,AUMAX
+      REAL WKL,WABS,WSIGNE,DTLCL,THATA,TVEN,GDT,WLCL,WTW,BU
+      REAL CP,SDQU,ABE,FREZ,WGLCL,TICE,D273,ES,QS
+      REAL BE,WBE,G,BVRT,CLDHT,ACP,CLIQ,P165,TRCP,DWU,ZTOP
+      REAL DDT,ZETL,AUO,WO,WGHT
+      REAL USR,VCONV,TIMEC,DT2,DTIME,SHSIGN,VWS,PEF,CBH,RCBH
+      REAL PEFCBH,PEFF,CPR,RCE,RCED,DTMELT,TDER,BEG
+      REAL THBAR,RHIC,RHCLD,QSD,QPRME,DM,WGTDT,ADU,AUMX,AINC
+      REAL AER,CPRN,DFBEM,DFBEP,AINCP,AINCM,DXSQD,CRAD,CRAE
+      REAL DXSQ,DTT,DTMEA,DTRNM,DMEA,CEV,EVAP,ABEG,TSU,QSU
+      REAL TGU,DFRZ,TSV,TGV,QSV,DABE,FABE,DZETL,TGETL
+      REAL T2ETL,DTT1,TO,AGO,CPOR,CPV,CV,RHBC
+      REAL DPMIX
+      REAL DTHETA,TOTALT,TOTALQ,THETAM,Q0M
+      REAL TEMPO
+CC
+C
+      EXTERNAL DTFRZ,TP
+C
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( P0    , REAL , (KX) )
+      AUTOMATIC ( Z0    , REAL , (KX) )
+      AUTOMATIC ( T0    , REAL , (KX) )
+      AUTOMATIC ( Q0    , REAL , (KX) )
+      AUTOMATIC ( U0    , REAL , (KX) )
+      AUTOMATIC ( V0    , REAL , (KX) )
+      AUTOMATIC ( W0    , REAL , (KX) )
+      AUTOMATIC ( TU    , REAL , (KX) )
+      AUTOMATIC ( QU    , REAL , (KX) )
+      AUTOMATIC ( UU    , REAL , (KX) )
+      AUTOMATIC ( VU    , REAL , (KX) )
+      AUTOMATIC ( WU    , REAL , (KX) )
+      AUTOMATIC ( RU    , REAL , (KX) )
+      AUTOMATIC ( AU    , REAL , (KX) )
+      AUTOMATIC ( UMF   , REAL , (KX) )
+      AUTOMATIC ( TZ    , REAL , (KX) )
+      AUTOMATIC ( QD    , REAL , (KX) )
+      AUTOMATIC ( UD    , REAL , (KX) )
+      AUTOMATIC ( VD    , REAL , (KX) )
+      AUTOMATIC ( WD    , REAL , (KX) )
+      AUTOMATIC ( RD    , REAL , (KX) )
+      AUTOMATIC ( AD    , REAL , (KX) )
+      AUTOMATIC ( DMF   , REAL , (KX) )
+      AUTOMATIC ( TE    , REAL , (KX) )
+      AUTOMATIC ( QE    , REAL , (KX) )
+      AUTOMATIC ( UE    , REAL , (KX) )
+      AUTOMATIC ( VE    , REAL , (KX) )
+      AUTOMATIC ( WE    , REAL , (KX) )
+      AUTOMATIC ( RO    , REAL , (KX) )
+      AUTOMATIC ( AE    , REAL , (KX) )
+      AUTOMATIC ( PPI   , REAL , (KX) )
+      AUTOMATIC ( TG    , REAL , (KX) )
+      AUTOMATIC ( QG    , REAL , (KX) )
+      AUTOMATIC ( UG    , REAL , (KX) )
+      AUTOMATIC ( VG    , REAL , (KX) )
+      AUTOMATIC ( ZA    , REAL , (KX) )
+      AUTOMATIC ( ZB    , REAL , (KX) )
+      AUTOMATIC ( BM    , REAL , (KX) )
+      AUTOMATIC ( EX    , REAL , (KX) )
+      AUTOMATIC ( FT    , REAL , (KX) )
+      AUTOMATIC ( FQ    , REAL , (KX) )
+      AUTOMATIC ( FU    , REAL , (KX) )
+      AUTOMATIC ( FV    , REAL , (KX) )
+      AUTOMATIC ( RL    , REAL , (KX) )
+      AUTOMATIC ( ALF   , REAL , (KX) )
+      AUTOMATIC ( BTA   , REAL , (KX) )
+      AUTOMATIC ( DZQ   , REAL , (KX) )
+      AUTOMATIC ( DZA   , REAL , (KX) )
+      AUTOMATIC ( WPD   , REAL , (KX) )
+      AUTOMATIC ( WGT   , REAL , (KX) )
+      AUTOMATIC ( DQU   , REAL , (KX) )
+      AUTOMATIC ( DQD   , REAL , (KX) )
+      AUTOMATIC ( DET   , REAL , (KX) )
+      AUTOMATIC ( TVG   , REAL , (KX) )
+      AUTOMATIC ( TVU   , REAL , (KX) )
+      AUTOMATIC ( TVD   , REAL , (KX) )
+      AUTOMATIC ( THE   , REAL , (KX) )
+      AUTOMATIC ( THM   , REAL , (KX) )
+      AUTOMATIC ( TDP   , REAL , (KX) )
+      AUTOMATIC ( TST   , REAL , (KX) )
+      AUTOMATIC ( DM2   , REAL , (KX) )
+      AUTOMATIC ( AU2   , REAL , (KX) )
+      AUTOMATIC ( AD2   , REAL , (KX) )
+      AUTOMATIC ( WGO   , REAL , (KX) )
+      AUTOMATIC ( FBEA  , REAL , (KX) )
+      AUTOMATIC ( ACIN  , REAL , (KX) )
+      AUTOMATIC ( THETA , REAL , (KX) )
+*
+************************************************************************
+*
+*
+*
+*                           Adjustable parameters...
+*
+*     WKLCL = trigger function parameter
+      WKLCL = 0.07
+*
+*     BVRT  = non-hydrostatic effect on the calculation of the vertical
+*             motion of the convective updraft
+      BVRT  = 1. / (1.+0.5) 
+*
+*     BU    = entrainment parameter
+      BU    = 6.E-5
+*
+*
+*
+      C1=2.5E6
+      C2=2.37E3
+      C3=2.83E6
+      C4=259.5
+      CPV=1952.0
+      CV=717.0
+      RV=461.0
+      POO=1.0E5
+      WO=1.0
+      RHIC=1.0
+      RHBC=0.95
+      TO=273.16
+      B61=0.608
+      TICE=248.0
+C
+C     DEFINITION OF SOME IMPORTANT PARAMETERS AND
+C     VARIABLES
+C
+      KL=KX
+      KLM = KL-1
+      R = 287.05
+      ROVCP = .2854912
+      ILXM = IX-2
+      CP = 1005.46
+      D273 = 1.0/273.16
+      G = 9.80616
+      DT2 = FACTDT*DELT
+      ROVG = R/G
+      GDRY = -G/CP
+      CPOR = CP/R
+C
+*
+*     Invert vertically updraft area
+      kfin=kx/2
+*
+      do k=1,kfin
+*
+         nk = kx-k+1
+*
+         do i=1,ix
+            tempo        = areaup(i,k)
+            areaup(i,k ) = areaup(i,nk)
+            areaup(i,nk) = tempo
+         end do
+*
+      end do
+*
+17    continue
+*
+C...INPUT DATA ARE IN A FORM OF NORTH-SOUTH SLICE.
+C
+      DO 650 I = 1,IX
+*
+*
+*
+      DXSQ = DXDY(I)
+      AUO = 0.01*DXSQ
+      CRAD = 0.9*DXSQ
+      CRAE = 0.1*DXSQ
+      AGO = 1.0/DXSQ
+C
+C     CHECK THE NECESSITY OF COMPUTING THE CONVECTIVE EFFECTS.
+C  IF CONVECTION IS STILL ACTIVE, GO TO 1000. THE SCHEME CHECKS FOR
+C  THE INITIATING POSSIBILITY OF CONVECTION AT NEIGHBOURING POINTS OF
+C  CONVECTIVE SYSTEMS EVERY TIME STEP, BUT OTHER POINTS EVERY 10-15
+C  MINUTES.
+C
+C
+         NCAPRE = NCA(I)
+*
+*
+**************************************************
+         IF (ICONVEC.EQ.5)                                    THEN
+*           FRITSCH-CHAPPELL ONLY. ALWAYS PERFORM CALCULATIONS.
+            GO TO 10
+*
+         ELSE IF (ICONVEC.EQ.11)                              THEN
+*           KUO AND FCP. PERFORM CALCULATIONS ON REQUEST ONLY.
+*
+            IF      ( NINT( FCPMASK(I) ).EQ.0 )               THEN
+*              NEVER PERFORM CALCULATIONS AT THAT POINT
+               GOTO 650
+            ELSE IF (ABS( NINT(FCPMASK(I)) ).EQ.2 )           THEN
+*              FORCE CALCULATIONS AT THAT POINT
+               GOTO 10
+            ELSE IF (ABS( NINT(FCPMASK(I)) ).EQ.1  .AND. 
+     %                                         NCA(I).GT.0)   THEN
+*              CONVECTION IS ALREADY TAKING PLACE AT THAT POINT
+               GOTO 10
+            ENDIF
+*
+            GOTO 650
+*
+         ENDIF
+*
+**************************************************
+*
+   10    P300 = 1000.*(PSB(I)*A(I,KL)+PTOP-30.)
+C
+C...INPUT A VERTICAL SOUNDING
+C
+         DO 20 K = 1, KX
+            NK = KX-K+1
+            P0(K) = 1.E3*(A(I,NK)*PSB(I)+PTOP)
+*...USE VALUES OF T, Q, U, V AND THETA AT TIME LEVEL +
+            T0(K) = TP1(I,NK)
+            Q0(K) = QP1(I,NK)
+            Q0(K) = AMAX1( Q0(K),1.0E-10 )
+            THETA(K) = T0(K)*( 1.0E5/P0(K) )**0.286
+            U0(K) = UB(I,NK)
+            V0(K) = VB(I,NK)
+ 20      CONTINUE
+*
+*...TO COMPENSATE FOR THE DEFFICIENCY OF THE TKE BOUNDARY
+*   LAYER FOR WELL MIXED LAYER...
+*
+         KPBL = 1
+*
+*...FIND THE FIRST LAYER OF THE THETA INVERSION = KPBL
+*
+         DO 23 K=2,KX-1
+            DTHETA = THETA(K+1)-THETA(K)
+            IF (DTHETA.LT.0.0) KPBL=K+1
+            IF (DTHETA.GE.0.0) GOTO 26
+ 23      CONTINUE
+ 26      IF (KPBL.LE.2) GOTO 34
+*
+*...MIX THETA AND Q0 IF KPBL > 1
+*
+         TOTALQ = 0.0
+         TOTALT = 0.0
+*
+         DO 29 K=2,KPBL
+            TOTALT = TOTALT + THETA(K)
+            TOTALQ = TOTALQ + Q0(K)
+ 29      CONTINUE
+*
+         THETAM = TOTALT / FLOAT(KPBL-1)
+         Q0M    = TOTALQ / FLOAT(KPBL-1)
+*
+         DO 31 K=1,KPBL
+            T0(K) = THETA(KPBL)*( P0(K)/1.0E5 )**0.286
+            Q0(K) = Q0M
+ 31      CONTINUE
+ 34      CONTINUE
+*
+         DO 32 K=1,KX
+            NK = KX-K+1
+            TVG(K) = T0(K)*(1.+B61*Q0(K))
+            RO(K) = P0(K)/(R*TVG(K))
+            W0(K) = -101.9368*SCR3(I,NK)/RO(K)
+            CELL = PTOP/PSB(I)
+            DZQ(K) = ROVG*TVG(K)*ALOG( (SIGMA(I,NK+1)+
+     +               CELL)/(SIGMA(I,NK)+CELL) )
+            PPI(K) = (POO/P0(K))**ROVCP
+            IF (P0(K).GE.500E2) L5 = K
+            IF (P0(K).GE.400E2) L4 = K
+            IF (P0(K).GE.P300) LLFC = K
+   32    CONTINUE
+C
+*
+*
+* WE VERIFY THE COUNTER 'NCA'
+*
+* IF NCA > 0  => CONVECTION IS ALREADY ACTIVITED AND THE
+*                TENDENCIES DTDT AND DQDT ARE NOT CHANGED
+*
+      IF (NCA(I).GT.0) THEN
+          NCA(I) = NCA(I) - 1
+*
+          ZCRR(I) = 1000.*RAINCV(I)/(DELT*100.)
+*
+          GOTO 650
+      ENDIF
+*
+          DO 620 K=1,KX
+*
+           DTDT  (I,K) = 0.0
+           DQDT  (I,K) = 0.0
+           AREAUP(I,K) = 0.0
+*
+ 620      CONTINUE
+*
+          RAINCV(I) = 0.0
+*
+         Z0(1) = .5*DZQ(1)
+         DO 30 K = 2, KL
+            Z0(K) = Z0(K-1)+.5*(DZQ(K)+DZQ(K-1))
+            DZA(K-1) = Z0(K)-Z0(K-1)
+   30    CONTINUE
+         DZA(KL)=DZQ(KL)
+         LC = 1
+   40    LOW = LC+1
+         IF (LOW.GT.LLFC) GOTO 650
+C
+C   BEGINING WITH THE LOWEST LAYER(NOT INCLUDING THE SURFACE LAYER
+C   IF THE LAYER IS LESS THAN 20-30M), EVERY TWO LAYERS(50 MB) ARE
+C   MIXED, LIFTED TO ITS LCL AND CHECKED FOR BOUYANCY UNTIL REACHING
+C   THE TOP OF THE LOWEST 300-MB LAYER(P300).
+C
+         DO 70 LB = LOW, LLFC
+            LC = LB
+            LC1 = LB+1
+            WT = 1./(DZQ(LC)+DZQ(LC1))
+            TMIX = (T0(LC)*DZQ(LC)+T0(LC1)*DZQ(LC1))*WT
+            QMIX = (Q0(LC)*DZQ(LC)+Q0(LC1)*DZQ(LC1))*WT
+            QMIX = AMAX1(QMIX,1.0E-10)
+            PMIX = (P0(LC)*DZQ(LC)+P0(LC1)*DZQ(LC1))*WT
+            ZMIX = (Z0(LC)*DZQ(LC)+Z0(LC1)*DZQ(LC1))*WT
+            DPMIX = P0(LC) - P0(LC1)
+           IF (DPMIX.LT.60.E2) THEN
+            WT=1./( DZQ(LC)+DZQ(LC1)+DZQ(LC1+1) )
+            TMIX=( T0(LC)*DZQ(LC) + T0(LC1)*DZQ(LC1)
+     1           + T0(LC1+1)*DZQ(LC1+1) )*WT
+            QMIX=( Q0(LC)*DZQ(LC) + Q0(LC1)*DZQ(LC1)
+     1           + Q0(LC1+1)*DZQ(LC1+1) )*WT
+            QMIX=AMAX1( QMIX,1.0E-10 )
+            PMIX=( P0(LC)*DZQ(LC) + P0(LC1)*DZQ(LC1)
+     1           + P0(LC1+1)*DZQ(LC1+1) )*WT
+            ZMIX=( Z0(LC)*DZQ(LC) + Z0(LC1)*DZQ(LC1)
+     1           + Z0(LC1+1)*DZQ(LC1+1) )*WT
+           ENDIF
+            RLL = C1-C2*(TMIX-TO)
+            TDPT = 1./(D273-RV/RLL*ALOG(PMIX*QMIX/(611.*(.622+QMIX))))
+            TDPT = AMIN1(TDPT,TMIX)
+            TLCL = TDPT-(.212+1.571E-3*(TDPT-TO)-4.36E-4*(TMIX-TO))*
+     *         (TMIX-TDPT)
+C
+C   COMPUTE THE LCL. KLCL IS THE MODEL LEVEL IMEDIATELY ABOVE THE LCL,
+C   AND K IS THE MODEL LEVEL BELOW THE LCL.
+C
+            ZLCL = ZMIX+(TLCL-TMIX)/GDRY
+            DO 50 K = LC, L5
+               KLCL = K
+               IF (ZLCL.LE.Z0(K)) GOTO 60
+   50       CONTINUE
+            GOTO 70
+C
+   60       K = KLCL-1
+C
+C     CHECK TO SEE IF CLOUD IS BUOYANT.
+C
+            DZLDZA = (ZLCL-Z0(K))/DZA(K)
+            TENV = T0(K)+(T0(KLCL)-T0(K))*DZLDZA
+C
+C      IMPORTANT: POSSIBLE CHANGE FROM THE VERSION OF THE
+C                 SCHEME THAT APPEARS IN THE PENN STATE/
+C                 NCAR MODEL.  THE FOLLOWING LINES ARE THERE
+C                 TO PREVAIL FROM INITIAL GRAVITY WAVES
+C
+C
+C
+*...MODIFICATION OF THE FILTER FUNCTION NEAR THE LATERAL BOUNDARIES...
+*
+*
+            WKL = W0(K)+(W0(KLCL)-W0(K))*DZLDZA-WKLCL
+            WABS = ABS(WKL)+1.E-10
+            WSIGNE = WKL/WABS
+            DTLCL = 4.64*WSIGNE*WABS**0.33
+            IF (TLCL+DTLCL.GT.TENV) GOTO 80
+   70       CONTINUE
+         GOTO 650
+C
+C   THE PARCEL IS BUOYANT, COMPUTE POTENTIAL TEMPERATURE(THETA),
+C   VIRTUAL TEMPERATURE(TVEN) AND UPDRAFT VELOCITY(WLCL) AT THE LCL.
+C
+   80    THATA = TMIX*(POO/PMIX)**ROVCP
+         TVEN = TENV*(1.+B61*(Q0(K)+(Q0(KLCL)-Q0(K))*DZLDZA))
+         GDT = G*DTLCL*(ZLCL-Z0(LC))/(TVG(LC)+TVEN)
+         WLCL = WO+.5*WSIGNE*SQRT(ABS(GDT)+1.E-10)
+         WTW = WLCL*WLCL
+C
+         IF (LOW.GT.2) GOTO 100
+C
+C   COMPUTE EQUIVALENT POTENTIAL TEMPERATURE(THETAE) OF ENVIRONMENT.
+C   BU IS THE ENTRAINMENT RATE. RL IS LATENT HEAT OF VAPORIZATION.
+C
+         DO 90 NK = 1, KX
+            DET(NK)=0.
+            WGT(NK) = EXP(BU*DZA(NK))-1.
+            WGO(NK) = 1./(1.+WGT(NK))
+            Q0(NK) = AMAX1(1.E-9,Q0(NK))
+            if (T0(NK) .GT. TICE) then
+               RL(NK) = C1-C2*(T0(NK)-TO)
+            else
+               RL(NK) = C3-C4*(T0(NK)-TO)
+            endif
+            TDP(NK) = 1./(D273-RV/RL(NK)*ALOG(P0(NK)*Q0(NK)/(611.*(Q0(NK
+     *         )+.622))))
+            if (TDP(NK) .gt. TICE) then
+               TST(NK) =  TDP(NK)-(.212+1.571E-3*(TDP(NK)-TO)-4.36E-4*
+     %                    (T0(NK)-TO))*(T0(NK)-TDP(NK))
+            else
+               TST(NK) =  TDP(NK)-(.182+1.13E-3*(TDP(NK)-TO)-3.58E-4*
+     %                    (T0(NK)-TO))*(T0(NK)-TDP(NK))
+            endif
+            THE(NK) = T0(NK)*PPI(NK)*EXP(RL(NK)*Q0(NK)/(CP*TST(NK)))
+   90    CONTINUE
+  100    CONTINUE
+         LCL = KLCL
+         LET = LCL
+C
+C*******************************************************************
+C                                                                  *
+C                 COMPUTE UPDRAFT PROPERTIES                       *
+C                                                                  *
+C*******************************************************************
+C
+         SDQU = 0.
+         ABE = 0.
+         IFLAG = 0
+         FREZ = 0.
+         WGLCL = EXP(BU*(Z0(KLCL)-ZLCL))-1.
+         TU(K) = TLCL
+         TVU(K) = TLCL*(1.+B61*QMIX)
+         QU(K) = QMIX
+         THM(K) = THATA*EXP((C1-C2*(TLCL-TO))*QMIX/(CP*TLCL))
+C
+C...UPDRAFT TEMPERTURE, MIXING RATIO, BUOYANCY AND VELOCITY. THE CLOUD
+C...TOP IS DEFINED AT THE LEVEL WHERE UPDRAFT MOTION VANISHES.
+C
+         DO 120 NK = K, KLM
+            LTOP = NK
+            IF (TU(NK).GT.TICE) GOTO 110
+            IF (IFLAG.NE.0) GOTO 110
+            FREZ = DTFRZ(TU(NK),P0(NK),QU(NK),.5*SDQU,D273)
+            TU(NK) = TU(NK)+FREZ
+            ES = 611.*EXP(RL(NK)/RV*(D273-1./TU(NK)))
+            QU(NK) = .622*ES/(P0(NK)-ES)
+            TVU(NK) = TU(NK)*(1.+B61*QU(NK))
+            THM(NK) = TU(NK)*PPI(NK)*EXP(RL(NK)*QU(NK)/(CP*TU(NK)))
+            IFLAG = NK
+  110       NK1 = NK+1
+            IF (NK.NE.K) THEN
+            THM(NK1) = (THM(NK)+WGT(NK)*.5*(THE(NK)+THE(NK1)))*WGO(NK)
+            TU(NK1) = TP(P0(NK1),THM(NK1),T0(NK1),D273,RL(NK1),QU(NK1)
+     *            ,PPI(NK1))
+            TVU(NK1) = TU(NK1)*(1.+B61*QU(NK1))
+            DQU(NK) = (QU(NK)+WGT(NK)*.5*(Q0(NK)+Q0(NK1)))*WGO(NK)-
+     *            QU(NK1)
+            BE = DZA(NK)*BVRT*((TVU(NK)+TVU(NK1))/(TVG(NK)+TVG(NK1))-1.)
+            WBE = BE-BU*WTW*DZA(NK)/G
+            ELSE
+            THM(NK1) = (THM(K)+WGLCL*.5*(THE(K)*(1.-DZLDZA)+
+     *            THE(LCL)*(1.+DZLDZA)))/(1.+WGLCL)
+            TU(NK1) = TP(P0(NK1),THM(NK1),T0(NK1),D273,RL(NK1),QU(NK1)
+     *            ,PPI(NK1))
+            TVU(NK1) = TU(NK1)*(1.+B61*QU(NK1))
+            DQU(NK) = (QU(K)+WGLCL*.5*(Q0(K)*(1.-DZLDZA)+Q0(LCL)*
+     *            (1.+DZLDZA)))/(1.+WGLCL)-QU(NK1)
+            BE = (Z0(LCL)-ZLCL)*BVRT*((TVU(LCL)+TVU(K))/(TVG(LCL)+TVEN)
+     *            -1.)
+            WBE = BE-BU*WTW*(Z0(LCL)-ZLCL)/G
+            ENDIF
+            SDQU = SDQU+DQU(NK)
+            WTW = WTW+19.62*WBE
+            WU(NK1) = WTW/SQRT(ABS(WTW)+1.E-10)
+            if (BE .GT. 0.) ABE = ABE+BE
+            IF (TU(NK).GE.T0(NK)) LET = NK
+            IF (WU(NK1).LT.1.E-6) GOTO 130
+  120    CONTINUE
+  130    CLDHT = Z0(LTOP)-ZLCL
+C
+C... IF THE CLOUD DEPTH IS LESS THAN 4 KM, NO CONVECTION IS ALLOWED
+C... FOR THE LIFTED LAYER.
+C
+         IF (CLDHT.LT.4.E3.OR.LET.LE.LCL) GOTO 40
+         ACP = 0.
+         CLIQ = 0.
+         P165 = P0(LCL)-1.65E4
+         TRCP = 0.
+         LTOP1 = LTOP+1
+         LTOPM1 = LTOP-1
+         DWU = WU(LTOP1)-WU(LTOP)
+         ZTOP = Z0(LTOP)+WU(LTOP)*DZA(LTOP)/(ABS(DWU)+1.E-3)
+         DDT = T0(LET+1)-TU(LET+1)+TU(LET)-T0(LET)
+         ZETL = Z0(LET)+DZA(LET)*(TU(LET)-T0(LET))/(ABS(DDT)+1.E-5)
+C
+C...UPDRAFT MASS FLUX(VMF), OCCUPIED AREA(AU), HORIZONTAL MOMENTUM
+C...(UU,VU), AND TOTAL CONDENSATE PRODUCTION RATE(TRCP) .
+C...LET IS THE MODEL LEVEL JUST BELOW THE EQUILIBRIUM TEMPERATURE
+C...LEVEL. ACP IS THE ANVIL CONDENSATION PRODUCTION RATE ABOVE THE LET.
+C...CLIQ IS THE RATE OF LIQUID PRODUCTION UP TO ABOUT 150 MB ABOVE THE
+C...  LCL AND USR IS THE UPDRAFT SUPPLY RATE.
+C
+         UMF(K) = AUO*WO*POO*(TLCL/THATA)**CPOR/(R*TLCL)
+       IF (DPMIX.LT.60.E2) THEN
+         UU(K) = ( U0(LC)*DZQ(LC)+U0(LC1)*DZQ(LC1)+
+     1             U0(LC1+1)*DZQ(LC1+1) )*WT
+         VU(K) = ( V0(LC)*DZQ(LC)+V0(LC1)*DZQ(LC1)+
+     1             V0(LC1+1)*DZQ(LC1+1) )*WT
+       ELSE
+         UU(K) = (U0(LC)*DZQ(LC)+U0(LC1)*DZQ(LC1))*WT
+         VU(K) = (V0(LC)*DZQ(LC)+V0(LC1)*DZQ(LC1))*WT
+       ENDIF
+         DO 140 NK = K, LTOP
+            NK1 = NK+1
+            if (NK.EQ.K) then
+               WGHT = WGLCL
+            else
+               WGHT = WGT(NK)
+            endif
+            IF (NK.NE.K) THEN
+               UU(NK1) = (UU(NK)+WGHT*.5*(U0(NK)+U0(NK1)))*WGO(NK)
+               VU(NK1) = (VU(NK)+WGHT*.5*(V0(NK)+V0(NK1)))*WGO(NK)
+            ELSE
+               UU(NK1) = (UU(K)+WGHT*.5*(U0(K)*(1.-DZLDZA)+U0(LCL)*
+     *            (1.+DZLDZA)))/(1.+WGLCL)
+               VU(NK1) = (VU(K)+WGHT*.5*(V0(K)*(1.-DZLDZA)+V0(LCL)*
+     *            (1.+DZLDZA)))/(1.+WGLCL)
+            ENDIF
+            RU(NK1) = P0(NK1)/(R*TVU(NK1))
+            IF (NK1.LE.LET) THEN
+               UMF(NK1) = UMF(NK)*(1.+WGHT)
+            ELSE
+               UMF(NK1) = UMF(LET)*(1.-(Z0(NK1)-ZETL)/(ZTOP-ZETL))
+               DET(NK1)=UMF(NK)-UMF(NK1)
+               ACP = ACP+.5*(UMF(NK)+UMF(NK1))*DQU(NK)
+            ENDIF
+            AU(NK1) = UMF(NK1)/(RU(NK1)*WU(NK1))
+            TRCP = TRCP+.5*(UMF(NK)+UMF(NK1))*DQU(NK)
+*
+            IF (P0(NK).LT.P165) GOTO 140
+            CLIQ = TRCP
+            LVF = NK
+  140    CONTINUE
+         USR = UMF(LVF+1)*QU(LVF+1)+CLIQ
+         USR = AMIN1(USR,.95*TRCP)
+*
+       IF (USR.LT.0.0) THEN
+          GOTO 40
+       ENDIF
+C
+C...INITIALIZE SOME ARRAYS FOR LATER USE.
+C
+         DO 150 N = 1, K
+            AU(N) = 0.
+            TU(N) = 0.
+            QU(N) = 0.
+            UU(N) = 0.
+            VU(N) = 0.
+            UMF(N) = 0.
+            RU(N)=0.
+            WU(N)=0.
+  150    CONTINUE
+         DO 160 NK = LTOP1, KX
+            AU(NK) = 0.
+            UMF(NK) = 0.
+            UG(NK) = U0(NK)
+            VG(NK) = V0(NK)
+            TG(NK) = T0(NK)
+            QG(NK) = Q0(NK)
+  160    CONTINUE
+*
+*        WPD IS INITIALIZED TO ZERO TO AVOID THAT WPD(L5) BE NOT DEFINED
+*        (REFER TO THE CALCULATION OF VCONV)
+         DO NK=1,KX
+            WPD(NK) = 0.0
+         END DO
+*
+         EX(1) = 0.
+         FU(1) = U0(1)
+         FV(1) = V0(1)
+         FT(1) = T0(1)
+         FQ(1) = Q0(1)
+         DO 170 NK = 1, LTOP1
+            UE(NK) = U0(NK)
+            VE(NK) = V0(NK)
+            WPD(NK) = U0(NK)*U0(NK)+V0(NK)*V0(NK)
+            TZ(NK) = 0.
+            QD(NK) = 0.
+            AD(NK) = 0.
+            WD(NK) = 0.
+            UD(NK) = 0.
+            VD(NK) = 0.
+            RD(NK)=0.
+            DQD(NK) = 0.
+            DMF(NK) = 0.
+  170    CONTINUE
+         DO 180 NK = 2, LTOP
+            ZA(NK) = DZA(NK-1)/(DZA(NK)*(Z0(NK+1)-Z0(NK-1)))
+            ZB(NK) = DZA(NK)/(DZA(NK-1)*(Z0(NK+1)-Z0(NK-1)))
+  180    CONTINUE
+C
+C...COMPUTE CONVECTIVE TIME SCALE(TIMEC). THE MEAN WIND AT THE LCL
+C...AND MIDTROPOSPHERE IS USED.
+C
+         VCONV = .5*(SQRT(WPD(KLCL))+SQRT(WPD(L5)))
+         if (vconv.eq.0.0) vconv = 1.e-10
+         TIMEC = SQRT(DXSQ)/VCONV
+         TIMEC = AMAX1(1800.,TIMEC)
+         TIMEC = AMIN1(3600.,TIMEC)
+*        NIC = TIMEC/(.5*DT2)
+         NIC = TIMEC/  DELT
+*        NCA(I) = INT(NIC) + 1  ! bug
+         NCA(I) = INT(NIC)
+*        TIMEC = NIC*.5*DT2
+         TIMEC = NIC* DELT
+         DTIME = .1*TIMEC
+C
+C...COMPUTE WIND SHEAR AND PRECIPITATION EFFICIENCY.
+C
+        SHSIGN = sign(1.0,WPD(LTOP)-WPD(LCL))
+        VWS = (U0(LTOP)-U0(LCL))*(U0(LTOP)-U0(LCL))+
+     1        (V0(LTOP)-V0(LCL))*(V0(LTOP)-V0(LCL))
+        VWS = 1.E3*SHSIGN*SQRT(VWS)/(Z0(LTOP)-Z0(LCL))
+        PEF = 1.591+VWS*(-.639+VWS*(9.53E-2-VWS*4.96E-3))
+        PEF = AMAX1(PEF,.2)
+        PEF = AMIN1(PEF,.9)
+C
+C...PRECIPITATION EFFICIENCY IS A FUNCTION OF THE HEIGHT OF CLOUD BASE.
+C
+         CBH = (ZLCL-Z0(1))*3.281E-3
+         IF (CBH.LT.3.) THEN
+            RCBH = .02
+         ELSE
+            RCBH = .96729352+CBH*(-.70034167+CBH*(.162179896+CBH*(-
+     *         1.2569798E-2+CBH*(4.2772E-4-CBH*5.44E-6))))
+         ENDIF
+         IF (CBH.GT.25) RCBH = 2.4
+         PEFCBH = 1./(1.+RCBH)
+         PEFCBH=AMIN1(PEFCBH,.9)
+C
+C... MEAN PEF. IS USED TO COMPUTE RAINFALL.
+C
+         PEFF = .5*(PEF+PEFCBH)
+C
+C...COMPUTE PARTITION OF CONDENSATE AMONG CONVECTIVE PRODUCTION RATE
+C...(CPR), ANVIL EVARATION(ACP) AND CONDENSATE EVAPORATION IN THE
+C...DOWNDRAFTS(RCED).
+C
+         CPR = PEFF*USR
+         RCE = TRCP-CPR
+         ACP = AMAX1(ACP,.05*TRCP)
+         ACP = AMIN1(ACP,0.15*TRCP,0.5*RCE)
+         RCED = RCE-ACP
+C
+C*****************************************************************
+C                                                                *
+C                  COMPUTE DOWNDRAFT PROPERTIES                  *
+C                                                                *
+C*****************************************************************
+C
+         DTMELT= 3.34E5*.5*SDQU/CP
+         NLFS = MIN0(L4,LET)
+ 190     NLFS = MAX0(NLFS-1,KLCL+1)
+         NLL = NLFS-KLCL
+         if (NLL .EQ. 1) then
+            IFLG = 0
+         else
+            IFLG = 99
+         endif
+         TDER = 0.
+         IFLAG = 0
+C
+C...COMPUTE THE LEVEL OF FREE SINK(LFS). 50 TO 50 PERCENTDXSQE OF UPDRAF
+C...AND ENVIRONMENTAL AIR IS MIXED.
+C
+         DO 200 NK = 1, NLL
+            LFS = NLFS-NK
+            THBAR = .5*(THM(LFS)+THE(LFS))
+            TZ(LFS) = TP(P0(LFS),THBAR,T0(LFS),D273,RL(LFS),QS,PPI(LFS))
+            IF (TZ(LFS).LT.T0(LFS)) GOTO 210
+  200    CONTINUE
+  210    THM(LFS) = THBAR
+         LFSML = LFS-1
+C
+C...DOWNDRAFT PROPERTIES AT THE LFS. IF THE LFS IS BELOW 0 DEG.,
+C...MELTING OF CONDENSATE IS ALLOWED.
+C
+         UD(LFS) = .5*(U0(LFS)+UU(LFS))
+         VD(LFS) = .5*(V0(LFS)+VU(LFS))
+           IF(TZ(LFS) .GE. TO) THEN
+           TZ(LFS) = TZ(LFS)-DTMELT
+           ES = 611.*EXP(RL(LFS)/RV*(D273-1./TZ(LFS)))
+           QS = .622*ES/(P0(LFS)-ES)
+           THM(LFS) = TZ(LFS)*PPI(LFS)*EXP(RL(LFS)*QS/(CP*TZ(LFS)))
+           IFLAG = 99
+           ML = LFS
+           ENDIF
+         QD(LFS) = RHIC*QS
+         TVD(LFS) = TZ(LFS)*(1.+B61*QD(LFS))
+         RD(LFS) = P0(LFS)/(R*TVD(LFS))
+C
+C...ASSUME INITIAL DOWNDRAFT VELOCITY(WD) OF -1 M/S, AND AREA(AD)
+C...PROPORTIONAL TO UPDRAFT AIR.
+C
+         WD(LFS) = -WO
+         WTW = -1.
+         AD(LFS) = RCED*AUO/USR
+         DMF(LFS) = RD(LFS)*AD(LFS)*WD(LFS)
+C
+C...LDB IS SUPPOSIVELY THE LOWEST LEVEL THE DOWNDRAFT CAN PENETRATE .
+C
+         LDB = LFS
+C
+C...COMPUTE DOWNDRAFT PROPERTIES BELOW THE LFS. TDER IS TOTAL
+C...EVAPORATION RATE IN THE DOWNDRAFTS.
+C
+         DO 240 NK = 1, LFSML
+            ND = LFSML+2-NK
+            ND1 = ND-1
+            if (ND1.LT.KLCL) then
+               RHCLD = RHBC
+            else
+               RHCLD = RHIC
+            endif
+            UD(ND1) = (UD(ND)+.5*WGT(ND1)*(U0(ND)+U0(ND1)))*WGO(ND1)
+            VD(ND1) = (VD(ND)+.5*WGT(ND1)*(V0(ND)+V0(ND1)))*WGO(ND1)
+            THM(ND1) = (THM(ND)+.5*WGT(ND1)*(THE(ND)+THE(ND1)))*WGO(ND1)
+            TZ(ND1) = TP(P0(ND1),THM(ND1),T0(ND1),D273,RL(ND1),QSD,
+     *         PPI(ND1))
+            QPRME = (QD(ND)+.5*WGT(ND1)*(Q0(ND)+Q0(ND1)))*WGO(ND1)
+            QD(ND1) = RHCLD*QSD
+            IF (IFLAG.EQ.99) GOTO 220
+C
+C...CHECK FOR MELTING LEVEL IF THE LFS IS ABOVE THE LEVEL OF TO.
+C
+            IF (TZ(ND1).LE.TO) GOTO 220
+            TZ(ND1) = TZ(ND1)-DTMELT
+            ES = 611.*EXP(RL(ND1)/RV*(D273-1./TZ(ND1)))
+            QS = .622*ES/(P0(ND1)-ES)
+            QD(ND1) = RHCLD*QS
+            THM(ND1) = TZ(ND1)*PPI(ND1)*EXP(RL(ND1)*QS/(CP*TZ(ND1)))
+            IFLAG = 99
+            ML = ND1
+  220       DQD(ND) = QD(ND1)-QPRME
+            IF(RHCLD.LT.1.) THEN
+            DM=(QSD-QD(ND1))/(1.+RL(ND1)*RL(ND1)*QSD/(462844.*
+     1         TZ(ND1)*TZ(ND1)))
+            TZ(ND1) = TZ(ND1)+RL(ND1)*DM/CP
+            ENDIF
+            TVD(ND1) = TZ(ND1)*(1.+B61*QD(ND1))
+            RD(ND1) = P0(ND1)/(R*TVD(ND1))
+            WTW = WTW+19.62*DZA(ND1)*(BVRT*(TVD(ND)+TVD(ND1))/(TVG(ND)
+     *         +TVG(ND1))-BVRT-BU*WTW/G)
+            WD(ND1) = WTW/SQRT(ABS(WTW)+1.E-10)
+C
+C...CHECK IF DOWNDRAFT HAS ENCOUNTERED COLDER AIR, LOST ITS NEGETIVE
+C...BUOYANCY AND CAUSED WD TO BECOME POSITIVE.
+C
+            IF (WD(ND1).GE.0.) GOTO 230
+            WGTDT=WGT(ND1)
+            IF(TVD(ND1).GT.TVG(ND1))WGTDT=-2.*WGT(ND1)
+            DMF(ND1) = DMF(ND)*(1.+WGTDT)
+            AD(ND1) = DMF(ND1)/(RD(ND1)*WD(ND1))
+            LDB = ND1
+            GOTO 240
+C
+  230       IF (IFLG.EQ.99) GOTO 190
+  240       TDER = TDER+.5*(DMF(ND)+DMF(ND1))*DQD(ND)
+C
+C...THE DOWNDRAFT AREA AND MASS FLUX ARE ADJUSTED ACCORDING TO
+C...SPECIFIED EVAPORATION RATE AND ACTUAL EVAPORATION RATE.
+C...ADU IS THE NUMBER OF UNITS OF DOWNDRAFT AIR.
+C
+         ADU = ABS(RCED/TDER)
+         DO 250 NK = 1, LTOP
+            AD(NK) = AD(NK)*ADU
+            DMF(NK) = DMF(NK)*ADU
+            AU2(NK) = AU(NK)
+            AD2(NK) = AD(NK)
+            DM2(NK) = DMF(NK)
+  250    CONTINUE
+         AUMX=AU2(1)
+         NUMAX=1
+         DO 451 NK=2,LTOP
+         IF(AU2(NK).GT.AUMX) THEN
+          AUMX=AU2(NK)
+          NUMAX=NK
+         ENDIF
+ 451     CONTINUE
+         KLEVAP = LTOP-KLCL
+            NCOUNT=0
+            AINC =2.
+            AER = ACP
+            CPRN = CPR
+            DFBEM=-0.5
+            DFBEP= 0.5
+            AINCP=3.
+            AINCM=1.
+C
+C...BEGIN WITH THE LOWEST LAYER, THE DOWNDRAFT AREA IS SUCCESSIVELY
+C...FILLED USING THE DOWNDRAFT MASS FLOW AT THE LDB DURING THE
+C...CONVECTIVE TIME PERIOD(TIMEC).
+  270    NCOUNT = NCOUNT+1
+         DXSQD = CRAD
+         DM = -DMF(LDB)*TIMEC
+         DO 280 NK = LDB,LFS
+            IF (NK.GE.LCL) DXSQD = .6*DXSQ
+            AD(NK) = AD(NK)+DM/(RD(NK)*DZQ(NK))
+            IF (AD(NK).LE.DXSQD) GOTO 290
+            AD(NK) = DXSQD
+            DM = DM-RD(NK)*DZQ(NK)*(DXSQD-AD2(NK))
+  280    CONTINUE
+  290    CONTINUE
+         IF(NCOUNT.EQ.1) GOTO 440
+C
+C*****************************************************************
+C                                                                *
+C           COMPUTE PROPERTIES FOR COMPENSATIONAL SUBSIDENCE     *
+C                                                                *
+C*****************************************************************
+C
+C...OBTAIN ENVIRONMENTAL VERTICAL MOTION(WE), AREA(AE),AND REASONABLE
+C...TIME-STEP FOR COMPUTING TENDENCY EQUATION.
+C
+         DO 300 NK = 1, LTOP1
+            AE(NK) = DXSQ-AU(NK)-AD(NK)
+            IF (AE(NK).LT.CRAE) THEN
+               AE(NK) = CRAE
+               AD(NK) = DXSQ-AE(NK)-AU(NK)
+            ENDIF
+            WE(NK) = -(UMF(NK)+DET(NK)+DMF(NK))/(RO(NK)*AE(NK))
+            WE(NK) = AMIN1(.5,WE(NK))
+            WE(NK) = AMAX1(WE(NK),-2.)
+            DTT = .6*DZA(NK)/(ABS(WE(NK))+1.E-4)
+            DTIME = AMIN1(DTIME,DTT)
+            QE(NK) = Q0(NK)
+            TE(NK) = T0(NK)
+  300    CONTINUE
+         NSTEP = TIMEC/DTIME
+C
+C...COMPUTE TEMPERATURE(TE) MIXING RATIO(RE) AND ANVIL EVAPORATION
+C...IN THE SUBSIDENCE.
+C
+         DTMEA = ACP*TIMEC/FLOAT(NSTEP)
+         DO 360 NTC = 1, NSTEP
+            DO 310 NK = 2, LTOP
+               ALF(NK) = -WE(NK)*DTIME*ZA(NK)
+               BTA(NK) = WE(NK)*DTIME*ZB(NK)
+               BM(NK) = 1.+ALF(NK)+BTA(NK)*(1.-EX(NK-1))
+               EX(NK) = ALF(NK)/BM(NK)
+               FT(NK) = (TE(NK)+WE(NK)*DTIME*GDRY+BTA(NK)*FT(NK-1))/
+     *            BM(NK)
+               FQ(NK) = (QE(NK)+BTA(NK)*FQ(NK-1))/BM(NK)
+  310       CONTINUE
+            DO 320 NK = 2, LTOPM1
+               NJ = LTOP1-NK
+               TE(NJ) = EX(NJ)*TE(NJ+1)+FT(NJ)
+               QE(NJ) = EX(NJ)*QE(NJ+1)+FQ(NJ)
+  320       CONTINUE
+C
+C...INCORPORATE DETRAINMENT EFFECT INTO COMPENSATING SUBSIDENCE.
+C
+            DO 330 NK=LET,LTOP
+            DTRNM=DET(NK)*DTIME/(RO(NK)*AE(NK)*DZQ(NK))
+            TE(NK)=TE(NK)-RL(NK)*DTRNM*DQU(NK)/CP
+            QE(NK)=QE(NK)+DTRNM*DQU(NK)
+  330       CONTINUE
+            DMEA = DTMEA
+            DO 340 NKP = 1, KLEVAP
+               NK = LTOP1-NKP
+               ES = 611.*EXP(RL(NK)/RV*(D273-1./TE(NK)))
+               QS = .622*ES/(P0(NK)-ES)
+               IF(QE(NK) .GE. QS) GOTO 340
+               DM = (QE(NK)-QS)/(1.+RL(NK)*RL(NK)*QS/(462844.*TE(NK)*TE(
+     *            NK)))
+               CEV = RO(NK)*AE(NK)*DZQ(NK)
+               EVAP = AMIN1(-DM,DMEA/CEV)
+               QE(NK) = QE(NK)+EVAP
+               TE(NK) = TE(NK)-RL(NK)*EVAP/CP
+               DMEA = DMEA-CEV*EVAP
+               IF(DMEA.LE.1.E-6) GOTO 360
+  340       CONTINUE
+  360    CONTINUE
+C
+C...OBTAIN AREA AVERAGED VALUES OF TEMPERATURE AND MIXING RATIO.
+C
+         DO 370 NK = 1, LTOP
+            TG(NK) = (AE(NK)*TE(NK)+AU(NK)*TU(NK)+AD(NK)*TZ(NK))*AGO
+            QG(NK) = (AE(NK)*QE(NK)+AU(NK)*QU(NK)+AD(NK)*QD(NK))*AGO
+            QG(NK) = AMAX1(QG(NK),1.E-10)
+            TVG(NK) = TG(NK)*(1.+B61*QG(NK))
+  370    CONTINUE
+         IF (NCOUNT.GE.10) GOTO 460
+         IF (NCOUNT.LE.2.AND.ZLCL.GT.3.E3) GOTO 460
+C
+C*******************************************************************
+C                                                                  *
+C     COMPUTE NEW CLOUD AND CHANGE IN AVAILABLE BUOYANT ENERGY.    *
+C                                                                  *
+C*******************************************************************
+C
+C...THE FOLLOWING COMPUTATIONS ARE SIMILAR TO THAT FOR UPDRAFT
+C
+       IF (DPMIX.LT.60.E2) THEN
+         TMIX = (TG(LC)*DZQ(LC)+TG(LC1)*DZQ(LC1)+
+     1           TG(LC1+1)*DZQ(LC1+1) )*WT
+         QMIX = (QG(LC)*DZQ(LC)+QG(LC1)*DZQ(LC1)+
+     1           QG(LC1+1)*DZQ(LC1+1) )*WT
+       ELSE
+         TMIX = (TG(LC)*DZQ(LC)+TG(LC1)*DZQ(LC1))*WT
+         QMIX = (QG(LC)*DZQ(LC)+QG(LC1)*DZQ(LC1))*WT
+       ENDIF
+         ES = 611.*EXP(RL(LC1)/RV*(D273-1./TMIX))
+         QS = .622*ES/(PMIX-ES)
+         QMIX = AMIN1(QS,QMIX)
+         TDPT = 1./(D273-RV/RL(LC1)*ALOG(PMIX*QMIX/(611.*(.622+QMIX))))
+         if (TDPT.GT.TMIX) TDPT = TMIX
+         TLCL = TDPT-(.212+1.571E-3*(TDPT-TO)-4.36E-4*(TMIX-TO))*(TMIX-
+     *      TDPT)
+         ZLCL = ZMIX+(TLCL-TMIX)/GDRY
+         DO 380 NK = LC, L4
+            KLCL = NK
+            IF (ZLCL.LE.Z0(NK)) GOTO 390
+  380    CONTINUE
+  390    K = KLCL-1
+         DZLDZA = (ZLCL-Z0(K))/DZA(K)
+         TENV = TG(K)+(TG(KLCL)-TG(K))*DZLDZA
+         TVEN = TENV*(1.+B61*(QG(K)+(QG(KLCL)-QG(K))*DZLDZA))
+         THATA = TMIX*(POO/PMIX)**ROVCP
+C
+C...RECOMPUTE THETAE FOR THE ADJUSTED STRATIFICATION.
+C
+         DO 400 NK = K, LTOP1
+            TDP(NK) = 1./(D273-RV/RL(NK)*ALOG(P0(NK)*QG(NK)/(611.*(QG(NK
+     *         )+.622))))
+            TDP(NK) = AMIN1(TG(NK),TDP(NK))
+            if (TDP(NK) .GT. TICE) then
+               TST(NK) = TDP(NK)-(.212+1.571E-3*(TDP(NK)-TO)-4.36E-4*
+     %                   (TG(NK)-TO))*(TG(NK)-TDP(NK))
+            else
+               TST(NK) = TDP(NK)-(.182+1.13E-3*(TDP(NK)-TO)-3.58E-4*
+     %                   (TG(NK)-TO))*(TG(NK)-TDP(NK))
+            endif
+            THE(NK) = TG(NK)*PPI(NK)*EXP(RL(NK)*QG(NK)/(CP*TST(NK)))
+  400    CONTINUE
+C
+         IFLAG = 0
+         ABEG = 0.
+         SDQU = 0.
+         WGLCL = EXP(BU*(Z0(KLCL)-ZLCL))-1.
+         TSU = TLCL
+         QSU = QMIX
+         THM(K) = THATA*EXP((C1-C2*(TLCL-TO))*QMIX/(CP*TLCL))
+         TGU = TSU*(1.+B61*QSU)
+C
+C...COMPUTE ADJUSTED ABE(ABEG).
+C
+            N=K
+            IF (IFLAG.EQ.10) GOTO 410
+            IF (TSU.GT.TICE) GOTO 410
+            DFRZ = DTFRZ(TSU,P0(N),QSU,.5*SDQU,D273)
+            TSU = TSU+DFRZ
+            ES = 611.*EXP(RL(N)/RV*(D273-1./TSU))
+            QSU = .622*ES/(P0(N)-ES)
+            TGU = TSU*(1.+B61*QSU)
+            THM(N) = TSU*PPI(N)*EXP(RL(N)*QSU/(CP*TSU))
+            IFLAG = 10
+  410       N1 = N+1
+               THM(N1) = (THM(N)+WGLCL*.5*(THE(K)*(1.-DZLDZA)+
+     *            THE(KLCL)*(1.+DZLDZA)))/(1.+WGLCL)
+               TSV = TP(P0(N1),THM(N1),TG(N1),D273,RL(N1),QSV,PPI(N1))
+               TGV = TSV*(1.+B61*QSV)
+               SDQU = SDQU+(QSU+WGLCL*.5*(QG(K)*(1.-DZLDZA)+
+     *            QG(KLCL)*(1.+DZLDZA)))/(1.+WGLCL)-QSV
+               BE = (Z0(KLCL)-ZLCL)*BVRT*((TGV+TGU)/(TVG(KLCL)+TVEN)-1.)
+            TSU = TSV
+            QSU = QSV
+            TGU = TGV
+            IF (BE.GT.0.) ABEG = ABEG+BE
+*
+         DO 430 N = K+1, LTOP
+            IF (IFLAG.EQ.10) GOTO 415
+            IF (TSU.GT.TICE) GOTO 415
+            DFRZ = DTFRZ(TSU,P0(N),QSU,.5*SDQU,D273)
+            TSU = TSU+DFRZ
+            ES = 611.*EXP(RL(N)/RV*(D273-1./TSU))
+            QSU = .622*ES/(P0(N)-ES)
+            TGU = TSU*(1.+B61*QSU)
+            THM(N) = TSU*PPI(N)*EXP(RL(N)*QSU/(CP*TSU))
+            IFLAG = 10
+  415       N1 = N+1
+               THM(N1) = (THM(N)+WGT(N)*.5*(THE(N)+THE(N1)))*WGO(N)
+* error in calc of TSV
+               TSV = TP(P0(N1),THM(N1),TG(N1),D273,RL(N1),QSV,PPI(N1))
+               TGV = TSV*(1.+B61*QSV)
+               SDQU = SDQU+(QSU+WGT(N)*.5*(QG(N)+QG(N1)))*WGO(N)-QSV
+               BE = DZA(N)*BVRT*((TGV+TGU)/(TVG(N)+TVG(N1))-1.)
+            TSU = TSV
+            QSU = QSV
+            TGU = TGV
+            IF (BE.GT.0.) ABEG = ABEG+BE
+  430    CONTINUE
+C
+C...ASSUME MORE THAN 50% OF ABE IS REMOVED BY CONVECTION DURING THE PERIOD
+C...TIMEC.
+C
+         DABE = AMAX1(ABE-ABEG,.2*ABE)
+         FABE = ABEG/(ABE+1.E-8)
+         IF(FABE.LT..10.AND.FABE.GT.0.01) GOTO 460
+         FBEA(NCOUNT)=FABE-.1
+         ACIN(NCOUNT)=AINC
+         IF(FABE.GT.0.1)DFBEP=AMIN1(DFBEP,FBEA(NCOUNT))
+         IF(FABE.LT.0.1)DFBEM=AMAX1(DFBEM,FBEA(NCOUNT))
+         AINC = AINC*ABE/(DABE+1.E-8)
+         IF(NCOUNT.LE.4) GOTO 445
+         DO 435 NN=2,NCOUNT
+         IF(FBEA(NN).EQ.DFBEP)AINCP=ACIN(NN)
+         IF(FBEA(NN).EQ.DFBEM)AINCM=ACIN(NN)
+ 435     CONTINUE
+         AINC=AINCM-(AINCM-AINCP)*DFBEM/(DFBEM-DFBEP)
+ 445     AUMAX=AMIN1(AUMX*AINC,CRAD)
+          AINC=AUMAX/(0.001+AUMX)
+ 440     AINC = AMIN1(AINC,25.0)
+         AINC = AMAX1(AINC,1.0)
+         ACP = AER*AINC
+         CPR = CPRN*AINC
+         DO 450 NK = 1, LTOP
+            AU(NK) = AU2(NK)*AINC
+            AD(NK) = AD2(NK)*AINC
+            DMF(NK) = DM2(NK)*AINC
+            UMF(NK) = RU(NK)*WU(NK)*AU(NK)
+            if (NK.LE.LET) then
+               DET(NK) = 0.
+            else
+               DET(NK) = UMF(NK-1)-UMF(NK)
+            endif
+ 450     CONTINUE
+         GOTO 270
+C
+C...COMPUTE CONVECTIVE OVEQSHOOTING, ASSUMING THAT THE TOTAL MASS
+C...COOLED DOWN IS EQUAL TO THE MASS WARMED UP ABOVE THE LET.
+C
+  460    DDT = T0(LET+1)-TU(LET+1)+TU(LET)-T0(LET)
+         DZETL = DZA(LET)*(TU(LET)-T0(LET))/(ABS(DDT)+1.E-6)
+         TGETL = TG(LET)+(TG(LET+1)-TG(LET))*DZETL/DZA(LET)
+         T2ETL = T0(LET)+(T0(LET+1)-T0(LET))*DZETL/DZA(LET)
+         BEG = .5*(DZA(LET)-DZETL)*(TG(LET+1)-T0(LET+1)+TGETL-T2ETL)
+         IF (LET+1.GE.LTOPM1) GOTO 480
+         NK = LET+1
+  470    BEG = BEG+.5*DZA(NK)*(TG(NK)-T0(NK)+TG(NK+1)-T0(NK+1))
+         IF (NK+1.GE.LTOPM1) GOTO 480
+         NK = NK+1
+         GOTO 470
+C
+  480    BEG = BEG+.125*DZA(LTOPM1)*(TG(LTOPM1)-T0(LTOPM1))
+         TG(LTOP) = T0(LTOP)-2.*BEG/(DZA(LTOP)+.5*DZA(LTOPM1))
+C
+C...COMPUTE HORIZONTAL MOMENTUM IN THE COMPENSATING SUBSIDENCE
+C
+         DO 510 N = 1, NSTEP
+            DO 490 NK = 2, LTOP
+               FU(NK) = (U0(NK)+BTA(NK)*FU(NK-1))/BM(NK)
+               FV(NK) = (V0(NK)+BTA(NK)*FV(NK-1))/BM(NK)
+  490       CONTINUE
+            DO 500 NK = 2, LTOPM1
+               NJ = LTOP1-NK
+               UE(NJ) = EX(NJ)*UE(NJ+1)+FU(NJ)
+               VE(NJ) = EX(NJ)*VE(NJ+1)+FV(NJ)
+  500       CONTINUE
+  510    CONTINUE
+C
+C...OBTAIN AREA AVERAGED HORIZONTAL MOMENTUM.
+C
+         DO 520 NK = 1, LTOP
+            UG(NK) = AGO*(AE(NK)*UE(NK)+AU(NK)*UU(NK)+AD(NK)*UD(NK))
+            VG(NK) = AGO*(AE(NK)*VE(NK)+AU(NK)*VU(NK)+AD(NK)*VD(NK))
+  520  CONTINUE
+C
+*      copy "au" into "areaup"
+       do nk = 1,ltop 
+          areaup(i,nk) = au(nk)
+       end do
+C
+C...FEEDBACK TO RESOLVABLE SCALE TENDENCIES. NIDX STORES INDEXES
+C...USED TO IDENTIFY CONVECTIVE ACTIVITY FOR INDIVIDUAL GRID POINTS.
+C...INP (=1) ALWAYS REPRESENTS ZERO CONVECTIVE TENDENCY STORED IN
+C...ARRAYS OF DTDT, DQDT, DUDT AND DVDT.
+C
+         NCA(I) = NCA(I) - 1
+C
+CCCCC  IMPORTANT, SOME LINES ARE CUT FOR THE IMPLEMENTATION OF
+CCCCC  THE SCHEME IN THE RFE MODEL.  THIS IS FOR SIMPLIFICATION
+C
+         DO 610 K = 1, KX
+            NK = KX-K+1
+            DTT1=TG(K)-T0(K)
+            if ((K .LE. 4) .and. (DTT1 .gt. 0.)) DTT1 = 0.
+            DTT1=AMIN1(DTT1,8.0)
+            DTT1=AMAX1(DTT1,-10.0)
+C
+CCCCCC IMPORTANT, HERE THE LINES WERE CHANGED FROM THE ORIGINAL
+CCCCCC SCHEME IN THE PENN STATE/NCAR MODEL
+C
+C
+C
+            DTDT(I,NK) = DTT1/TIMEC
+            DQDT(I,NK) = (QG(K)-Q0(K))/TIMEC
+C
+  610    CONTINUE
+         RAINCV(I) = .1* DELT *CPR*AGO
+*
+*...put the rainfall rate in ZCRR...
+*
+*
+         ZCRR(I) = 1000.*RAINCV(I)/(DELT*100.)
+C
+C     WE RETURN THE PRIMARY RESULTS OF THE FCP
+C     WHEN THERE IS CONVECTIVE ADJUSTMENTS
+C
+  650 IF (NCA(I).EQ.NCAPRE) NCA(I) = NCA(I) - 1
+*
+*
+************************************************************
+*     END OF THE MAIN LOOP ON INDEX "I"
+************************************************************
+*
+*
+*     INVERT VERTICALLY SOME FIELDS
+*     -----------------------------
+*
+      kfin=kx/2
+*
+      do k=1,kfin
+*
+         nk = kx-k+1
+*
+*VDIR NODEP
+         do i=1,ix
+*
+            tempo        = areaup(i,k )
+            areaup(i,k ) = areaup(i,nk)
+            areaup(i,nk) = tempo
+*
+         end do
+*
+      end do
+*
+*     CONVERT UPDRAFT AREAS INTO CLOUD FRACTIONS
+*     ------------------------------------------
+*
+      do k=1,kx
+         do i=1,ix
+            clouds(i,k) = areaup(i,k)/dxdy(i)
+         end do
+      end do
+*
+*
+*
+      RETURN
+      END

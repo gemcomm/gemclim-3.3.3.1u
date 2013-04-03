@@ -1,0 +1,41 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#endif
+*
+*Authors
+*        J. Li, M. Lazare, CCCMA, rt code for gcm4
+*        (Ref: J. Li, H. W. Barker, 2005:
+*        JAS Vol. 62, no. 2, pp. 286\226309)
+*        P. Vaillancourt, D. Talbot, RPN/CMC;
+*        adapted for CMC/RPN physics (May 2006)
+*
+*Revisions
+* 001    M.Lazarre,K.Winger,P.Vaillancourt   (Apr 08) - use integer variables instead of actual integers
+*
+      real gws1gh, cs1o3gh,  cs1o2gh3
+      real gws2gh, cs2h2ogh, cs2o2gh
+      real gws3gh, cs3h2ogh, cs3co2gh
+      real gws4gh, cs4h2ogh, cs4co2gh 
+*
+      integer    ntl
+      parameter (ntl=28)
+*
+      common /bands1gh/ gws1gh(3), cs1o3gh(3), cs1o2gh3
+      common /bands2gh/ gws2gh(4), cs2h2ogh(5,ntl), cs2o2gh(5,ntl,3)
+      common /bands3gh/ gws3gh(4), cs3h2ogh(5,ntl,2), cs3co2gh(5,ntl,4)
+      common /bands4gh/ gws4gh(9), cs4h2ogh(5,ntl,6), cs4co2gh(5,ntl,6)
+

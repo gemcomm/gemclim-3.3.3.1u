@@ -1,0 +1,266 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!!! S/P PHY_NORMACC
+      SUBROUTINE PHY_NORMACC (F,LISTE,NOMBRE,PASDETEMPS,DELTAT)
+!
+#include "impnone.cdk"
+!
+      REAL*8 DELTAT
+      REAL F(*),VALEUR(*)
+      INTEGER NOMBRE,PASDETEMPS, TEMPS(NOMBRE), OUT
+      CHARACTER*(*) LISTE(NOMBRE),VARIABLE
+!
+!Author
+!          B. Dugas, RPN
+!
+!Revision   
+! 000      B. Dugas (Oct 2008) - Initial version
+!
+!Object
+!          Normalizes the ACCLIST variables of the "permanent
+!          bus", typically the variables which are used to
+!          accumulate fluxes or precipitation amounts in time.
+!          Variables in the MOYHR family are also accounted for.
+!          Allways used when the model is run in climate mode.
+!          The list of variables to be processed may be given
+!          as an input. These fields are divided by the number
+!          of timsteps since they were last normalized.
+!
+!Arguments (PHY_NORMACC)
+!
+!          - Input/Output -
+! F        permanent bus
+!
+!          - Input -
+! Liste    list of variables to be processed
+! Nombre   number of variables in LISTE. A null value
+!          implies that all valid variables should treated
+! PasDeTemps current timestep number
+! DeltaT   timestep size in seconds
+!
+!!
+
+#include "acclist.cdk"
+#include "buses.cdk"
+
+      CHARACTER(LEN=4) NOMIN
+      INTEGER  I,J,K
+      REAL*8   normalise
+
+!MODULES
+!---------------------------------------------------------------- 
+
+!     Normalisation.
+
+      IF(NOMBRE > 0) THEN
+         DO I=1,NOMBRE
+            NOMIN = LISTE(I)
+            DOSEARCH1: DO J=1,NBRACC
+               IF(NOMIN == PERMIS(1,J) .and. \
+                  PasDeTemps - step_saved(J) > 0) then
+                  IF(PERMIS(3,J) == '0') THEN
+                     normalise =(PasDeTemps - step_saved(J))*DeltaT
+                  ELSEIF(PERMIS(3,J) == '1') THEN
+                     normalise =(PasDeTemps - step_saved(J))
+                  ELSE
+                     CYCLE DOSEARCH1
+                  ENDIF
+                  normalise = 1./normalise
+                  DO K=LOCAL_PB(J,1),LOCAL_PB(J,2)  
+                     F(K) = normalise*F(K)
+                  ENDDO
+               ENDIF
+            ENDDO DOSEARCH1
+         ENDDO 
+      ELSEIF(NOMBRE == 0) THEN
+         DOALL: DO J=1,NBRACC
+            IF(PasDeTemps - step_saved(J) > 0) then
+               IF(PERMIS(3,J) == '0') THEN
+                  normalise =(PasDeTemps - step_saved(J))*DeltaT
+               ELSEIF(PERMIS(3,J) == '1') THEN
+                  normalise =(PasDeTemps - step_saved(J))
+               ELSE
+                  CYCLE DOALL
+               ENDIF
+               normalise = 1./normalise
+               DO K=LOCAL_PB(J,1),LOCAL_PB(J,2)  
+                  F(K) = normalise*F(K)
+               ENDDO
+            ENDIF
+         ENDDO DOALL
+      ENDIF
+
+      RETURN
+
+!---------------------------------------------------------------- 
+      ENTRY PHY_SETTACC (LISTE,NOMBRE,PASDETEMPS)
+
+!Object
+!          Sets the last "save" timesteps for ACCLIST accumulated
+!          variables. It is assumed that these variables in LISTE
+!          have all been zeroed-out (by PHY_ZERACC).
+!
+!Arguments (PHY_SETTACC)
+!
+!          - Input/Output -
+! PasDeTemps current timestep
+!
+!          - Input -
+! Liste    list of variables for which have been saved
+! Nombre   number of variables in LISTE. A null value
+!          implies that all ACCLIST variables should be
+!          treated
+!
+!!
+!     Trouver toutes le positions des champs PERMIS
+      
+      DO J=1,NBRACC
+         IF(LOCAL_PB(J,1)*LOCAL_PB(J,2) == 0) THEN
+            DO I=1,PERTOP
+               IF(PERNM(I,2)    == PERMIS(1,J) .AND. \
+                  LOCAL_PB(J,1) ==    0        .AND. \
+                  LOCAL_PB(J,2) ==   -1      )  THEN
+                  LOCAL_PB(J,1) = PERPAR(I,1)
+                  LOCAL_PB(J,2) = PERPAR(I,1)+PERPAR(I,2)-1
+               ENDIF
+            ENDDO
+            IF(LOCAL_PB(J,1)*LOCAL_PB(J,2) == 0) THEN
+               LOCAL_PB(J,1) = 2
+               LOCAL_PB(J,2) = 1
+            ENDIF
+!!!         print *,'J,PERMIS(1,J),LOCAL_PB(J,1),LOCAL_PB(J,2) ', \
+!!!                  J,PERMIS(1,J),LOCAL_PB(J,1),LOCAL_PB(J,2) 
+         ENDIF
+      ENDDO
+
+      IF(NOMBRE > 0) THEN
+         DO I=1,NOMBRE
+            NOMIN = LISTE(I)
+            DO J=1,NBRACC
+               IF(NOMIN.EQ.PERMIS(1,J)) step_saved(J) = PasDeTemps
+            ENDDO
+         ENDDO 
+      ELSEIF(NOMBRE == 0) THEN
+         DO J=1,NBRACC
+            step_saved(J) = PasDeTemps
+         ENDDO
+      ENDIF
+
+      RETURN
+!---------------------------------------------------------------- 
+
+      ENTRY PHY_GETTACC (NOMBRE,LISTE,TEMPS)
+
+!Object
+!          Retreives the last "save" timesteps for the ACCLIST
+!          accumulated variables. This can then be saved in the
+!          physics restart file for further processing
+!
+!Arguments (PHY_GETTACC)
+!
+!          - Input/Output -
+! Nombre   number of variables in LISTE. Allways set to NBRACC
+!          after this call
+!
+!          - Output - ***(only when Nombre = NBRACC at input)***
+! Liste    full list of the ACCLIST variables PERMIS(1,1:NBRACC)
+! Temps    the corresponding values of step_saved(1:NBRACC)
+!
+!!
+      IF(NOMBRE == NBRACC) THEN
+         LISTE(1:NBRACC) = PERMIS(1,1:NBRACC)
+         TEMPS(1:NBRACC) = step_saved(1:NBRACC)
+      ELSE
+         NOMBRE = NBRACC
+      ENDIF
+
+      RETURN
+
+!---------------------------------------------------------------- 
+      ENTRY PHY_PUTTACC (NOMBRE,LISTE,TEMPS,OUT)
+
+!Object
+!          Defines the last "save" timesteps for the ACCLIST
+!          accumulated variables. This is typically retreived
+!          from a physics restart file.
+!
+!Arguments (PHY_PUTTACC)
+!
+!          - Input -
+! Out      output unit number for message
+! Nombre   number of variables in LISTE. This should allways
+!          be equal to NBRACC. Complains and does not use the
+!          two last parametres otherwise
+!
+!          ***(ONLY when Nombre = NBRACC at INPUT)***
+!
+! Liste    full list of the ACCLIST variables PERMIS(1,1:NBRACC)
+! Temps    the new corresponding values of step_saved(1:NBRACC)
+!
+!!
+      IF(NOMBRE == NBRACC) THEN
+         PERMIS  (1,1:NBRACC) = LISTE(1:NBRACC)
+         step_saved(1:NBRACC) = TEMPS(1:NBRACC)
+      ELSE IF (OUT >= 0) THEN
+         WRITE(OUT,6666) '!!!!!!!!!!'
+         WRITE(OUT,6000) NBRACC,NOMBRE
+         WRITE(OUT,6001) 'supported',(PERMIS(1,J),J=1,NBRACC)
+         WRITE(OUT,6001) 'proposed ',(LISTE(J),J=1,NOMBRE)
+         WRITE(OUT,6666) '**********'
+      ENDIF
+
+      RETURN
+
+ 6000 FORMAT('PHY_PUTTACC expecting ',I3,' variables rather than ',I3/)
+ 6001 FORMAT('  The ',A,' ACCLIST variables are...'/9(20(A,1X:)/20(A,1X:)/))
+ 6666 FORMAT(10A)
+!---------------------------------------------------------------- 
+
+      ENTRY PHY_MNXINI (F,VARIABLE,VALEUR,PASDETEMPS)
+
+!Object
+!          Initialize VARIABLE in the MOYHR min/max family
+!          of variables with values found in the VALEUR
+!          vector when PasDeTemps - step_saved = 1
+!
+!Arguments (PHY_MNXINI)
+!
+!          - Input -
+! Variable   name of the variable to initialize
+! Valeur     vector holding the initial values
+! PasDeTemps current timestep
+!
+!          - Output -
+! F          permanent bus
+
+!     Initialiser les variables MOYHR de type MIN/MAX
+
+      DOSEARCH2: DO J=1,NBRACC
+         IF(PERMIS(1,J) == VARIABLE .and. \
+            PERMIS(3,J) == '2'      .and. \
+            (PasDeTemps - step_saved(J) == 1)) then
+            I=1
+            DO K=LOCAL_PB(J,1),LOCAL_PB(J,2)  
+               F(K) = VALEUR(I)
+               I = I+1
+            ENDDO
+            EXIT DOSEARCH2
+         ENDIF
+      ENDDO DOSEARCH2
+      
+      RETURN
+
+      END

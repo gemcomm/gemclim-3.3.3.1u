@@ -1,0 +1,400 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P  FCREST5
+*
+      SUBROUTINE FCREST5(TS,WP,WS,QS,TA,QA,S,NK,PS,FDSS,TPROF,P,FDSI,
+     X                   D2P,Z0T,BA1,AA1,A1MAX,A1MIN,WKI,WM,A2P,C1,C2,
+     +                   EPSTFN,CTU,RIA,CLAT,C3,C4,WSWK,ALPHA,al,gl,
+     +                   sp,sm,vg,N,TEMPO)
+#include "impnone.cdk"
+      INTEGER N, nk
+      REAL TS(N),WP(N),WS(N),QS(N),TA(N),QA(N),PS(N),FDSS(N)
+      REAL TPROF(N),P(N),FDSI(N),D2P(N),BA1(N),AA1(N),A1MAX(N)
+      REAL A1MIN(N),WKI(N),WM(N),A2P(N),C1(N),C2(N),EPSTFN(N)
+      REAL CTU(N),RIA(N),CLAT(N),C3(N),C4(N),WSWK(N),ALPHA,TEMPO(N)
+      real al(n),sp(n),sm(n),vg(n),gl(n)
+      real s(n,nk),Z0T(N)
+*
+*Author
+*          J. Cote (RPN 1983)
+*
+*Revision
+* 001      J. Cote RPN(Nov 1984)SEF version documentation
+* 002      M. Lepine  -  RFE model code revision project (Feb 87)
+*                     -  pass work field TEMPO(N) in parameter
+*                             instead of in common block
+* 003      J. Mailhot RPN(July 89)-surface infra-red flux from
+*          *RADIR*
+* 004      B. Bilodeau  (April 90)
+*              Put QS to zero if the model is integrated without
+*              humidity
+* 005      N. Brunet  (May90)
+*               Standardization of thermodynamic functions
+* 006      N. Brunet  (May91)
+*               New version of thermodynamic functions
+*               and file of constants
+* 007      C.Girard  (May91)
+*               Option WS=CONS for total duration of one integration
+* 008      B. Bilodeau  (August 1991)- Adaptation to UNIX
+*
+* 009      C.Girard (Nov92)
+*          Modification to the definition of the surface humidity
+* 010      B. Bilodeau (May 94) - New physics interface
+* 011      N. Brunet (May 95) - new surface processes
+* 012      B. Bilodeau (June 95) - switch "fonte"
+* 013      N. Brunet and C. Girard (Nov 1995) - Bug correction :
+*          use real temperature ta instead of virtual temperature
+*          in QSAT calculation
+* 014      Y. Delage (Feb 96) Ease passage from stable to unstable
+*          surface layer in weak wind situations over rough terrain.
+* 015      N. Brunet (Oct 97) - get rid of min in FDSI
+* 016      N. Brunet (mai 98) - prevent ice sfce temp to go beyond 0 deg C
+* 017      N. Brunet (avl 99) - put snow treshold (seuiln) in meter
+* 018      M. Lepine (March 2003) -  CVMG... Replacements
+* 019      W. Yu (March 2004) - TSCONFC
+* 020      B. Bilodeau (May 2005) - New comdeck fintern
+*
+*Object
+*          to do integration of "Force-Restore" equations
+*
+*Arguments
+*
+*          - Input/Output -
+* TS       surface temperature
+* WP       deep soil moisture
+* WS       surface soil moisture
+*
+*          - Output -
+* QS       surface specific humidity
+*
+*          - Input -
+* TA       potential temperature at the last predictive level
+* QA       specific humidity at the anemometer level
+* S        local sigma
+* NK       number of vertical levels
+* PS       surface pressure in pascals
+* FDSS     solar flux at the surface * (1-albedo)
+* TPROF    deep soil temperature
+* P        rate of precipitation
+*
+*          - Input/Output -
+* FDSI     infra-red flux at the surface
+*
+*          - Input -
+* D2P      timestep*(1/RHO(water)*D2)
+* Z0T      roughness lentgth for heat and moisture fluxes
+* BA1      timestep*(1/RHO(water)*D1)*BA/(critical value of which the
+*          precipitation flows)
+* AA1      timestep*(1/RHO(water)*D1)*(A1MAX-BA*WX)
+* A1MAX    timestep*(1/RHO(water)*D1)*A1MAX
+* A1MIN    timestep*(1/RHO(water)*D1)*A1MIN
+* WKI      1/(critical value in which the surface acts as if it was
+*          saturated)
+* WM       critical value of which the precipitation flows
+* A2P      timestep*A2/(24 hours)
+* C1       2*timestep*PI/(24 hours)
+* C2       2*timestep*SQRT(PI)/(specific heat of surface*SQRT(surface
+*          thermal diffusion coefficient*(24 hours)))
+* EPSTFN   radiation emissivity of the surface (.94 * Stephan-
+*          Boltzman constant)
+* CTU      transfer coefficient (CT) * USTAR
+* RIA      work field
+* CLAT     work field
+* C3       work field
+* C4       work field
+* WSWK     work field
+* ALPHA    Crank-Nicholson generalized parameter
+* AL       surface albedo
+* SP       snow depth
+* GL       oceanic ice cover
+* SM       stomatal resistance - computed in stfrst
+* VG       vegetation types
+* N        horizontal dimension
+* TEMPO    work field
+*
+*Notes
+*          To predict the temperature and specific humidity at
+*          the surface by the "Force-Restore" method by Blackadar.
+*          "STFRST" must be previously called.
+*
+*          Algorithm for the solution of DY/DT = F
+*
+*          Y(T+TAU)-Y(T) = TAU*( ALPHA*F(T+TAU))+(1-ALPHA)*F(T) )
+*          F(T+TAU) = F(T)+DF/DY*(Y(T+TAU)-Y(T))
+*          Y(T+TAU) = Y(T) + TAU*F(T)/(1-ALPHA*TAU*DF/DY)
+*
+*          The equation for WP is solved with ALPHA=0
+*          See the Master's thesis by J.Mailhot for more details.
+*          All the arguments are dimensions of N except ALPHA
+*          and N
+*
+*IMPLICITES
+*
+#include "clefcon.cdk"
+#include "surfcon.cdk"
+*
+#include "scfrst.cdk"
+*
+#include "options.cdk"
+*
+*
+*
+**
+*
+*
+      INTEGER J
+      REAL QSAT,STS3,C3TEM
+      real chls
+      real t1, tfon, vta
+      real radiat, fcha, fvap, ha
+      real rest, msn
+      real tsms, tend
+      real y1, y2, rej
+      real dtcs, t1rej, frac, tftmp, betadt
+      real dthv,tva,tvs,ctucl,aa,bb,cc
+      real seuiln
+      real tsinit
+      LOGICAL WSCONS
+*
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+CDIR$ IVDEP
+      DATA WSCONS/.TRUE./
+*
+*
+      chls = chlc + chlf
+      y1=0.8
+      y2=0.3
+      seuiln = 0.05
+*  ----------------------------------------------------------------------
+*  PLANT STOMATAL RESISTANCE (MINIMAL UNDER NO WATER STRESS - UNITS: S/M)
+*
+*      RSTOMAT=60.0
+*   *** voir variable sm
+*  ----------------------------------------------------------------------
+*
+*VDIR NODEP
+      DO 1 J=1,N
+*
+*     pour l'option TSCONFC (TS constant)
+      tsinit = ts(j)
+*
+*     note: la variable TA, valide au niveau NK, est definie comme suit:
+*              ta = s(-,nk)**(-cappa)*t(-,nk)
+*           or, dans certains calculs ci-dessous, nous avons besoin de
+*           la vraie temperature;
+*           c'est pourquoi on definit la variable suivante: VTA
+*
+      vta = ta(j)*s(j,nk)**cappa
+*
+      RIA(J)=EPSTFN(J)*FDSI(J)/STEFAN
+*
+*        ADDITION DES FLUX IR ET VIS
+      RIA(J)=RIA(J)+FDSS(J)
+*
+      if (ts(j)-tcdk .gt. 0.) then
+         clat(j) = chlc
+      else
+         clat(j) = chls
+      endif
+      WSWK(J)= MIN ( WS(J)*WKI(J) , 1.0 )
+*     WSWK(J) = MAX ( 0.5*(1.-COS(PI*WSWK(J))) , .05 )
+*
+      IF(SATUCO)THEN
+         QSAT = FOQST(vta,PS(J)*s(j,nk))
+         C4(J) = FODQS(QSAT,vta)
+      ELSE
+         QSAT = FOQSA(vta,PS(J)*s(j,nk))
+         C4(J) = FODQA(QSAT,vta)
+      ENDIF
+      C4(J)=CLAT(J)*C4(J)/CPD
+      C3(J)=(4.0*EPSTFN(J)*vta**3)
+     X      /(CPD*RIMB*PS(J)*CTU(J)/vta)
+      C3(J)=(1.0+C3(J))/(C4(J)*(1.0-WSWK(J))
+     X      +(1.0+C3(J))*(1.0+CTU(J)*sm(j)))
+      WSWK(J)=WSWK(J)*C3(J)
+*
+      CLAT(J)=CLAT(J)*WSWK(J)
+*
+*        POUR SERFLX
+*
+         TEMPO(J)=TS(J)
+         TEMPO(N+J)=CLAT(J)
+*
+      IF(SATUCO)THEN
+         QSAT = FOQST(TS(J),PS(J))
+         C4(J) = FODQS(QSAT,TS(J))
+      ELSE
+         QSAT = FOQSA(TS(J),PS(J))
+         C4(J) = FODQA(QSAT,TS(J))
+      ENDIF
+      C4(J)=CPD+CLAT(J)*C4(J)
+      CLAT(J)=CLAT(J)*(QSAT-QA(J))
+      C3TEM=RIMB*PS(J)*CTU(J)/TS(J)
+      STS3=EPSTFN(J)*TS(J)**3
+*
+      tsms = ts(j)
+*
+*     --- on fait une solution analytique de fcrest - c'est la raison
+*         du terme "betadt" - selon note de C. Girard
+*     --- la raison du if suivant: betadt peut etre egal a zero
+*         si au-dessus de l'eau, ce qui genere division par zero.
+*
+C     if(mg(j) .ge. 0.5)then
+         tva=(1+DELTA*QA(J))*TA(J)
+         tvs=(1+DELTA*QS(J))*TS(J)
+         betadt = C2(J)*(C3TEM*C4(J)+4.0*STS3)+C1(J)
+	 aa=STS3*TS(J)-RIA(J)
+	 bb=CLAT(J)+CPD*(TS(J)-TA(J))
+	 cc=C1(J)*(TS(J)-TPROF(J))
+         TS(J)=TS(J)-(C2(J)*(aa+C3TEM*bb)+cc)
+     1          *(1.- exp(-betadt))/betadt
+         dthv=tva-tvs-TS(J)+tsms
+
+*     in weak wind situations with large Z0T the transfer coefficient changes
+*     from near zero in stable conditions to a medium/large value in unstable
+*     conditions.  The linearization is not valid in this case and the following
+*     prevents large oscillation.  For the free convection formula, see BLM 58, p 29.
+
+         if(tva-tvs.gt.-0.1 .and. dthv.lt.0.) then
+            ctucl=KARMAN**2*sqrt(-dthv*CI*GRAV*Z0T(J)/(tva*27.))
+            C3TEM=RIMB*PS(J)*MAX(CTU(J),0.5*(CTU(J)+ctucl))/TS(J)
+            betadt = C2(J)*(C3TEM*C4(J)+4.0*STS3)+C1(J)
+            TS(J)=tsms-(C2(J)*(aa+C3TEM*bb)+cc)
+     1            *(1.- exp(-betadt))/betadt
+         endif
+*
+*
+       IF (SNOWMELT) THEN
+*
+*      --------------------------------------------------------------
+*      -------   fonte de la neige  ------
+*      si ts, calcule ci-dessus, est superieur a 0 deg C, on devrait
+*      normalement utiliser cette energie a faire fondre la neige s'il
+*      y en a. Or, dans notre modele, la surface n'est pas seulement
+*      compose de neige, mais aussi de vegetation; par exemple, AL
+*      au-dessus des forets de coniferes a un albedo de l'ordre de 25%
+*      meme s'il y a beaucoup de neige au sol. Donc, seulement une partie
+*      de l'energie disponible ira dans la fonte de neige. La temperature
+*      de fonte (TFON) sera fonction de l'energie disponible (T1) et
+*      de l'albedo.
+*      cette relation est empirico-intuitive.
+*
+      if(sp(j) .gt. seuiln .and. ts(j) .gt. tcdk)then
+*
+         rej=((y1-y2)/0.7)*(al(j)-0.8) + y1
+         t1 = ts(j) - tcdk
+         t1rej = t1 * rej
+*
+         tftmp = ts(j) - t1rej
+         dtcs = ta(j) - tftmp
+*         -- t1rej est la temperature qu'on soustrait a ts pour avoir
+*            'tfon'. Comme le modele a de la difficulte a avoir une
+*            une forte inversion entre la surface et 1.5 m, on refroidit
+*            moins ts dans ces cas.
+         if(dtcs .gt. 0.0)then
+            frac = exp(-4.0*dtcs)
+            t1rej = t1rej * frac
+         end if
+*
+         tfon = ts(j) - t1rej
+*
+*         -- nouveau ts est egal a tfon
+*         -- on recalcule le terme c3tem pour s/r diagsf (via serflx)
+         ts(j) = tfon
+         c3tem = rimb*ps(j)*ctu(j)/ts(j)
+*         -- on calcule la quantite de neige fondue en m/s (MSN)
+         radiat = epstfn(j)*ts(j)**4 - ria(j)
+         fcha = c3tem*cpd*(ts(j)-ta(j))
+         if(satuco)then
+            qsat = foqst(ts(j),ps(j))
+         else
+            qsat = foqsa(ts(j),ps(j))
+         end if
+         fvap = c3tem*wswk(j)*chls*(qsat-qa(j))
+         ha = radiat + fcha + fvap
+         rest = (c1(j)/c2(j))*(ts(j) - tprof(j))
+         tend = (ts(j)-tsms)/c2(j)
+         msn = -(ha + rest + tend)/(rauw*chlf)
+      end if
+*
+*     on empeche une surface de glace de depasser 0 deg C
+*
+      if(gl(j) .ge. 0.5 .and. ts(j) .gt. tcdk) ts(j) = tcdk
+*
+      ENDIF
+*
+*     -----------------------------------------------------------------
+*
+*
+*        POUR SERFLX
+*
+         c4(j) = c3tem
+         RIA(J)=(1.0-ALPHA)*TEMPO(J)+ALPHA*TS(J)
+*
+      IF(SATUCO)THEN
+         QSAT = FOQST(TS(J),PS(J))
+      ELSE
+         QSAT = FOQSA(TS(J),PS(J))
+      ENDIF
+*
+*     --- solution de l'equation force-restore pour
+*         humidite du sol
+*
+      IF(.NOT.WSCONS)  THEN
+*
+         C3TEM=C3TEM*(QSAT-QA(J))
+*
+         WP(J)=MAX( MIN( WP(J)-D2P(J)*(WSWK(J)*C3TEM-P(J)) , WM(J) ) ,
+     +             0.0)
+*
+         CLAT(J)=MIN ( MAX ( AA1(J)+BA1(J)*WS(J) , A1MIN(J) ) ,
+     +               A1MAX(J) )
+*
+         C3TEM=WKI(J)*C3TEM*C3(J)
+*
+         WS(J)=MAX( MIN ( WS(J)-
+     +         (CLAT(J)*(C3TEM*WS(J)-P(J))+A2P(J)*(WS(J)-WP(J)))
+     +        /(1.0+ALPHA*(CLAT(J)*C3TEM+A2P(J))) , WM(J) ), 0.0 )
+*
+         WSWK(J)= MIN ( WS(J)*WKI(J) , 1.0 )
+*        WSWK(J) = MAX ( 0.5*(1.-COS(PI*WSWK(J))) , .05 )
+         WSWK(J)=WSWK(J)*C3(J)
+*
+      ENDIF
+*
+      QS(J)= MIN( WSWK(J)*(QSAT-QA(J)) + QA(J) , QSAT )
+*
+      if (tsconfc) ts(j) = tsinit
+*
+*
+    1 CONTINUE
+*
+*
+*     METTRE QS A ZERO SI LE MODELE EST SEC.
+      IF (.NOT. (WET.AND.EVAP) ) THEN
+*
+         DO 2 J=1,N
+            QS(J) = 0.0
+2        CONTINUE
+*
+      ENDIF
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

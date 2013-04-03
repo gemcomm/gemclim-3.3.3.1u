@@ -1,0 +1,70 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#include "phy_macros_f.h"
+      SUBROUTINE INIMOS ( F, FSIZ, E, ESIZ, KOUNT, NI )
+*
+#include "impnone.cdk"
+*
+      INTEGER NI, KOUNT
+      INTEGER FSIZ,ESIZ
+      REAL F(FSIZ), E(ESIZ)
+      integer i,j,k
+*
+      real fcansum
+      integer icp1
+*
+#include "nclassvg.cdk"
+#include "classlvls.cdk"
+
+#include "options.cdk"
+#include "phybus.cdk"
+#include "tuiles.cdk"
+
+#include "surfacepar.cdk"
+
+      call agvgmos(f,fsiz,f(covf),f(mosfract),f(tindex),NI,
+     $               NCLASS+NCLASSURB,nmos)
+
+c This assumes FCANMX has mul=class_ic+1
+      icp1 = class_ic+1
+      do k=1,nmos+1
+        DO i=0,ni-1
+C       Normalize FCANMX (code by K. Winger, implemented by L. Duarte)
+          fcansum = 0.
+          DO J=1,icp1
+            fcansum = fcansum + f(FCANMX  + i +(j-1)*ni + (k-1)*ni*icp1)
+          ENDDO
+          if ( fcansum .ge. critmask ) then
+             DO J=1,icp1
+              f(FCANMX  + i +(j-1)*ni + (k-1)*ni*icp1) =
+     $                  f(FCANMX  + i +(j-1)*ni + (k-1)*ni*icp1) / fcansum
+            ENDDO
+          end if
+          DO J=1,class_ic
+            f(FCANMX + i + (j-1)*ni + (k-1)*ni*icp1) = 
+     $                f(FCANMX  + i +(j-1)*ni + (k-1)*ni*icp1)*fveg(j)
+          end do
+        END DO
+      end do
+
+      if (iwf.eq.1) then
+        do i=0,ni*(nmos+1)-1
+            f(xslope + i) = e(xslopen + i)
+        end do
+      end if
+
+      return
+      end

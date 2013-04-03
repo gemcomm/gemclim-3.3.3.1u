@@ -1,0 +1,113 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!      #########################################
+       SUBROUTINE FORCING_VERT_SHIFT(PZS_ATM,PZS_SURF,PTA_ATM,PQA_ATM,PPA_ATM,PRHOA_ATM, &
+                                     PTA_SURF,PQA_SURF,PPA_SURF,PRHOA_SURF               )
+!      #########################################
+!
+!
+!!****   *FORCING_VERT_SHIFT* - routine to shith atmospheric forcing to another altitude
+!!
+!!
+!!     PURPOSE
+!!     -------
+!
+!!**   METHOD
+!!     ------
+!!                      
+!!     EXTERNAL
+!!     --------
+!!
+!!       NONE
+!!
+!!     IMPLICIT ARGUMENTS
+!!     ------------------
+!!
+!!     REFERENCE
+!!     ---------
+!!
+!!     AUTHOR
+!!     ------
+!!       V. Masson
+!! 
+!!     MODIFICATIONS
+!!     -------------
+!!       Original        07/2003
+!! ---------------------------------------------------------------------
+!
+!*       0. DECLARATIONS
+!
+USE MODD_CSTS,    ONLY : XRD, XG, XRV
+USE MODD_ATM_CST, ONLY : XCLIM_T_GRAD
+!
+USE MODE_THERMOS
+!
+IMPLICIT NONE
+!
+!
+!*       0.1 declarations of arguments
+!
+REAL,    DIMENSION(:), INTENT(IN)  :: PZS_ATM     ! orography of atmospheric grid
+REAL,    DIMENSION(:), INTENT(IN)  :: PZS_SURF    ! orography of surface     grid
+REAL,    DIMENSION(:), INTENT(IN)  :: PTA_ATM     ! temperature at atmospheric altitude
+REAL,    DIMENSION(:), INTENT(IN)  :: PQA_ATM     ! humidity    at atmospheric altitude
+REAL,    DIMENSION(:), INTENT(IN)  :: PPA_ATM     ! pressure    at atmospheric altitude
+REAL,    DIMENSION(:), INTENT(IN)  :: PRHOA_ATM   ! density     at atmospheric altitude
+REAL,    DIMENSION(:), INTENT(OUT) :: PTA_SURF    ! temperature at surface     altitude
+REAL,    DIMENSION(:), INTENT(OUT) :: PQA_SURF    ! humidity    at surface     altitude
+REAL,    DIMENSION(:), INTENT(OUT) :: PPA_SURF    ! pressure    at surface     altitude
+REAL,    DIMENSION(:), INTENT(OUT) :: PRHOA_SURF  ! density     at surface     altitude
+!
+!*       0.2 declarations of local variables
+!
+REAL, DIMENSION(SIZE(PRHOA_ATM)) :: ZRHOA_ATM  ! approximated density
+REAL, DIMENSION(SIZE(PRHOA_ATM)) :: ZRHOA_SURF ! approximated density
+!
+! ---------------------------------------------------------------------------
+!
+!*       1.  climatological gradient for temperature
+!            ---------------------------------------
+!
+PTA_SURF = PTA_ATM + XCLIM_T_GRAD * (PZS_SURF - PZS_ATM)
+!
+!-------------------------------------------------------------------------------
+!
+!*       2.  hydrostatism for pressure
+!            -------------------------
+!
+PPA_SURF = PPA_ATM * EXP ( - XG/XRD/(0.5*(PTA_ATM+PTA_SURF)*( 1.+((XRV/XRD)-1.)*PQA_ATM(:) )) &
+                            * (PZS_SURF-PZS_ATM)                                              )
+!
+!-------------------------------------------------------------------------------
+!
+!*       3.  conservation of relative humidity for humidity
+!            ----------------------------------------------
+!
+PQA_SURF = PQA_ATM / QSAT(PTA_ATM, PPA_ATM) * QSAT(PTA_SURF,PPA_SURF)
+!
+!-------------------------------------------------------------------------------
+!
+!*       4.  estimation of air density from temperature and humidity
+!            -------------------------------------------------------
+!
+ZRHOA_ATM (:) = PPA_ATM (:) / XRD /  PTA_ATM (:) / ( 1.+((XRV/XRD)-1.)*PQA_ATM (:) )
+ZRHOA_SURF(:) = PPA_SURF(:) / XRD /  PTA_SURF(:) / ( 1.+((XRV/XRD)-1.)*PQA_SURF(:) )
+!
+PRHOA_SURF(:) = PRHOA_ATM(:) * ZRHOA_SURF(:) / ZRHOA_ATM (:)
+!
+!-------------------------------------------------------------------------------
+!
+END SUBROUTINE FORCING_VERT_SHIFT

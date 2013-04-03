@@ -1,0 +1,337 @@
+#if defined (DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer,
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer
+!version 3 or (at your option) any later version that should be found at:
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software;
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec),
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#endif
+!
+#include "maxlev.cdk"
+!
+      integer           iconvec
+      integer           ifluvert
+      integer           igwdrag
+      integer           ikfcpcp
+      integer           ilakes
+      integer           ilongmel
+      integer           ioptix
+      integer           ipcptype
+      integer           iradia
+      integer           ischmsol
+      integer           ischmurb
+      integer           ishlcvt(2)
+      integer           istcond
+!
+      character*16      options_character_first(-1:0)
+      character*16      options_file_first(-1:0)
+      character*16      convec
+      character*16      fluvert
+      character*16      gwdrag
+      character*16      kfcpcp
+      character*16      lakes
+      character*16      longmel
+      character*16      optix
+      character*16      pcptype
+      character*16      radfiles
+      character*16      radia
+      character*16      schmsol
+      character*16      schmurb
+      character*16      shlcvt(2)
+      character*16      stcond
+      character*16      vege_fields
+      character*16      options_character_last
+      character*16      options_file_last
+      character*1024    ozone_file_s
+!
+      integer           class_ig
+      integer           cw_rad
+      integer           date(14)
+      integer           iheatcal
+      integer           iwf
+      integer           kntrad
+      integer           lin_kph
+      integer           lin_lsc
+      integer           lin_pbl
+      integer           lin_sgo
+      integer           lin_v4d
+      integer           my_ccntype
+      integer           my_full_version
+      integer           moyhr
+      integer           nmos
+      integer           nsloflux
+      integer           radnivl(levmax+1)
+      integer           hines_flux_filter
+!
+      logical           advectke
+      logical           agregat
+      logical           bkgalb
+      logical           chauf
+      logical           climat
+      logical           cortm
+      logical           coupling
+      logical           dbgmem
+      logical           diffuw
+      logical           lmetox
+      logical           drag
+      logical           drylaps
+      logical           evap
+      logical           fomic
+      logical           icelac
+      logical           impflx
+      logical           inincr
+      logical           icemelt
+      logical           inilwc
+      logical           kfcmom
+      logical           kticefrac
+      logical           kfctriglat
+      logical           limsnodp
+      logical           my_diagon
+      logical           my_iceon
+      logical           my_initn
+      logical           my_rainon
+      logical           my_sedion
+      logical           my_snowon
+      logical           my_warmon
+      logical           my_dblmom_c
+      logical           my_dblmom_r
+      logical           my_dblmom_i
+      logical           my_dblmom_s
+      logical           my_dblmom_g
+      logical           my_dblmom_h
+      logical           non_oro
+      logical           offline
+      logical           owflux
+      logical           radfix
+      logical           radfltr
+      logical           radslope
+      logical           reduc
+      logical           satuco
+      logical           simisccp
+      logical           snoalb_anl
+      logical           snowmelt
+      logical           stomate
+      logical           stratos
+      logical           tdiaglim
+      logical           tsconfc
+      logical           ts_flxir
+      logical           typsol
+      logical           water_qs
+      logical           water_z0m
+      logical           water_z0h
+      logical           wet
+      logical           z0dir
+!
+      real              as2
+      real              beta2
+      real              delt
+      real              dzsedi
+      real              eponge(levmax)
+      real              etrmin2
+      real              facdifv
+      real              factdt
+      real              ggeo
+      real              hc2
+      real              hf2
+      real              hm2
+      real              kfctrig4(4)
+      real              kfctriga
+      real              kfctrigl
+      real              kfcrad
+      real              kfcdepth
+      real              kfcdet
+      real              kfcdlev
+      real              kfctimec
+      real              kfctimea
+      real              kkl2
+      real              ltran0
+      real              my_dzsedi
+      real              non_oro_pbot
+      real              parsol(6)
+      real              pbl_ricrit(2)
+      real              ptop_nml
+      real              qco2
+      real              qch4
+      real              qn2o
+      real              qcfc11
+      real              qcfc12
+      real              rmscon
+      real              schmsol_lev(levmax+3)
+      real              taufac
+      real              triglat(2)
+      real              vamin
+      real              z0min2
+      real              z0tlat(2)
+      real              zta
+      real              zua
+!
+      common /ioptionc/ iconvec
+      common /ioptionc/ ifluvert
+      common /ioptionc/ igwdrag
+      common /ioptionc/ ikfcpcp
+      common /ioptionc/ ilakes
+      common /ioptionc/ ilongmel
+      common /ioptionc/ ioptix
+      common /ioptionc/ ipcptype
+      common /ioptionc/ iradia
+      common /ioptionc/ ischmsol
+      common /ioptionc/ ischmurb
+      common /ioptionc/ ishlcvt
+      common /ioptionc/ istcond
+!
+!     please! keep options_character_first at the beginning
+      common / optionc/ options_character_first
+      common / optionc/ convec
+      common / optionc/ fluvert
+      common / optionc/ gwdrag
+      common / optionc/ kfcpcp
+      common / optionc/ lakes
+      common / optionc/ longmel
+      common / optionc/ optix
+      common / optionc/ pcptype
+      common / optionc/ radfiles
+      common / optionc/ radia
+      common / optionc/ schmsol
+      common / optionc/ schmurb
+      common / optionc/ shlcvt
+      common / optionc/ stcond
+      common / optionc/ vege_fields
+      common / optionc/ options_character_last
+!     please! keep options_character_last at the end
+!
+!     please! keep options_file_first at the beginning
+      common / optionf/ options_file_first
+      common / optionf/ ozone_file_s
+      common / optionf/ options_file_last
+!     please! keep options_file_last at the end
+!
+      common / optioni/ class_ig
+      common / optioni/ cw_rad
+      common / optioni/ date
+      common / optioni/ iheatcal
+      common / optioni/ iwf
+      common / optioni/ kntrad
+      common / optioni/ lin_kph
+      common / optioni/ lin_lsc
+      common / optioni/ lin_pbl
+      common / optioni/ lin_sgo
+      common / optioni/ lin_v4d
+      common / optioni/ my_ccntype
+      common / optioni/ my_full_version
+      common / optioni/ moyhr
+      common / optioni/ nmos
+      common / optioni/ nsloflux
+      common / optioni/ radnivl
+      common / optioni/ hines_flux_filter
+!
+      common / optionl/ advectke
+      common / optionl/ agregat
+      common / optionl/ bkgalb
+      common / optionl/ chauf
+      common / optionl/ climat
+      common / optionl/ cortm
+      common / optionl/ coupling
+      common / optionl/ dbgmem
+      common / optionl/ diffuw
+      common / optionl/ drag
+      common / optionl/ drylaps
+      common / optionl/ evap
+      common / optionl/ fomic
+      common / optionl/ icelac
+      common / optionl/ impflx
+      common / optionl/ inincr
+      common / optionl/ icemelt
+      common / optionl/ inilwc
+      common / optionl/ kfcmom
+      common / optionl/ kticefrac
+      common / optionl/ kfctriglat
+      common / optionl/ limsnodp
+      common / optionl/ lmetox
+      common / optionl/ my_diagon
+      common / optionl/ my_iceon
+      common / optionl/ my_initn
+      common / optionl/ my_rainon
+      common / optionl/ my_sedion
+      common / optionl/ my_snowon
+      common / optionl/ my_warmon
+      common / optionl/ my_dblmom_c
+      common / optionl/ my_dblmom_r
+      common / optionl/ my_dblmom_i
+      common / optionl/ my_dblmom_s
+      common / optionl/ my_dblmom_g
+      common / optionl/ my_dblmom_h
+      common / optionl/ non_oro
+      common / optionl/ offline
+      common / optionl/ owflux
+      common / optionl/ radfix
+      common / optionl/ radfltr
+      common / optionl/ radslope
+      common / optionl/ reduc
+      common / optionl/ satuco
+      common / optionl/ simisccp
+      common / optionl/ snoalb_anl
+      common / optionl/ snowmelt
+      common / optionl/ stomate
+      common / optionl/ stratos
+      common / optionl/ tdiaglim
+      common / optionl/ tsconfc
+      common / optionl/ ts_flxir
+      common / optionl/ typsol
+      common / optionl/ water_qs
+      common / optionl/ water_z0m
+      common / optionl/ water_z0h
+      common / optionl/ wet
+      common / optionl/ z0dir
+!
+      common / optionr/ as2
+      common / optionr/ beta2
+      common / optionr/ delt
+      common / optionr/ dzsedi
+      common / optionr/ eponge
+      common / optionr/ etrmin2
+      common / optionr/ facdifv
+      common / optionr/ factdt
+      common / optionr/ ggeo
+      common / optionr/ hc2
+      common / optionr/ hf2
+      common / optionr/ hm2
+      common / optionr/ kfctrig4
+      common / optionr/ kfctriga
+      common / optionr/ kfctrigl
+      common / optionr/ kfcrad
+      common / optionr/ kfcdepth
+      common / optionr/ kfcdet
+      common / optionr/ kfcdlev
+      common / optionr/ kfctimec
+      common / optionr/ kfctimea
+      common / optionr/ kkl2
+      common / optionr/ ltran0
+      common / optionr/ my_dzsedi
+      common / optionr/ non_oro_pbot
+      common / optionr/ parsol
+      common / optionr/ pbl_ricrit
+      common / optionr/ ptop_nml
+      common / optionr/ qcfc11
+      common / optionr/ qcfc12
+      common / optionr/ qch4
+      common / optionr/ qco2
+      common / optionr/ qn2o
+      common / optionr/ rmscon
+      common / optionr/ schmsol_lev
+      common / optionr/ taufac
+      common / optionr/ triglat
+      common / optionr/ vamin
+      common / optionr/ z0min2
+      common / optionr/ z0tlat
+      common / optionr/ zta
+      common / optionr/ zua
+!

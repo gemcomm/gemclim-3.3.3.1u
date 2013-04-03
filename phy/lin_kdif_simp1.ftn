@@ -1,0 +1,209 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P LIN_KDIF_SIMP1
+      SUBROUTINE LIN_KDIF_SIMP1( D, DSIZ, F, FSIZ, V, VSIZ, NI, NK )
+#include "impnone.cdk"
+*
+      INTEGER DSIZ, FSIZ, VSIZ, NI, NK
+      REAL D(DSIZ), F(FSIZ), V(VSIZ)
+*
+*Author
+*          Y. Delage (Aug 99)  - Make surface layer (CM, CT) linear and 
+*                                consistent with K profiles. 
+*                              - Provide more realistic profiles for 
+*                                diffusion coefficients than in
+*                                in the old fisimp series
+*Revision
+* 001      S. Laroche (Dec 01) - add to simplified physics package
+* 002      S. Laroche (May 02) - cleanup diagnostic fields
+* 003      S. Laroche (Nov 02) - Implementation of robust near surface diagnostics
+*
+*Object
+*          To calculate the (unnormalized) diffusion coefficients KM and KT
+*          and the (unnormalized) boundary conditions for the diffusion of
+*          wind, temperature, and moisture
+*          using simplified physical parameterizations.
+*          The normalizations are done in S/P DIFVER5.
+
+*Arguments
+*
+*          - Input/Output -
+* F        field of permanent physics variables
+* V        volatile bus
+* FSIZ     dimension of F
+* VSIZ     dimension of V
+*
+*          - Input -
+* KDIF     work field (diffusion coefficient)
+* ZEDIAG   work field (modified ZE values for diagnostic)
+* UET      work field (friction velocity)
+* NI       horizontal dimension
+* NK       vertical dimension
+*
+*
+*Notes
+*    DRAG = false : only a background value of diffusion coefficients
+*    DRAG = true  : boundary layer dependent on z0 and on latitude
+*    CHAUF= true  : surface heat flux over oceans dependent also on z0t
+*    EVAP = true  : evaporation over oceans dependent also on z0t 
+*
+**
+      INTEGER K,I
+      REAL KDIF(NI,NK),ZEDIAG(NI,NK),UET(NI)
+      REAL lnz0,lnz0t,lnza,lnzu,lnzt,ruv,rtq,ctu
+
+      REAL DIFBAK
+      DATA DIFBAK/0.1/
+      SAVE DIFBAK
+*
+*
+#include "indx_sfc.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "options.cdk"
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "surfcon.cdk"
+#include "fintern.cdk"
+#include "zuzt.cdk"
+*
+      integer IK
+*     fonction-formule pour l'adressage
+      IK(i,k) = (K-1)*NI + I -1
+*
+******************************************************************
+*
+*     INITIALISATION ET DIFFUSION DE 'BACKGROUD'
+*
+      DO I=1,NI
+         F(Z0T  +I-1) = 0.0001
+         V(BM   +I-1) = 0.0
+         V(BT   +I-1) = 0.0
+         V(ALFAT+I-1) = 0.0
+         V(ALFAQ+I-1) = 0.0
+*
+         F(TSURF+I-1) = F(TWATER+I-1)
+         F(QSURF+(indx_agrege-1)*NI+I-1) = foqst(F(TSURF+I-1),D(PMOINS+I-1))
+         UET(I)       = 0.001
+      ENDDO
+*
+      DO K=1,NK
+      DO I=1,NI
+         V(GTE+IK(I,K)) = -GRAV/CPD
+         V(GQ +IK(I,K))  = 0.0
+      ENDDO
+      ENDDO
+      DO K=1,NK-1
+      DO I=1,NI
+        V(KM+IK(I,K)) = DIFBAK
+        V(KT+IK(I,K)) = DIFBAK/BETA
+      ENDDO
+      ENDDO
+********************************************************************
+*
+*     COUCHE LIMITE INDEPENDANTE DE L'ETAT ATMOSPHERIQUE
+      IF (DRAG) THEN
+*
+        DO K=1,NK-2
+          DO I=1,NI
+            ZEDIAG(I,K)=V(ZE+IK(I,K))
+          ENDDO
+        ENDDO
+        K=NK-1
+        DO I=1,NI
+          ZEDIAG(I,K)=V(ZA+I-1)
+        ENDDO
+*
+*      
+*       CALCUL DES COEFFICIENTS DE DIFFUSION
+*
+        CALL KDIFSIMP(KDIF,UET,ZEDIAG,F(Z0),V(FCOR),DIFBAK,NK-1,NI)
+*
+        DO K=1,NK-1
+          DO I=1,NI
+            V(KM+IK(I,K)) = KDIF(I,K)
+            V(KT+IK(I,K)) = KDIF(I,K)/BETA
+          ENDDO
+        ENDDO
+*
+        DO I=1,NI
+*
+          lnza  = ALOG (V(ZA+I-1)+F(Z0+I-1))
+          lnz0  = ALOG(F(Z0+I-1))
+          lnz0t = ALOG(F(Z0T+I-1))
+          lnzu  = ALOG (ZU  + F(Z0+I-1))
+          lnzt  = ALOG (ZT  + F(Z0T+I-1))
+*
+*         Note: Les flux de chaleur et d'humidite sont nuls sur les
+*         continents. MG est le masque terre/mer.
+*                    F(MG+I) = 1.0 sur la terre 
+*                    F(MG+I) = 0.0 sur l'eau 
+*
+          V(BM+I-1) = karman/(lnza-lnz0)*UET(i)
+               CTU  = karman/((lnza-lnz0t)*BETA)*UET(i)*(1.-NINT(F(MG+I-1)))
+*
+*         PROFILS LOGARITHMIQUES POUR NIVEAU DIAGNOSTIQUE
+*
+          ruv =   (lnzu-lnz0)/(lnza-lnz0)
+          rtq = ((lnzt-lnz0t)/(lnza-lnz0t))*(1.-NINT(F(MG+I-1)))  
+
+          F(udiag+i-1) =  D(UMOINS+IK(I,NK)) * ruv
+          F(vdiag+i-1) =  D(VMOINS+IK(I,NK)) * ruv
+
+*
+*         CHOIX PLUS ROBUSTE POUR T ET HU DIAGNOSTIQUE (= AU NIVEAU SUPERIEUR)
+*
+          F(tdiag+i-1) = D(TMOINS  +IK(I,NK))
+          F(qdiag+i-1) = D(HUMOINS +IK(I,NK))
+
+*
+*         OPTION A ETRE CONSIDEREE DANS LE FUTURE
+*         NOTE: le TLM/ADJ ne sont pas encore disponible pour cette option
+*
+C          F(tdiag+i-1) =  -zt*(grav/cpd) + F(TSURF+I-1)
+C     $                 + ((D(TMOINS +IK(I,NK)) + V(ZA+I-1)*(grav/cpd)) - F(TSURF+I-1)) * rtq
+C          F(qdiag+i-1) =  F(QSURF+(indx_agrege-1)*NI+I-1)
+C     $                 + (D(HUMOINS +IK(I,NK)) - F(QSURF+(indx_agrege-1)*NI+I-1)) * rtq
+*
+*
+*         FLUX DE CHALEUR ET HUMIDITE
+*
+          V(BT   +I-1) = 0.0
+          V(ALFAT+I-1) = 0.0
+          V(ALFAQ+I-1) = 0.0
+
+          IF(CHAUF) THEN
+           V(BT   +I-1) =  CTU
+           V(ALFAT+I-1) = -CTU*(F(TSURF+I-1) - V(ZA+I-1)*(grav/cpd))
+          ENDIF
+*
+*         FLUX DE VAPEUR ET HUMIDITE DIAGNOSTIQUE A Z=ZT
+*
+          IF(EVAP) THEN
+           V(BT  +I-1)  =  CTU
+           V(ALFAQ+I-1) = -CTU*(F(QSURF+(indx_agrege-1)*NI+I-1))
+          ENDIF
+*
+*
+        END DO
+*
+      ENDIF
+****************************************************************************
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

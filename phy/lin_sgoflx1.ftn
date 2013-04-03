@@ -1,0 +1,572 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P LIN_SGOFLX1
+*
+      subroutine lin_sgoflx1(uu,vv,utend,vtend,
+     +                   tth,ttf,ss,ssh,
+     +                   ilev,lref,ilg,il1,il2,
+     +                   grav,rgas,rgocp,tau,taufac,
+     +                   gc,height,slope,xcent,mtdir,
+     +                   psurf,fcor,
+     +                   gwdrag,blocking,orolift,leewave,
+     +                   applytend)
+*
+#include "phy_macros_f.h"
+#include "impnone.cdk"
+*
+*
+      logical gwdrag,blocking,orolift,leewave,applytend
+*
+      integer ilev,lref,ilg,il1,il2
+      real grav,rgas,rgocp,tau,taufac
+      real*8 uu(ilg,ilev),      vv(ilg,ilev),     utend(ilg,ilev),
+     +       vtend(ilg,ilev),   tth(ilg,ilev),    ttf(ilg,ilev),
+     +       ss(ilg,ilev),      ssh(ilg,ilev),    gc(ilg),
+     +       height(ilg),       slope(ilg),       xcent(ilg),
+     +       mtdir(ilg),        psurf(ilg),       fcor(ilg)
+*
+*Author
+*        A. Zadra - May 2002
+*
+*Object
+*        Simplified version of subgrid orographic drag (sgoflx2) scheme:
+*        - reduced, non-smoothed buoyancy frequency
+*        - shortened gravity-wave drag (McFarlane 87)
+*        - shortened low-level blocking (Lott & Miller 97)
+*        - orographic lift (not yet included)
+*        - lee-wave breaking (not yet included)
+*
+*
+*Arguments
+*
+*
+**
+      AUTOMATIC ( VMOD     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( UUB      , REAL*8  , (ILG     ) )
+      AUTOMATIC ( VVB      , REAL*8  , (ILG     ) )
+      AUTOMATIC ( DRAG     , INTEGER , (ILG     ) )
+      AUTOMATIC ( UB       , REAL*8  , (ILG     ) )
+      AUTOMATIC ( VB       , REAL*8  , (ILG     ) )
+      AUTOMATIC ( VMODB    , REAL*8  , (ILG     ) )
+      AUTOMATIC ( ENV      , REAL*8  , (ILG     ) )
+      AUTOMATIC ( SLP2     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( SLPF     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( GAMMA    , REAL*8  , (ILG     ) )
+      AUTOMATIC ( THETA    , REAL*8  , (ILG     ) )
+      AUTOMATIC ( IZT1     , INTEGER , (ILG     ) )
+      AUTOMATIC ( IZT2     , INTEGER , (ILG     ) )
+      AUTOMATIC ( IZT3     , INTEGER , (ILG     ) )
+      AUTOMATIC ( IZB      , INTEGER , (ILG     ) )
+      AUTOMATIC ( HBLK     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( UAV      , REAL*8  , (ILG     ) )
+      AUTOMATIC ( VAV      , REAL*8  , (ILG     ) )
+      AUTOMATIC ( VELAV    , REAL*8  , (ILG     ) )
+      AUTOMATIC ( DELZ     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( FDIR     , REAL*8  , (ILG     ) )
+      AUTOMATIC ( BLOFF    , REAL*8  , (ILG     ) )
+c
+      AUTOMATIC ( U        , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( V        , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( TF       , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( TH       , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( S        , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( SH       , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( BVFREQ   , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( UTENDGWD , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VTENDGWD , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VELN     , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( ASQ      , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( ASQI     , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( ASQS     , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( DEPFAC   , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( GRAD     , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( DENFAC   , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( ZB       , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( UTENDLLB , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VTENDLLB , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( UTENDLFT , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VTENDLFT , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( UTENDLWB , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VTENDLWB , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( UTENDTOT , REAL*8  , (ILG,ILEV) )
+      AUTOMATIC ( VTENDTOT , REAL*8  , (ILG,ILEV) )
+**
+      integer i,l,ii,len,lrefm,jyes,jno
+      real*8 aux,eta,dz,uparl,piotwo,psi,cpsi,spsi,
+     +       fvert,amp,vmin,v0,hmin,zero,unit,cdblk,
+     +       impaux
+**
+      vmin  = 2.
+      v0    = 1.e-12
+      hmin  = 3.
+      zero  = 0.
+      unit  = 1.
+      cdblk = 1.
+**
+      len   = il2 - il1 + 1
+      lref  = ilev
+      lrefm = lref - 1
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     INITIAL STEPS
+c
+c--------------------------------------------------------------------
+c     Initialize total tendency
+c
+      do l=1,ilev
+        do i=il1,il2
+          utend(i,l) = zero
+          vtend(i,l) = zero
+        enddo
+      enddo
+c-------------------------------------------------------------------
+c     Find and gather active grid columns
+c
+c     Wind and unit vector at reference level LREFM:
+c
+      do i=il1,il2
+        vmod(i) = sqrt ( uu(i,lrefm)**2 + vv(i,lrefm)**2 )
+        if (vmod(i).le.vmin)  vmod(i) = vmin
+        uub(i) = uu(i,lrefm)/vmod(i) 
+        vvb(i) = vv(i,lrefm)/vmod(i)
+      enddo  
+c
+c-------------------------------------------------------------------
+c     Gather columns where orographic drag is active
+c
+      jyes = 0
+      jno  = len + 1
+c
+      do i=il1,il2
+        if ( gc(i).eq.-1. .and. vmod(i).gt.vmin .and.
+     +       height(i).ge.hmin ) then
+          jyes       = jyes + 1
+          drag(jyes) = i
+        else
+          jno         = jno - 1
+          drag(jno)  = i
+        endif
+      enddo
+c
+c     Check if there is AT LEAST ONE active column
+c
+      if (jyes.le.0) then
+        goto 600
+      endif
+c
+      do i=1,len
+        ii = drag(i) + il1 - 1
+        ub(i)    = uub(ii)
+        vb(i)    = vvb(ii)
+        vmodb(i) = vmod(ii)
+        env(i)   = height(ii) 
+        slp2(i)  = slope(ii)
+        gamma(i) = xcent(ii)
+        theta(i) = mtdir(ii)
+      enddo
+c
+      do i=1,len      
+        if (env(i) .lt. hmin) then
+          slpf(i) = slp2(i)/hmin
+        else
+          slpf(i) = slp2(i)/env(i)
+        endif
+      enddo
+c
+      do l=1,ilev
+        do i=1,len
+           ii      = drag(i) + il1 - 1
+           u(i,l)  = uu(ii,l)
+           v(i,l)  = vv(ii,l)
+           tf(i,l) = ttf(ii,l)
+           th(i,l) = tth(ii,l)          
+           s(i,l)  = ss(ii,l)
+           sh(i,l) = ssh(ii,l)
+        enddo
+      enddo
+c
+c--------------------------------------------------------------------
+c     Recalculate temperature at intermediate levels
+c     using a geometric average:
+c
+      do l=1,ilev-1  
+        do i=1,len
+          th(i,l) = sqrt( tf(i,l)*tf(i,l+1) )
+        enddo
+      enddo
+      do i=1,len
+        th(i,ilev) = tf(i,ilev)
+      enddo
+c
+c--------------------------------------------------------------------
+c     Calculate BF frequency at all active levels (no smoothing):
+c
+      do l=2,ilev
+        do i=1,len
+          aux = ( grav*grav/(rgas*tf(i,l)) )*
+     +          ( rgocp - (s(i,l)/tf(i,l))*
+     +            (th(i,l)- th(i,l-1))/(sh(i,l) - sh(i,l-1)) )
+          if (aux.le.1.0e-10) then
+            bvfreq(i,l) = 1.0e-5
+          else
+            bvfreq(i,l) = sqrt( aux )
+          endif
+        enddo
+      enddo
+      do i=1,len
+        bvfreq(i,1) = bvfreq(i,2)
+      enddo
+c
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     GRAVITY-WAVE DRAG
+c
+c--------------------------------------------------------------------
+c     Initialize tendencies
+      do l=1,ilev
+        do i=1,len
+          utendgwd(i,l) = zero
+          vtendgwd(i,l) = zero
+        enddo
+      enddo
+c
+      if (gwdrag) then
+c
+c--------------------------------------------------------------------
+c     Project wind field on reference wind:
+c
+      do l=1,ilev
+        do i=1,jyes 
+          veln(i,l) = u(i,l)*ub(i)+v(i,l)*vb(i)
+          if (veln(i,l).le.v0)  veln(i,l) = v0
+        enddo
+      enddo
+c
+c--------------------------------------------------------------------
+c     Stress field
+c
+c     Compute stress at reference level:
+c
+      do i=1,jyes
+        asq(i,lref)    = env(i)*env(i)
+        asqs(i,lref)   = env(i)*env(i)
+        asqi(i,lref)   = env(i)*env(i)
+        depfac(i,lref) = taufac*grav
+     +          *(bvfreq(i,lrefm)*s(i,lrefm)*vmodb(i)/tf(i,lrefm))
+     +          *asq(i,lref)/rgas
+      enddo  
+c
+c     Compute stress at other levels (bottom-up):
+c
+      do l=lrefm,1,-1
+        do i=1,jyes
+          asqi(i,l) = asq(i,l+1)
+     +           *(bvfreq(i,l+1)*s(i,l+1)*veln(i,l+1)/tf(i,l+1))
+     +           /(bvfreq(i,l)  *s(i,l)  *veln(i,l)  /tf(i,l)  )
+          if (veln(i,l).ge.1.) then
+            asqs(i,l) = 0.5*(veln(i,l)/bvfreq(i,l))**2
+          else
+            asqs(i,l) = 1.e-6
+          endif
+          if (asqi(i,l).le.asqs(i,l)) then
+            asq(i,l)    = asqi(i,l)
+          else
+            asq(i,l)    = asqs(i,l)
+          endif
+          depfac(i,l) = taufac*grav
+     +           *(bvfreq(i,l)*s(i,l)*veln(i,l)/tf(i,l))
+     +           *asq(i,l)/rgas
+        enddo
+      enddo
+      do i=1,jyes
+        depfac(i,lref) = depfac(i,lrefm)
+      enddo
+c
+c--------------------------------------------------------------------
+c     Compute gwd tendencies:
+c
+      do i=1,jyes
+        if ((depfac(i,2) - depfac(i,1)).gt.1.e-10) then
+          eta = 1.
+        else
+          eta = 0.
+        endif
+c
+        grad(i,1) = 2.*eta*depfac(i,1)
+     +         /( 2.*sh(i,1) + eta*3.*tau*depfac(i,1)/veln(i,1) )
+        utendgwd(i,1) = -ub(i)*grad(i,1)
+        vtendgwd(i,1) = -vb(i)*grad(i,1)
+        denfac(i,1) = grad(i,1)*3.*tau*depfac(i,1)/veln(i,1)
+        utendgwd(i,lref) = zero
+        vtendgwd(i,lref) = zero
+      enddo
+c
+      do l=2,lrefm
+        do i=1,jyes
+          if ((depfac(i,l) - depfac(i,l-1)).gt.1.e-10) then
+            eta = 1.
+          else
+            eta = 0.
+          endif
+            grad(i,l) = ( 2.*depfac(i,l)-2.*depfac(i,l-1) +
+     +                   eta*denfac(i,l-1) )/
+     +                   ( 2.*(sh(i,l)-sh(i,l-1)) + 
+     +                     eta*3.*tau*depfac(i,l)/veln(i,l) )
+          utendgwd(i,l) = -ub(i)*grad(i,l)
+          vtendgwd(i,l) = -vb(i)*grad(i,l)
+          denfac(i,l) = grad(i,l)*3.*tau*depfac(i,l)/veln(i,l)  
+        enddo
+      enddo
+c
+      endif
+c
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     LOW-LEVEL BLOCKING
+c
+c--------------------------------------------------------------------
+c     Initialize arrays
+      do l=1,ilev
+	do i=1,len
+          zb(i,l)       = zero
+          utendllb(i,l) = zero
+          vtendllb(i,l) = zero
+        enddo
+      enddo
+c
+      do i=1,len
+        izt1(i)  = ilev-1
+        izt2(i)  = ilev
+        izt3(i)  = ilev
+        hblk(i)  = zero
+        izb(i)   = ilev
+        uav(i)   = v0
+        vav(i)   = v0
+        velav(i) = v0
+        delz(i)  = zero
+        fdir(i)  = unit
+        bloff(i) = 0
+      enddo
+c
+      if (blocking) then
+c--------------------------------------------------------------------
+c     Build elevation field:
+      do i=1,jyes
+        zb(i,ilev)  = -(rgas/grav)*tf(i,ilev)*log(sh(i,ilev))
+      enddo
+      do l=ilev-1,1,-1
+        do i=1,jyes
+          zb(i,l)  = zb(i,l+1) + 
+     +               (rgas/grav)*tf(i,l)*log(sh(i,l+1)/sh(i,l))
+        enddo
+      enddo
+c
+c--------------------------------------------------------------------
+c     Blocking height
+c
+c     Find maximum blocking level, upper level for averaging and
+c     lower level for averaging:
+      do l=ilev-2,1,-1
+        do i=1,jyes
+          if (zb(i,l).lt.(1.5*env(i)))    izt3(i) = l
+          if (zb(i,l).lt.     env(i) )    izt1(i)  = l
+        enddo        
+      enddo
+c
+      do l=ilev-1,1,-1
+        do i=1,jyes
+          if (zb(i,l).lt.(0.5*env(i)))    izt2(i) = l
+        enddo
+      enddo
+c
+c     Compute averages:
+      do l=ilev,2,-1
+        do i=1,jyes
+          if (l.le.izt2(i) .and. l.ge.izt1(i))   then
+            dz          = zb(i,l-1) - zb(i,l)
+            delz(i)     = delz(i) + dz
+            uav(i)      = uav(i)  + dz*u(i,l)
+            vav(i)      = vav(i)  + dz*v(i,l)
+          endif
+        enddo
+      enddo
+      do i=1,jyes
+          uav(i)      = uav(i)/delz(i)
+          vav(i)      = vav(i)/delz(i)
+          if (abs(vav(i)).lt.v0 .and. abs(uav(i)).lt.v0) then     
+            velav(i)    = v0
+          else
+            velav(i)    = sqrt( uav(i)**2 + vav(i)**2 )
+          endif
+      enddo
+c    
+c     Compute blocking height and blocking level:
+c
+      do l=2,ilev
+        do i=1,jyes
+          if (l.ge.izt3(i) .and. bloff(i).eq.0) then
+            dz    = zb(i,l-1) - zb(i,l)
+            uparl = (u(i,l)*uav(i) + v(i,l)*vav(i))/velav(i)
+            if (uparl .lt. v0) then
+              izb(i)   = l-1
+              bloff(i) = 1
+            else
+              hblk(i) = hblk(i) + dz*bvfreq(i,l)/uparl
+              if (hblk(i) .gt. 0.5) then
+                izb(i)   = l-1
+                bloff(i) = 1
+              endif
+            endif
+          endif
+        enddo
+      enddo
+c
+c--------------------------------------------------------------------
+c     Compute directional factor:
+c
+      piotwo = .5*acos(-1.)
+      do i=1,jyes
+c
+c     Angle between mean wind and topography:
+        if ( abs(vav(i)) .lt. v0 .and. abs(uav(i)) .lt. v0) then 
+          psi = zero
+        else
+          psi = theta(i) - atan2(vav(i),uav(i))
+          if (psi .gt.   piotwo )  psi = psi - 2.*piotwo 
+          if (psi .lt. (-piotwo))  psi = psi + 2.*piotwo
+        endif
+        cpsi = ( cos(psi) )**2
+        spsi = ( sin(psi) )**2
+c
+c     Directional factor:
+        amp = cpsi + gamma(i)*spsi 
+        if (amp .lt. 1.e-10) then 
+          amp = zero
+        else 
+          amp = 2. - ( gamma(i)*cpsi + spsi )
+     +              /( cpsi + gamma(i)*spsi )
+          if (amp.lt.zero)     amp = zero
+        endif
+        fdir(i) = amp*
+     +            ( (1.-.18*gamma(i) -.04*(gamma(i)**2))*cpsi
+     +             +(   .48*gamma(i) +.30*(gamma(i)**2))*spsi )
+c
+      enddo  
+c--------------------------------------------------------------------
+c     Compute llb tendencies:
+c
+      do l=ilev,1,-1
+        do i=1,jyes
+          if ( velav(i).ge.vmin .and.
+     +         l.gt.izb(i)      .and. zb(i,izb(i)).ge.hmin ) then
+c
+c           Vertical factor:
+            fvert = sqrt( (zb(i,izb(i)) - zb(i,l))
+     +                   /(0.5*env(i)   + zb(i,l)) )
+c
+*           Implicit calculation of llb tendencies:
+*
+            impaux = 0.5*cdblk*slpf(i)*fdir(i)*fvert
+     +                  *sqrt(u(i,l)*u(i,l) + v(i,l)*v(i,l))
+            utendllb(i,l) = -impaux*u(i,l)/(1.0+impaux*tau) 
+            vtendllb(i,l) = -impaux*v(i,l)/(1.0+impaux*tau)
+*
+          endif
+        enddo
+      enddo
+c
+      endif
+c
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     OROGRAPHIC LIFT
+c
+c--------------------------------------------------------------------
+c     Initialize arrays
+      do l=1,ilev
+        do i=1,len
+          utendlft(i,l) = zero
+          vtendlft(i,l) = zero
+        enddo
+      enddo
+c
+      if (orolift) then
+c
+      endif
+c
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     LEE-WAVE BREAKING
+c
+c--------------------------------------------------------------------
+c     Initialize arrays
+      do l=1,ilev
+        do i=1,len
+          utendlwb(i,l) = zero
+          vtendlwb(i,l) = zero
+        enddo
+      enddo
+c
+      if (leewave) then
+c
+      endif
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c     TOTAL DRAG AND RESULTING WIND FIELD
+c
+c--------------------------------------------------------------------
+      do l=1,ilev
+        do i=1,len
+          utendtot(i,l) = zero
+          vtendtot(i,l) = zero
+        enddo
+      enddo
+c
+c     Add and scatter tendencies
+      do l=1,ilev
+        do i=1,len
+          utendtot(i,l) = utendgwd(i,l) +
+     +                    utendllb(i,l) +
+     +                    utendlft(i,l) +
+     +                    utendlwb(i,l)
+          vtendtot(i,l) = vtendgwd(i,l) +
+     +                    vtendllb(i,l) +
+     +                    vtendlft(i,l) +
+     +                    vtendlwb(i,l)
+        enddo
+      enddo
+c
+      do l=1,ilev
+        do i=1,len
+          ii = drag(i) + il1 - 1
+          utend(ii,l) = utendtot(i,l)
+          vtend(ii,l) = vtendtot(i,l)
+        enddo
+      enddo
+c
+c--------------------------------------------------------------------
+ 600  continue
+c--------------------------------------------------------------------
+c     Apply sgo tendency onto U and V:
+c
+      if (applytend) then
+c
+      do l=1,ilev
+        do i=il1,il2
+          uu(i,l) = uu(i,l) + tau*utend(i,l) 
+          vv(i,l) = vv(i,l) + tau*vtend(i,l) 
+        enddo
+      enddo
+c
+      endif
+c
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      return
+      end

@@ -1,0 +1,42 @@
+c   Version 1.0
+cswh     based on GENESIS/LSX codes
+cswh     the flag in the include file determins when this is actually used
+cswh     the computations are based on the sigma=0.96 level of the gcm
+cswh     and should only be called when using atm model output
+ 
+      subroutine hs_bndry_flux(ta,qa,psurf,ua,tlake,Tcutoff,
+     +     u2,t2,q2)
+      implicit none
+#include "lakepar.cdk"
+      real ta,qa,psurf,ua,tlake,Tcutoff,u2,t2,q2,ts,qs,us,
+     +     rair,cair,rvap,cvap,sigma,ca,cb,c71,c72,c73,pa,
+     +     tlakeK,cappa,tfac,cdmaxa,rhoa,cp,aloga,alogg,a,b,eo,
+     +     qo,richu,stramu,strahu,cdh,cdm,fsena,fvapa,tau,zb,zt,
+     +     ugrad,tgrad,qgrad,grav,cdmaxb,c70,z,hice,u2s,t2s,q2s
+	integer i
+      parameter (grav=9.80616)
+      parameter (rair=287.04, cair=1.00464e3, rvap=461., cvap=1.81e3)
+c      parameter (sigma=0.96)
+      parameter (cdmaxb=1.e20)
+      parameter (ca=6.11e2, cb=273.15)
+      parameter (c70=21.874, c71=7.66)
+      parameter (c72=17.269, c73=35.86)
+c     parameter (pa=85000.)
+c	parameter (pa=80321.)
+
+      tlakeK = tlake + 273.15
+
+cswh     not computing PBL here
+cswh     simply assign values and return
+cswh     if screen ht ne 2 m then interpolate u2 to 2m via neutral profile
+c      if (.not.(bndry_flag)) then 
+	  u2=ua*alog(z2/zo)/alog(z_screen/zo) 
+        t2=ta
+c         t2=tlakeK
+	  q2=qa 
+c	  return
+c	endif
+
+
+      return
+      end

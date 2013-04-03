@@ -1,0 +1,14 @@
+c Version 1.0
+c Calculates freezing point, in Gill 1982, from Millero 1978
+c tfsp is in degrees c, pressure is in bars
+      subroutine hs_salt_init (tfsp,s)
+	implicit none
+	real tfsp,s,p,pest,tfspest
+      p=1.013
+	pest=0.80821
+      tfsp=-0.0575*s+1.710523e-3*s**(3./2.)-2.154996e-4*s**2.
+     +   -7.53e-3*p
+	tfspest=-0.0575*s+1.710523e-3*s**(3./2.)-2.154996e-4*s**2.
+     +   -7.53e-3*pest
+      return
+      end

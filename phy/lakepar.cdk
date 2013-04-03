@@ -1,0 +1,98 @@
+! Version 1.0
+! Declarations ********************************************************
+	  real yz,dt,readdt,basedep,za,zo,z2,delta,rhowat,rhoice,rhosnow
+	  real Le,Lei,fusion,surf,fracmin,fraclim,qwtau,cpw_ice,condw,betavi
+	  real snocrit,rhosurf,kv,dm,pi,tsurfp,mixing,area,b_area,trace
+	  real trace_i,d_frac,tempi_a,d_fraca
+	  real fraca,snowcut
+	  real f,z_screen
+	  real dexch,alphak,lamisw,lamilw
+	  real lamssw,lamslw,afrac1,afrac2,condi,conds,proday,cpair,emis
+
+	  integer daymax,npday,nyrprev,navg,navgd,julday,iutlak,max_dep
+	  integer lkpts,ix1,iy1,n_trace,i_area,lcount,iin,iout,numpts
+	  integer num_tra,ktau,iupto,depth
+	  integer ktauwan
+
+	  logical bndry_flag,iceflag,s_flag,o18flag,deutflag,ar_flag
+
+!**********************************************************************
+
+! User specific parameters ********************************************
+      parameter (yz=1.0)                     ! vertical grid spacing in m
+      parameter (daymax=7300)                ! number of simulation days
+      parameter (dt=1.*20.*60.)           ! model time step in seconds = DELT
+      parameter (npday = 60*1440/3600)       ! 24 hrs per day
+      parameter (nyrprev = 6)                !
+      parameter (readdt = 1.*60.*60.*1.)    ! time between input reads in sec
+      parameter (navg = 8760/12)             ! dts per avg
+      parameter (navgd = npday)              ! dts per avg
+!      parameter (julday = 1)                 ! julian day of sim start
+      parameter (iutlak=98)          ! number of the unformatted output file
+      parameter (max_dep= 60)                ! maximum lake depth
+      parameter (basedep=486.)               ! elevation of basin bottom
+      parameter (lkpts=1)                    ! number of lakes
+      parameter (ix1=1, iy1=1)               ! grid dimension of lake points
+      parameter (n_trace=3)                  ! number of tracers (salinity, O18, and 2DH
+      parameter (bndry_flag = .false.)       ! true for explict boundry layer computations; presently only for sigma coord climate models
+      parameter (snowcut = 2.2)              ! temp at which precip is assumed to be snow
+	  parameter (iceflag = .true.)           ! true for ice model
+      parameter (s_flag = .false.)           ! true for variable salinity
+      parameter (o18flag = .false.)           ! true for O18 model
+	  parameter (deutflag = .false.)          ! true for deuterium model
+      parameter (ar_flag = .false.)           ! true if area varies with depth
+      parameter (f=0.1)                      ! fraction of advected air in air mass over lake
+      parameter (z_screen=10.0)               ! screen height for input data if not 2m
+	  parameter (proday = 10.)               ! used in write out section to determin interval (days) for profile writes
+
+!**********************************************************************
+
+! Other parameters DO NOT CHANGE without good reason for doing so******
+      parameter (zo=0.0004)                  ! water surface roughness length
+      parameter (z2=2.0)                     ! 2 meter height
+	  parameter (delta=5.67e-8)              ! s-b constant
+      parameter (rhowat = 1000.)             ! density of water
+	  parameter (rhosnow = 330.)             ! density of snow
+      parameter (rhoice = 917.)              ! density of ice
+      parameter (rhosurf=0.997)	             ! density of surface air
+	  parameter (cpair = 1004.)              ! specific heat of air
+      parameter (Le = 2.45e6)                ! latent heat of vaporization water
+	  parameter (Lei = 2.5e6)                ! latent heat of vaporization ice
+	  parameter (emis = 1.00)                ! longwave emmisivity
+      parameter (fusion=3.34e5)              ! latent heat of fusion
+      parameter (surf = 0.6)                 ! surface thickness over which the flux exchange occurs in water
+!      parameter (fracmin= 0.0493)              ! min ice thick in meters
+      parameter (fraclim = 0.1234)             ! min ice fraction
+      parameter (qwtau = 86400.)             ! D. Pollard sub-ice time constant
+      parameter (cpw_ice = 4200.)            ! heat capacity of ice
+      parameter (condw = .58)                ! conduction coefficinet for water
+      parameter (betavi=0.4)                   ! fraction of solar radition absorbed in water surface laye
+      parameter (kv=0.4)                     ! vonkarman constant
+      parameter (dm=1.38889E-07)             ! thermal molecular diffusivity of water
+!      parameter (dm=1.38889E-10)             ! thermal molecular diffusivity of water
+      parameter (pi=3.141592654)             !
+      parameter (snocrit = 0.05)             ! for albedo, in m
+      parameter (dexch  =1.25*1.e03)         ! fixed depth (mm) over which isotope exchange occurs
+	  parameter (alphak = 0.994)             ! fractionation coeff
+	  parameter (lamisw = 3.0)               ! extinction coef for sw through ice
+	  parameter (lamilw = 20.)               ! extinction coef for lw through ice
+	  parameter (lamssw = 3.0)               ! extinction coef for sw through snow
+	  parameter (lamslw = 20.)               ! extinction coef for lw through snow
+	  parameter (afrac1 = 0.7)               ! fraction of light in visible band for ice model
+	  parameter (afrac2 = 0.3)               ! fraction of light in infrared band for ice model
+	  parameter (condi = 2.3)                ! thermal conductivity of ice
+	  parameter (conds = 0.31)               ! thermal conductivity of snow
+
+
+
+!**********************************************************************
+
+! Common definitions
+      common /ldata/ lcount, iin, iout, numpts , num_tra, ktau, iupto
+      common  area (max_dep), b_area (max_dep)
+      common  trace(max_dep,n_trace), trace_i(max_dep,n_trace)
+      common d_fraca (lkpts)
+      common  ktauwan (12)
+
+
+!**********************************************************************

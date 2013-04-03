@@ -1,0 +1,138 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ##############################################
+      SUBROUTINE ALLOCATE_GR_SNOW(TPSNOW,KLU,KPATCH)
+!     ##############################################
+!
+!!****  *ALLOCATE_GR_SNOW* - 
+!!
+!!    PURPOSE
+!!    -------
+!!
+!!
+!!**  METHOD
+!!    ------
+!!
+!!       TPSNOW%SCHEME must yet be initialized
+!!    
+!!    EXTERNAL
+!!    --------
+!!
+!!    IMPLICIT ARGUMENTS
+!!    ------------------
+!!
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!      Book 2
+!!
+!!    AUTHOR
+!!    ------
+!!	
+!!      V.Masson  Meteo-France
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    20/01/99
+!
+!!     F.Solmon     06/00 Adapt for patch cases 
+!!     V. Masson    01/2004 Externalization
+!-------------------------------------------------------------------------------
+!
+!*       0.    DECLARATIONS
+!              ------------
+!
+USE MODD_TYPE_SNOW
+USE MODD_SURF_PAR,    ONLY : XUNDEF
+!
+IMPLICIT NONE
+!
+!*       0.1   Declaration of arguments
+!              ------------------------
+!
+TYPE(SURF_SNOW)                            :: TPSNOW
+INTEGER, INTENT(IN)                        :: KLU
+INTEGER, INTENT(IN)                        :: KPATCH
+!
+!*       0.2   Declaration of local variables
+!              ------------------------------
+!
+INTEGER, DIMENSION(10)                     :: ALLOC_STATUS   
+!
+!-------------------------------------------------------------------------------
+!
+IF (TPSNOW%SCHEME=='NONE'                           ) TPSNOW%NLAYER=0
+IF (TPSNOW%SCHEME=='D95 ' .OR. TPSNOW%SCHEME=='1-L ') TPSNOW%NLAYER=1
+IF (TPSNOW%SCHEME=='3-L '                           ) TPSNOW%NLAYER=3
+!
+
+IF (TPSNOW%SCHEME=='D95 ' .OR. TPSNOW%SCHEME=='1-L ' .OR. TPSNOW%SCHEME=='3-L ' ) THEN
+  ALLOCATE(TPSNOW%WSNOW(KLU,TPSNOW%NLAYER,KPATCH),STAT=ALLOC_STATUS( 1))
+  TPSNOW%WSNOW = 0.
+ELSE
+  ALLOCATE(TPSNOW%WSNOW(0,0,0),STAT=ALLOC_STATUS( 1))
+END IF
+!
+
+IF (TPSNOW%SCHEME=='1-L ' ) THEN
+  ALLOCATE(TPSNOW%T(KLU,TPSNOW%NLAYER,KPATCH),STAT=ALLOC_STATUS( 2))
+  TPSNOW%T = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%T(0,0,0),STAT=ALLOC_STATUS( 2))
+END IF
+!
+
+IF (TPSNOW%SCHEME=='D95 ' .OR. TPSNOW%SCHEME=='1-L ' .OR. TPSNOW%SCHEME=='3-L ' ) THEN
+  ALLOCATE(TPSNOW%RHO(KLU,TPSNOW%NLAYER,KPATCH),STAT=ALLOC_STATUS( 3))
+  TPSNOW%RHO = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%RHO(0,0,0),STAT=ALLOC_STATUS( 3))
+END IF
+!
+
+IF (TPSNOW%SCHEME=='3-L ' ) THEN
+  ALLOCATE(TPSNOW%HEAT(KLU,TPSNOW%NLAYER,KPATCH),STAT=ALLOC_STATUS( 4))
+  TPSNOW%HEAT = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%HEAT(0,0,0),STAT=ALLOC_STATUS( 4))
+END IF
+!
+IF (TPSNOW%SCHEME=='D95 ' .OR. TPSNOW%SCHEME=='1-L ' .OR. TPSNOW%SCHEME=='3-L ' ) THEN
+  ALLOCATE(TPSNOW%ALB(KLU,KPATCH),STAT=ALLOC_STATUS( 5))
+  TPSNOW%ALB = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%ALB(0,0),STAT=ALLOC_STATUS( 5))
+END IF
+!
+
+IF (TPSNOW%SCHEME=='1-L'  .OR. TPSNOW%SCHEME=='3-L') THEN
+  ALLOCATE(TPSNOW%EMIS(KLU,KPATCH),STAT=ALLOC_STATUS( 6))
+  TPSNOW%EMIS = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%EMIS(0,0),STAT=ALLOC_STATUS( 6))
+END IF
+!
+IF (TPSNOW%SCHEME=='1-L'  .OR. TPSNOW%SCHEME=='3-L') THEN
+  ALLOCATE(TPSNOW%TS(KLU,KPATCH),STAT=ALLOC_STATUS( 7))
+  TPSNOW%TS = XUNDEF
+ELSE
+  ALLOCATE(TPSNOW%TS(0,0),STAT=ALLOC_STATUS( 7))
+END IF
+!
+!-------------------------------------------------------------------------------
+!
+END SUBROUTINE ALLOCATE_GR_SNOW

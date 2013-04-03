@@ -1,0 +1,121 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     ##############################################
+      FUNCTION VER_INTERP_LIN2D(PVAR1,KKLIN,PCOEFLIN) RESULT(PVAR2)
+!     ##############################################
+!
+!!**** from *VER_INTERP_LIN* - vertical linear interpolation
+!!    only 2D vertical linear interpolation
+!!
+!!    PURPOSE
+!!    -------
+!     This function interpolates the 1D, 2D or 3D fields from one grid
+!     to another using linear interpolation cofficients stored in module
+!     MODD_VER_INTERP_LIN.
+!
+!!
+!!**  METHOD
+!!    ------
+!!
+!!    EXTERNAL
+!!    --------
+!!
+!!    IMPLICIT ARGUMENTS
+!!    ------------------
+!!
+!!    REFERENCE
+!!    ---------
+!!
+!!    Book 2
+!!
+!!    AUTHOR
+!!    ------
+!!	
+!     V.Masson  Meteo-France
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    18/07/97
+!!      A. Lemonsu  04/2004   only the 2D vertical linear interpolation
+!-------------------------------------------------------------------------------
+!
+!*       0.    DECLARATIONS
+!              ------------
+!
+IMPLICIT NONE
+!
+!*       0.1   Declaration of arguments
+!              ------------------------
+REAL,   DIMENSION(:,:), INTENT(IN) :: PVAR1    ! variable values on the initial
+!                                              ! grid
+INTEGER,DIMENSION(:,:), INTENT(IN) :: KKLIN    ! lower interpolating level of
+!                                              ! grid 1 for each level of grid 2 
+REAL,   DIMENSION(:,:), INTENT(IN) :: PCOEFLIN ! coefficient for level KKLIN
+!
+REAL,   DIMENSION(SIZE(KKLIN,1),SIZE(KKLIN,2)) :: PVAR2 ! variable values on
+!                                                       ! target grid 
+!
+!*       0.2   Declaration of local variables
+!              ------------------------------
+!
+REAL,   DIMENSION(1,SIZE(PVAR1,1),SIZE(PVAR1,2)) :: ZVAR1 ! variable values on the initial
+!                                                         ! grid
+REAL,   DIMENSION(1,SIZE(PVAR2,1),SIZE(PVAR2,2)) :: ZVAR2 ! variable values on target
+!
+INTEGER,DIMENSION(1,SIZE(KKLIN,1),SIZE(KKLIN,2)) :: IKLIN ! lower interpolating level of
+!                                                         ! grid 1 for each level of grid 2 
+REAL,   DIMENSION(1,SIZE(PCOEFLIN,1),SIZE(PCOEFLIN,2)):: ZCOEFLIN ! coefficient for level KKLIN
+!
+INTEGER                                          :: JI,JJ,JK2
+!
+!-------------------------------------------------------------------------------
+!
+ZVAR1(1,:,:)   = PVAR1(:,:)
+IKLIN(1,:,:)   = KKLIN(:,:)
+ZCOEFLIN(1,:,:)= PCOEFLIN(:,:)
+!
+DO JK2=1,SIZE(IKLIN,3)
+  DO JJ=1,SIZE(IKLIN,2)
+    DO JI=1,SIZE(IKLIN,1)
+IF (IKLIN(JI,JJ,JK2)==0) THEN
+STOP
+END IF
+      ZVAR2(JI,JJ,JK2)=    ZCOEFLIN(JI,JJ,JK2) *ZVAR1(JI,JJ,IKLIN(JI,JJ,JK2)  )&
+                      +(1.-ZCOEFLIN(JI,JJ,JK2))*ZVAR1(JI,JJ,IKLIN(JI,JJ,JK2)+1)
+    END DO
+  END DO
+END DO
+!
+PVAR2(:,:)   = ZVAR2(1,:,:)
+!
+!-------------------------------------------------------------------------------
+!
+END FUNCTION VER_INTERP_LIN2D
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

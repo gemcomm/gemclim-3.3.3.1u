@@ -1,0 +1,165 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+* *S/P  SHALOW
+*
+      SUBROUTINE SHALOW(RI,GAMA,GAMAQ,GAMAL,FN,T,TVE,Q,QE,QL,PS,
+     %                  SIGMA,SE,DUDZ2,BB,ISHALOW,N,M,NK)
+#include "impnone.cdk"
+*
+      INTEGER N,M,NK,ISHALOW(2),j,k
+*
+      REAL RI(N,NK),GAMA(N,NK),GAMAQ(N,NK),FN(N,NK)
+      REAL GAMAL(N,NK),QL(N,NK)
+      REAL T(M,NK),TVE(N,NK),Q(M,NK),QE(N,NK),PS(N)
+      REAL SIGMA(n,NK),SE(n,NK),DUDZ2(N,NK),BB(N)
+*
+      REAL VIRCOR,FAC,BETA,GAMAM,GMmGS,TE,QSAT
+      REAL b,dz,dlnp,dbdz,bGMmGS,bGMmGSv,bGMmGSa,bGMmGSb
+      REAL ENTqv,ENTql,ENTtt,mu,nu,ksi
+*
+*Author
+*        C .Girard November 1995
+*
+*Revisions
+*
+*Object
+*        Parameterization of certain effects of the shallow convection:
+*        -To calculate gradients at equilibrium for temperature
+*         and moisture which will affect the diffusion in two ways:
+*           a) in modifying the stability (via the Richardson number)
+*           b) in modifying the equilibrium gradients for the variables
+*              to be diffused.
+*
+*
+*Arguments
+*
+*          -Output-
+* RI       Modified Richardson number.
+* GAMA     Modified equilibrium gradient for temperature
+* GAMAQ    Modified equilibrium gradient for moisture
+*
+*          -Input-
+* FN       Cloud fraction from shallow convection
+* T        Temperature
+* TVE      Virtual Temperature at intermediate levels
+* Q        Specific humidity
+* QE       Specific humidity at intermediate levels
+* PS       surface pressure
+* SIGMA    Sigma level
+* SE       Intermediate sigma level
+* DUDZ2        (dV/dz)**2
+* N        Horizontal dimension
+* M        1st dimension of T and Q in the calling program
+* NK       vertical dimension
+*
+*          -Work
+* BB       Detrained cloud fraction
+*
+**
+*
+*
+#
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+*     entrainment: mu=1; detrainment: 1/nu = 1 km
+*
+      mu = 1.
+      nu = 1./1.E3
+      ksi = .0
+*
+      DO j=1,N
+         BB(j)=0.
+      END DO
+*
+      DO k=NK-1,2,-1
+         DO j=1,N
+*
+*           CALCUL APPROX. DE GMmGS = GAMAM - GAMAS
+*
+*                  GAMAM = g/cp
+*
+*                  cp = CPD*(Tv/T)
+*                  BETA = L/cp dqs/dT = 1.35e7*qs/(T*T)
+*                  1.35e7 = eps*L*L/Rd/cpd
+*                  ALFA = (T/eps)*(Tv/T) dqs/dT
+*                  6.46e-4*T = ALFA/BETA
+*                  6.46e-4 = cpd/(eps*L)
+*
+*                  GAMAS = GAMAM*(1+ALFA)/(1+BETA)
+*
+            TE=FOTTV(TVE(j,k),QE(j,k))
+            QSAT=FOQST(TE,SE(j,k)*PS(j))
+            BETA=1.35E7*QSAT/(TE*TE)
+            VIRCOR=TVE(j,k)/TE
+            GAMAM=GRAV/(CPD*VIRCOR)
+            GMmGS=GAMAM*(1.-6.46E-4*TE)*BETA/(1.+BETA)
+*
+*           CALCUL DE dbdz
+*
+            dlnp =  ALOG( SIGMA(j,k+1)/SIGMA(j,k) )
+            dz = RGASD * TVE(j,k) * dlnp / GRAV
+            b=.5*(FN(j,k+1)+FN(j,k))
+            BB(j) = max( b, BB(j) * max( 0., 1. - nu * dz ) )
+            dbdz=mu*max(-nu*BB(j),(FN(j,k)-FN(j,k+1))/dz)
+*
+*           CALCUL DE  B x GMmGS
+*
+            bGMmGS=BB(j)*GMmGS
+            bGMmGSv=VIRCOR*(1.-2.44E-4*TE)*bGMmGS
+            bGMmGSa=(1.-2.44E-4*TE)*bGMmGS
+*           bGMmGSa=bGMmGS
+            bGMmGSb=bGMmGS/2.5E+3
+*
+*           CALCUL DE L'ENTRAINEMENT/DETRAINEMENT
+*
+            ENTqv=(QSAT-QE(j,k))/(1.02-BB(j))*dbdz
+            ENTql=.5*(QL(j,k+1)+QL(j,k))/(0.02+BB(j))*dbdz
+* en attendant d'etudier l'effet de ql
+*           ENTql=ksi*ENTqv
+            ENTtt=-TE*(DELTA*ENTqv-ENTql)/(1.+3.3E3*QSAT/TE)
+*
+*           MODIFICATION DE RI
+*
+            FAC = GRAV / ( TVE(j,k) * DUDZ2(j,k) )
+            RI(j,k) =  RI(j,k) - FAC * bGMmGSv
+*
+*           MODIFICATION DE GAMA, GAMAQ ET GAMAL
+*
+            GAMA(j,k)  = GAMA(j,k)  + bGMmGSa + ENTtt
+*
+            GAMAQ(j,k) = GAMAQ(j,k) - bGMmGSb + ENTqv
+*
+            GAMAL(j,k) =            + bGMmGSb + ENTql
+*
+            if( ISHALOW(1).eq.3 ) then
+*              en diffusant qv comme si c'etait qt
+               GAMAQ(j,k) = GAMAQ(j,k) + GAMAL(j,k)
+               GAMAL(j,k) = 0.
+            endif
+*
+         END DO
+      END DO
+*
+      DO j=1,N
+         RI(j,NK) =  RI(j,NK-1)
+      END DO
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

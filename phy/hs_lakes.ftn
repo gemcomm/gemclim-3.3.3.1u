@@ -1,0 +1,433 @@
+c Version 1.0
+
+c Version 1.1 02/27/05
+c     fixed dep_inc to allow for more than one additional slice
+c     fixed to add ti in shuffle
+
+c     main subroutine	
+      subroutine hs_lakes (coszrs, ta_w,ta_i, ua, qa, psurf,
+     +  sw, rlwd,depth,fracice,tempice,hice,hsnow,xlat,ten,
+     +	ti1,t_sfc_out,fracmin,tenout,DAYLNT,DELT,eta,
+     +  qs_w,ql_w,qs_i,ql_i,albo,kount,mixdep)
+      implicit none
+#include "lakes.cdk"
+#include "lakepar.cdk"
+      real lnetw,lneti,lnet,luw,lui,lu,coszrs,ta_w,ta_i,ua,
+     +     qa,psurf,prec,sw,rlwd,runin_vol,tempice,hice,hsnow,
+     +     eta,precacc,fracice,t,tcutoff,u2w,t2w,q2w,ti,u2i,t2i,
+     +     q2i,t2,q2,u2,tac,swpass,albs,albi,albw,swi,sww,tin,
+     +     tcutk,hicedum,delq,evapw,qhw,qew,evapi,qhi,qei,delqs,tkw,
+     +     tki,evap,qe,qh,eflux,eadd,qbot,qw,qnetice,DAYLNT,DELT,
+     +     evaps,dnsty,de,tsurfw,fracadd,fracprv,icemass,
+     +	   u2sw,t2sw,q2sw,u2si,t2si,q2si,ts,qs,us,albo,q1,q3,
+     +     snowmlt,xlat,ten,ti1,t_sfc_out,hnewice,qsens,qlat,za,
+     +     will_elev,tdepth1,tdepth2,gtype,tenout,uswat,usice,
+     +     qs_w,ql_w,qs_i,ql_i,DENI,tswat,qswat,tsice,qsice
+      integer i_shuf,k,iwater,i_tr,kount,mixdep,
+     +        j,dep_inc,islice,isave_d,i1,i2,i3
+	logical snow_flag
+      dimension t(depth,2), de(depth), dnsty(depth)
+      dimension ti(depth,2),ten(INL),tenout(INL)
+
+
+C =================================================================
+c        1. initialize and read in info from previous dt
+c =================================================================
+	DENI=913
+
+
+	do k=1,depth
+	t(k,1)=ten(k)-273.15
+        t(k,2) = t(k,1)
+        ti(k,1)= t(k,1)
+        ti(k,2)= ti(k,1)
+	area(k)=1.0	
+      	enddo
+	ti(1,1)=ti1-273.15
+	
+
+     	do k=1,depth
+        do i_tr = 1,n_trace-2  ! all tracers but salinity
+            trace(k,i_tr) = -2.  !O18
+        enddo
+	  trace(k,n_trace-1) = -50. !2D
+        trace(k,n_trace) = 0.0 ! Zero salinity
+      	enddo
+
+
+
+
+      	call hs_salt_init (Tcutoff, trace(1,n_trace)) ! freezing point
+
+
+c     call boundary layer sbrt to adjust fields over open water and ice
+cswh  PBL computations invoked only for sigma-coord climate models
+cswh  fix to zero/assign variable values used below
+      call hs_zero (t2w,t2i,q2w,q2i,u2w,u2i,evapw,evapi,qhw,qhi,
+     +            qew,qei,lnetw,lneti,luw,lui,sww,swi)
+           
+      if (fracice.lt.1.0)   
+     +      call hs_bndry_flux (ta_w,qa,psurf,ua,t(1,1),Tcutoff,
+     +  u2w,t2w,q2w)
+      if (fracice.gt.0.0) 
+     +      call hs_bndry_flux (ta_i,qa,psurf,ua,ti1,Tcutoff,
+     +	u2i,t2i,q2i)
+c     weight fields
+
+
+
+c	EXTERNAL values @ 2m, if uncommented
+
+       t2 = t2w*(1-fracice) + t2i*(fracice)
+       q2 = q2w*(1-fracice) + q2i*(fracice)
+       u2 = u2w*(1-fracice) + u2i*(fracice)
+
+
+c	HS values @ 2m, if uncommented
+
+C       t2 = t2sw*(1-fracice) + t2si*(fracice)
+C       q2 = q2sw*(1-fracice) + q2si*(fracice)
+C       u2 = u2sw*(1-fracice) + u2si*(fracice)
+
+
+
+
+      taC= t2 - 273.15     ! convert weighted air temp to C
+
+	ti(1,1)=t(1,1)
+
+
+c ======================================================================
+c     2. Calculate added precip -- and if snow
+c ======================================================================
+c      precm=prec/1000.*dt !convert precip into m for snow/ice model
+c      precacc=precacc+precm 
+
+
+c=======================================================================
+c      3. Calculate incoming sw radiation over water and ice
+c=======================================================================
+       swpass = sw
+       call hs_lake_albedo(taC, tcutoff, coszrs, albs, albi, albw) 
+       if (hsnow.gt.snocrit) then
+        swi=sw*(1.-albs)    ! swi because over ice fraction
+       else if (hsnow.gt.0.0.and.hsnow.le.snocrit) then
+        albi=(albi+albs)/2. ! if thin snow, avg albedos
+        swi=sw*(1.-albi)
+       else if (hice.gt.0.0.and.hsnow.le.0.0) then
+        swi=sw*(1.-albi)
+       endif
+
+*	albw=0.07
+       sww=sw*(1.-albw)
+
+
+      albo= (albw*(1.0-fracice)+albi*fracice)  ! average albedo
+
+
+
+c======================================================================
+c      4. calculate evaporation, adjust fluxes over ice, adjust for salt
+c======================================================================
+
+c ==== 4.1 calculate fluxes for open water ============================
+      tin=t(1,1)+273.15     ! surface water T in kelvin
+      Tcutk=Tcutoff+273.15  ! freezing point in kelvin
+
+
+      hicedum=0.0           ! send ice=0.0 to latsens for open water calc
+      call hs_latsens (tin,Tcutk,hicedum,t2,
+     +              q2,u2,psurf,delq,evapw,Qhw)
+      Qew = -evapw*Le
+
+c ==== 4.2 adjust fluxes for ice cover ================================
+
+ 
+
+      if (hice.gt.0.0) then  ! if ice present
+c        tempice=tempice+273.15
+
+        evapi=evapw
+        Qhi=Qhw
+        call hs_adjust_flux ( swi, tempice , Tcutk, hice, hsnow, t2,
+     +                     q2, u2, psurf, delq, 
+     +                     evapi, Qhi, rlwd )
+        Qei = -evapi*Lei ! latent over ice, should be Lei
+c        tempice=tempice-273.15  
+      endif ! end if there is ice present
+
+       tempice=tempice-273.15 
+
+c ==== 4.3 adjust fluxes for salinity  ============================
+
+      if (trace(1,n_trace).gt.0.0) then  ! adjust for salinity
+        call hs_salt_evap (trace(1,n_trace), evapw, q2, delq,
+     +                  psurf, Tcutoff, hice, t(1,1), delqs )
+        Qew = -evapw*Le
+      endif
+
+
+c============================================================
+c     5. Calculate long wave fluxes over ice and water
+c============================================================
+
+      tkw=273.15+t(1,1)
+      tki=273.15+tempice
+      luw= -0.97*delta*tkw**4. ! long wave up from water surface
+      lui= -0.97*delta*tki**4. ! long wave up from ice  surface
+      lnetw=rlwd+luw ! net long wave over water
+      lneti=rlwd+lui ! net long wave over ice
+
+c=============================================================
+c     6. Calculate initial energy, and fluxes weighted for ice frac
+c=============================================================
+
+c     uncomment to diagnose energy balance
+c     call energycalc (t, dnsty, depth, trace, sumjoub)
+
+
+c	Qh=-qsens
+c	Qe=-qlat
+
+c	EXTERNAL fluxes. if uncommented, case 1
+
+c	qs_w=100.0*qs_w
+c	ql_w=100.0*ql_w
+
+c	ql_w=-qs_w
+
+cc	Qhi=qs_i
+cc	Qei=ql_i	
+cc	Qhw=qs_w
+cc	Qew=ql_w
+cc      evapw= -Qew/Le
+cc        evapi= -Qei/Lei
+
+	qs_i=-Qhi
+	ql_i=-Qei
+	qs_w=-Qhw
+	ql_w=-Qew
+
+
+
+       fracprv=fracice ! save frac in prv because it will change
+       evap=(1.-fracprv)*evapw+fracprv*evapi
+       Qe=(1.-fracprv)*Qew+fracprv*Qei
+       Qh=(1.-fracprv)*Qhw+fracprv*Qhi
+       lu=(1.-fracprv)*luw+fracprv*lui
+       lnet=(1.-fracprv)*lnetw+fracprv*lneti
+c       sw=(1.-fracprv)*sww+fracprv*swi
+       eflux=((1.-fracprv)*sww+fracprv*swi+lnet+Qe+Qh)
+       eadd=eflux*dt
+
+
+c	2m-based fluxes, if uncommented, cases 2,3
+
+       qsens=-Qh
+       qlat=-Qe
+       qa=q2
+
+
+c=============================================================
+c      7. Calculate change in ice thickness and fraction
+c         within fraction that already has ice
+c=============================================================
+cswh  modified to melt all of the snow 
+
+
+      if (fracice.gt.0.0 .or. hsnow .gt. 0.0) then
+
+
+       call hs_lake_ice (rlwd, tempice, Qhi, Qei, Tcutoff,
+     +                 swi, hice, hsnow, ti(1,1), qbot, qw, snowmlt, 
+     +                 evapi,qnetice , fracice , evaps,q1,q3)
+
+*	write(6,*) "icenew1", kount, fracice, hice, tempice
+	endif
+
+*	write(6,*) "icenew2", kount, fracice, hice, tempice
+
+
+      qnetice=0. ! set to zero, used only for iceform now
+      fracice=amax1(0.,fracice)
+*      fracice=amin1(0.99,fracice)
+	if (fracice .eq. 0.) hice = 0.0
+c==============================================================
+c     8.  Adjust temps of water column in open water fraction
+c==============================================================
+      if (fracprv.lt.1.0) then !if all ice, deal with below
+        iwater=1 ! signal that open water calculation
+
+        call hs_eddy (iwater, u2, t, dnsty,
+     +             de, depth, trace, xlat )
+
+
+        call hs_temp_profile (iwater, qbot, qw, t,
+     +                     sww, lnetw, Qew, Qhw, dnsty, de, eta,
+     +                     depth, trace)
+
+        call hs_tracer_profile (de, depth, iwater) 
+
+        mixdep  = 0 ! set to 0 for this time step
+
+        call hs_tracer_mixer(t, dnsty, depth,
+     +                    trace, mixdep, iwater,kount)
+
+
+        tsurfw=t(1,1) ! save for tsurf output to BATS
+
+      endif  ! if there is open water present
+
+c==============================================================
+c     9.  Adjust temps of water column in ice fraction
+c==============================================================
+
+      if (fracprv.gt.0.0) then ! if  there is ice present
+        iwater=0 ! signal that not an open water calculation
+
+*	write(6,*)"ice calc", kount,fracprv
+
+        call hs_eddy (iwater, u2, ti, dnsty,
+     +             de, depth, trace_i, xlat)
+
+        call hs_temp_profile (iwater, qbot, qw, ti, swi, lneti,
+     +                     Qei, Qhi, dnsty, de, eta, depth, trace_i)
+
+        call hs_tracer_profile (de, depth, iwater)
+
+        call hs_tracer_mixer (ti, dnsty, depth,
+     +                     trace_i, mixdep, iwater,kount)
+
+      endif  ! if there is ice fraction
+
+c==============================================================
+c     10. Calculate ice formation in open water fraction
+c==============================================================
+
+*	write(6,*)"hnewice01 ", hnewice, hice, fracice, fracadd
+*	write(6,*)"hnewice02 ", fracprv,t(1,1),Tcutoff,fracmin
+
+	hnewice=0.0
+
+      if (fracprv.lt.1.0.and.t(1,1).lt.Tcutoff) then
+        if (iceflag) then
+
+
+         call hs_ice_form (qnetice,t,depth,Tcutoff,
+     +                   fracprv,trace,hnewice)
+
+	endif
+      endif  ! if open water for ice to grow in
+
+c	if(hnewice.gt.0.0) write(6,*)"hnewice ", hnewice, hice, fracice, fracadd
+c==============================================================
+c     10.1 Ice fraction and thickness, according to McFarlane 1992 AMTV
+c==============================================================
+
+c	if(fracprv.gt.0.0) then
+
+	hice=max(0.0,hice)
+
+
+
+	icemass=max (0.0, (hice*fracprv+hnewice*(1-fracprv))*DENI)
+
+*	write(6,*)"frac1 ",kount,t(1,1),Tcutoff,icemass
+*	write(6,*)"frac2 ",kount,fracprv,hice,hnewice
+
+	if (icemass.le.1.0e-3) then
+
+		icemass=0.0
+
+		hice=0.0
+
+		hsnow=0.0
+
+		fracice=0.0
+
+
+	elseif (icemass.le.50.) then
+
+		fracice=0.095
+
+c		hice=icemass/DENI/0.1234
+
+		hice=icemass/DENI/0.095
+
+
+	else
+	
+c	McFarlane 1992	
+c		fracice=max (0.1234, 1.-MIN((45./icemass)**1.25,1.))
+
+c	Goyette 2001
+		fracice=max (0.095, MIN(0.0425*(icemass-45)**0.5,1.))
+
+c	Simple model
+c		fracice=1.
+
+		hice=icemass/fracice/DENI
+	endif
+
+
+
+
+c==============================================================
+c     11.  Average ice and water columns
+c==============================================================
+      
+	call hs_column_avg (depth,t,ti,trace,trace_i,fracprv,dnsty)
+
+      call hs_tracer_avg (depth,fracprv)
+
+c==============================================================
+c      12. Calculate energy after, 
+c          uncomment to diagnose energy balance
+c==============================================================
+c     call energycalc (t, dnsty, depth, trace, sumjoua)
+c     ebal=sumjoua-sumjoub  ! energy in water after - before
+c    +      -(sww+lnetw+Qew+Qhw)*dt*(1.-fracprv) ! eadd over water
+c    +      -qnetice*dt ! sub eadd to water for new ice form
+c    +      -(qbot-qw)*dt*fracprv          ! eadd over ice
+c     teb=teb+ebal
+c     tempoff=teb/(1.e3*4.18e3*float(depth))
+
+
+c============================================================
+c     13A. Calculate radiative surface temperature for output
+c============================================================
+
+      tkw=273.15+t(1,1)
+      tki=273.15+tempice
+
+      	if(fracprv.le.0.0) then
+
+		t_sfc_out=tkw
+	else
+      luw= -0.97*delta*tkw**4. ! long wave up from water surface
+      lui= -0.97*delta*tki**4. ! long wave up from ice  surface
+      lu=(1.-fracprv)*luw+fracprv*lui
+      t_sfc_out=sqrt(sqrt((lu/delta/(-0.97))))
+	endif
+
+c==============================================================
+c      14A.  Output temperature profile array "ten"
+c==============================================================
+
+c	ti1=ti(1,1)+273.16
+
+	ti1=ti(1,1)+273.15
+
+c	if(hice.gt.0.0) tempice=tempice + 273.15
+
+	 tempice=tempice + 273.15
+
+	do k=1,depth
+	tenout(k)=t(k,1)+273.15
+	
+        enddo
+
+      return
+
+      end
+ 

@@ -1,0 +1,110 @@
+c Version 1.0
+      subroutine hs_lake_ice (radlwd,tempice,qsen,qlat,
+     +                     tcutoff,sw,hi,hs,twater,qbot, 
+     +       qw,ds,evapi,qnetice,fracice,evaps,qmelts,qmeltsx)
+      implicit none
+#include "lakepar.cdk"
+      real radlwd,qsen,qlat,tcutoff,sw,hi,hs,twater,qbot,
+     +     qw,ds,evapi,qnetice,fracice,evaps,tmelt,emice,t4,x,
+     +     q0t0,condqw,evapl,tprev,qmet,val,val2,q0,tempice,
+     +	 qmelts,condbar,qf,qmeltb,qmeltsx,dibot,hiprv,
+     +     extradi,df,xfrac,di,diextra,extraf,disurf
+	  
+      parameter (tmelt = 0.0)  ! melting temp for snow
+      parameter (emice = 0.97) ! emmissivity of ice
+
+
+      t4(x)=(x+273.15)**4.
+      q0t0(x)=sw+(1./condbar)*(tcutoff-(x)-val)
+c     conductivity for water to ice flux
+c=============================================================
+c     1.  Calculate surface fluxes, update tempice 
+c=============================================================
+
+       condqw = rhowat * cpw_ice * surf / (qwtau*2.)
+       evapl=evapi*dt/1000.  ! convert from mm/sec to m (over this dt)
+       tprev=tempice          ! keep track of incoming t0
+       qmet=radlwd-emice*delta*t4(tprev)+qsen+qlat
+c     1a. Calculate surface fluxes, update tempice 
+c         qmet is the same as H(To) in Patterson and Hamblin, pg. 327, eqn. 6
+       call hs_ice_rad (sw, hi, hs, condbar, val, val2 )
+       q0=-qmet  ! q0 is flux of heat out of i/s from i/s surf
+       tempice=condbar*(sw-q0)+tcutoff-val ! eq 7 from p + h
+	tempice=max(tempice,tcutoff-70.0)
+       qbot=sw+val2   ! this is sw rad leaving base of ice
+
+c=============================================================
+c     2.  Adjust tempice if greater than melt temp
+c=============================================================
+
+       if (tempice.gt.tmelt) then
+         q0=q0t0(tmelt)     ! set q0 to q0 for t0 = tmelt
+         tempice=tmelt      ! set surf temp to melting temp
+         qmelts=q0+qmet     ! calc extra heat flux for melting
+       else
+         qmelts=0.0
+       endif
+
+c==============================================================
+c     3.  Calculate fluxes at the base of the ice
+c==============================================================
+
+       qf=q0+val2  ! flux of heat into ice from base of ice
+       qw=-condqw*(tcutoff-twater)
+       qmeltb=qf-qw  !  note opposite sign from surface qmelt
+       qnetice=qmeltb-qmelts  ! flux for freeze/melt
+
+c==============================================================
+c     4.1  Adjust snow depth for evap/condensation
+c==============================================================
+
+      qmeltsx=0.0           ! initialize here, in case no snow
+      if (hs.gt.0.0) then    
+        if (evapl*(rhowat/rhosnow).le.hs) then
+          hs=hs-evapl*(rhowat/rhosnow)  ! assume condensation adds to snow
+          evapl=0.0                   ! all evapl used in removing snow
+          evaps=evapi                 ! all ice evap to snow
+        else     ! evapl is greater than snow thickness
+          evapl=evapl-hs*(rhosnow/rhowat) !  remaining evap for ice
+          evaps=hs*(rhosnow/rhowat)
+          hs=0.0
+        endif
+      endif
+
+c===============================================================
+c    4.2  Adjust snow depth for melting/freezing
+c===============================================================
+
+      if (hs.gt.0.0) then
+        ds=(-qmelts/(rhosnow*fusion))*dt  ! ds < 0, melting
+        if (-ds.gt.hs) then  ! then have to melt ice too
+          qmeltsx=qmelts-(hs*rhosnow*fusion/dt)  ! energy remaining for ice
+          hs=0.0             ! set snow to zero
+        else
+          hs=hs+ds
+        endif                ! -ds > hs
+      endif                 ! if hs gt 0.0
+
+c===============================================================
+c    4.3   Calculate ice thickness change for m/f and e/c
+c===============================================================
+
+      if (hs.le.0.0) then   ! if there is ice at the surface
+        disurf=((-qmelts/(rhoice*fusion))+
+     +         (-qmeltsx/(rhoice*fusion)))*dt+ ! add extra from snow
+     +         (-evapl*(rhowat/rhoice))      ! add remaining evap length
+      else
+        disurf=0.0
+      endif
+      dibot=(qmeltb/(rhoice*fusion))*dt  ! no minus here
+
+c==================================================================
+c     4.4  Adjust ice thickness and fraction
+c==================================================================
+
+C	All ice fraction calculations in the coupled model: in lake_main
+
+         hi=hi+disurf+dibot 
+       
+       return
+       end

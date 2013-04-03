@@ -1,0 +1,47 @@
+c Version 1.0
+c     based on genesis lsx code
+
+      subroutine fstrat(tb,tt,ttfac,zt,alb,alt,u,rich,
+     +                  stram,strah)
+
+c     Compute mixing-length stratification correction factors for
+c     momentum and heat/vapor, using parameterizations in Louis (1979),
+c     BLM,17,187.  First computes Richardson numbers.  Sets an upper limit
+c     to Richardson numbers so lower-veg winds don't become vanishingly
+c     small in very stable conditions (cf,Carson and Richards,1978,BLM,14,68).
+
+c     tb=bottom temperature
+c     tt=top temperature
+c     ttfac=potential temperature correction to tt
+c     zb=height of bottom
+c     zt=height of top
+c     alb=log(bottom roughness length)
+c     alt=log(z at top)
+c     u=wind speed at top
+c     rich=richardson number
+c     stram=stratification factor for momentum
+c     strah=stratification factor for heat/vap
+
+c source : Andrey Martynov, UQAM (Aug 2011)
+
+      implicit none
+#include "lakepar.cdk"
+      real tb,tt,ttfac,zt,alb,alt,u,rich,stram,strah,
+     +     grav,zb,x,c,sqri
+      parameter (grav=9.80616)
+   
+      zb = zo
+      rich=grav*max(zt-zb,0.)*(tt*ttfac-tb)/(tt*ttfac*u**2)
+      rich=min(rich,1.0)
+      if (rich.le.0) then
+         x=max(alt-alb,0.5)
+         c=(kv/x)**2*9.4*exp(0.5*x)
+         sqri=sqrt(-rich)
+         stram=1.-9.4*rich/(1.+7.4*c*sqri)
+         strah=(1.-9.4*rich/(1.+5.3*c*sqri))/0.74
+      else
+         stram=1./(1.+4.7*rich)**2
+         strah=stram/0.74
+      endif
+      return
+      end

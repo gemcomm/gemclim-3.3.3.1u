@@ -1,0 +1,75 @@
+#if defined (DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!
+! Author
+!          B  Dugas
+
+! Revisions
+! 000      B. Dugas   (Oct 2008) - Initial version
+!
+! Object   
+!          Current list of valid output names of the vector
+!          pair variables in all of the physic buses
+!
+!( U , V )  COMPONENTS
+!
+! Dynamic bus
+! U8   V8   Winds at t-dt
+! UP   VP   Winds at t+dt
+!
+! Permanent bus
+! UD   VD   Screen level winds
+! S7   S8   Surface momentum flux accumulator
+! U6   V7   Wind tendency due to FCP
+! UG   V6   Wind tendency due to GWD                (MOYHR average)
+! NOUM NOVM Wind tendency due to NOGW               (MOYHR average)
+! USGW VSGW Wind stress due to GWD tendency         (MOYHR average)
+! X2   X3   Wind tendency due to vertical diffusion (MOYHR average)
+!
+! Volatile bus
+! GU   GV   Wind tendency due to GWD 
+! M1   M2   Wind tendency due to NOGW
+! TU   TV   Wind tendency due to vertical diffusion
+! UPHY VPHY Total wind tendency due to physics
+! UQVA VQVA Verticaly averaged humidity transport
+! UTVA VTVA Verticaly averaged temperature transport
+! AMHM VMVA Wind * Cos(lat) vertical integral
+!
+#endif
+!
+      INTEGER, PARAMETER :: NBRVEC = 16
+!
+      CHARACTER(LEN=4), SAVE :: VECNAM(2,NBRVEC)
+!
+      DATA  VECNAM /      \
+           'U8'  ,'V8'  , \
+           'UP'  ,'VP'  , \
+           'UD'  ,'VD'  , \
+           'S7'  ,'S8'  , \
+           'U6'  ,'V7'  , \
+           'UG'  ,'V6'  , \
+           'NOUM','NOVM', \
+           'USGW','VSGW', \
+           'X2'  ,'X3'  , \
+           'GU'  ,'GV'  , \
+           'M1'  ,'M2'  , \
+           'TU'  ,'TV'  , \
+           'UPHY','VPHY', \
+           'UQVA','VQVA', \
+           'UTVA','VTVA', \
+           'AMHM','VMVA'  /
+

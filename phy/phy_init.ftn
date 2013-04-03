@@ -1,0 +1,321 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***function phy_init - Set defaults values and read physics namelists
+!                 to initialize physics configuration
+!
+      integer function phy_init (F_namelist,call_back,F_phys,F_unout)
+      implicit none
+!
+      character* (*) F_namelist
+      logical  call_back,F_phys
+      external call_back
+      integer F_unout
+!
+!Author
+!     M. Desgagne    - Summer 2006
+!
+!Revision
+!
+! 001  J. Milbrandt (Dec 2006) - Added options for Milbrandt-Yau scheme
+! 002  B. Bilodeau  (Feb 2007) - Add call to check_options
+!
+!Object
+!
+!Arguments
+!               - Input -
+! F_namelist    File name containing the namelists to read
+! call_back     Name of the call_back to initialize physical constant
+! F_unout       Control for print statements in stdout (F_unout>0)
+!
+!               - Output -
+! F_phys        Main physics logical switch (will be .T. only if
+!               physics package is activated with the proper setting
+!               for phy_pck_version in namelist &physics_cfgs
+!
+#include "phy_master_ctrl.cdk"
+#include "options.cdk"
+#include "phy_namelist.cdk"
+!
+      logical inctphy3
+      integer  fnom,wkoffit
+      EXTERNAL fnom,wkoffit,inctphy3,PHYOPT_DATA
+      integer  check_options
+      EXTERNAL check_options
+!
+      logical found_namelist,flag
+      character*60 name_list,dumc
+      integer unf,nrec,err,err_open
+      integer rel_maj,rel_min,rel_rev,usr_maj,usr_min,usr_rev,revplus
+!
+!-------------------------------------------------------------------
+!
+! Identify the current physics package and its version.
+!
+      phy_release_pck_version = 'RPN-CMC_5.0.4'
+!
+! Initialize master init control phy_init_ctrl and return function code
+! If phy_init works properly, 
+!            phy_init_ctrl = 1001 (then can proceed normally to phy_debu)
+!            phy_init      = 1
+!
+      phy_init_ctrl = 999
+      phy_init      = -1
+!
+! Reading namelists physics_cfgs, physics_2 and physics_simplified
+! from file F_namelist. Defaults are set in BLOCK DATA PHY_OPTIONS_DATA.
+! Return code phy_init will be set to 1 if no error occurs.
+!
+      unf = 0
+      found_namelist = .false.
+      err = wkoffit (F_namelist)
+!
+      if (err.ge.-1) then
+      err_open    = fnom (unf, F_namelist, 'SEQ+OLD' , nrec)
+      if (err_open.eq.0) then
+!
+         name_list = 'physics_cfgs'
+!        if no "physics_cfgs" namelist, then "physics_2" and
+!        "physics_simplified" namelists are skipped
+         read (unf, nml=physics_cfgs,            end = 333, err = 90)
+         found_namelist = .true.
+!        conversion of physics version in upper case
+         call low2up  (phy_pck_version,dumc)
+         phy_pck_version = dumc
+         err = check_options(F_unout.ge.0)
+         if (err.le.0) goto 444
+!
+         if (F_unout.ge.0)then
+             if (phy_pck_version.ne.'NIL') then
+                write(F_unout,2000)
+                write(F_unout,NML=PHYSICS_CFGS_p)
+                write(F_unout,2300)
+             else
+!               there is no need to read namelists "physics_2" and
+!               "physics_simplified" if no physics is requested
+                goto 333
+             endif
+         endif
+!
+         rewind (unf)
+         name_list = 'physics_2'
+         call save_options ( 1 )
+         read (unf, nml=physics_2,          end = 302, err = 90)
+         err = check_options(F_unout.ge.0)
+         if (err.le.0) goto 444
+         call save_options ( 2 )
+         if (F_unout.ge.0)then
+             write(F_unout,2100)
+             write(F_unout,NML=PHYSICS_2)
+             write(F_unout,2300)
+         endif
+!
+ 302     call restore_options ( 1 )
+         rewind (unf)
+         name_list = 'physics_simplified'
+         read (unf, nml=physics_simplified, end = 333, err = 90)
+         if (F_unout.ge.0)then
+             write(F_unout,2200)
+             write(F_unout,NML=PHYSICS_SIMPLIFIED)
+             write(F_unout,2300)
+         endif
+!
+         goto 333
+ 90      if (F_unout.ge.0)
+     $   write (F_unout, 1500) trim(name_list),trim(F_namelist)
+         goto 444
+!
+ 333     call fclos (unf)
+!
+      endif
+      endif
+!
+      if ( (err.lt.-1) .or. (err_open.ne.0) ) then
+         if (F_unout.ge.0) write (F_unout, 1600) trim(F_namelist)
+      endif
+!
+! Checking requested physics package (F_version) against loaded library
+!
+      phy_init = 1
+      F_phys   = .false.
+!
+      if (found_namelist) then
+!
+         if (trim(phy_pck_version).eq.'NIL') then
+            if (F_unout.ge.0) write (F_unout,1200) 'NIL'
+            goto 444
+         endif
+         if (trim(phy_pck_version).eq.'@#$%') then
+            if (F_unout.ge.0) write (F_unout,1000)
+     $                        trim(phy_release_pck_version)
+            phy_init = -1
+            goto 444
+         endif
+
+         call decrev (rel_maj,rel_min,rel_rev,revplus,trim(phy_release_pck_version))
+         call decrev (usr_maj,usr_min,usr_rev,revplus,trim(phy_pck_version        ))
+         if (rel_maj.lt.0) then
+            if (F_unout.ge.0) write (F_unout,1100)
+     $             trim(phy_release_pck_version),trim(phy_pck_version)
+            phy_init = -1
+            goto 444
+         endif
+         rel_min = max(0,rel_min)
+         rel_rev = max(0,rel_rev)
+         flag=.true.
+         if ( (usr_maj.ne.rel_maj).or.(usr_min.ne.rel_min) ) flag=.false.
+         if ( usr_rev.gt.-1 ) then
+            if (revplus.gt.0) flag = rel_rev .ge. usr_rev
+            if (revplus.lt.0) flag = rel_rev .eq. usr_rev
+         endif
+
+         if ( .not. flag ) then
+            if (F_unout.ge.0) write (F_unout,1100)
+     $             trim(phy_release_pck_version),trim(phy_pck_version)
+            phy_init = -1
+            goto 444
+         endif
+         if (F_unout.ge.0) write(F_unout,1200) trim( phy_release_pck_version )
+         F_phys = .true.
+!
+      else
+         phy_pck_version='NIL-NO PHYS'
+         if (F_unout.ge.0) write(F_unout,1200) trim( phy_pck_version )
+      endif
+!
+! Initializing physical constant with call_back routine
+!
+      if (F_phys) then
+      if (.not.inctphy3(call_back,F_unout)) then
+         if (F_unout.ge.0) write (F_unout,1300)
+         phy_init = -1
+         goto 444
+      endif
+      endif
+!
+! Settings master init control phy_init_ctrl
+!
+ 444  continue
+      if (phy_init.gt.0) then
+         phy_init_ctrl = 1001
+      else
+         if (F_unout.gt.0) write (F_unout, 1400)
+      endif
+!
+ 1000 format(
+     $/' VARIABLE phy_pck_version FROM NAMELIST &physics_cfgs',
+     $/' WAS NOT SPECIFIED:   LOADED LIBRARY: ',a)
+ 1100 format(
+     $/' MISMATCH BETWEEN REQUESTED PHYSICS PACKAGE AND LOADED LIBRARY:'
+     $/' LOADED= ',a,'   REQUESTED: ',a)
+ 1200 format(/3X,34('*')/3x,'*  Physics package: ',a,'  *'/3x,34('*'))
+ 1300 format(
+     $/,'PROBLEM INITIALIZATING PHYSICAL CONSTANTS in (S/R inctphy2)')
+ 1400 format (/,'========= ABORT CODE FROM S/R PHY_INIT ============='/)
+ 1500 format (/,' NAMELIST ',a,' INVALID IN FILE: ',a/)
+ 1600 format (/,' NAMELIST FILE ',a,' NOT AVAILABLE - NO PHYSICS')
+*
+ 2000 FORMAT  ( '                                                     ',
+     +        / ' ****************************************************',
+     +        / ' ****************************************************',
+     +        / '                                                     ',
+     +        / '    PHYSICS_CFGS NAMELIST :                          ',
+     +        / '    ---------------------                            ',
+     +        / '                                                     ')
+ 2100 FORMAT  ( '                                                     ',
+     +        / ' ****************************************************',
+     +        / ' ****************************************************',
+     +        / '                                                     ',
+     +        / '    PHYSICS_2 NAMELIST :                             ',
+     +        / '    ------------------                               ',
+     +        / '                                                     ')
+*
+ 2200  FORMAT ( '                                                     ',
+     +        / ' ****************************************************',
+     +        / ' ****************************************************',
+     +        / '                                                     ',
+     +        / '    PHYSICS_SIMPLIFIED NAMELIST :                    ',
+     +        / '    ---------------------------                      ',
+     +        / '                                                     ')
+*
+ 2300  FORMAT ( '                                                     ',
+     +        / ' ****************************************************',
+     +        / ' ****************************************************',
+     +        / '                                                     ')
+*
+*
+*-------------------------------------------------------------------
+*
+      return
+      end
+
+      subroutine decrev (majeure,mineure,revi,reviplus,string)
+      implicit none
+      integer majeure,mineure,revi,reviplus
+      character *(*) string
+
+      integer lst,ind1,ind2,flag
+
+      majeure = -1
+      mineure = -1
+      revi    = -1
+      reviplus= -1
+
+      lst  =   len(trim(string))
+      ind1 = index(trim(string),"_") + 1
+
+      ind2 = index(trim(string),"+")
+      if (ind2.ne.0) then
+         if (ind2.ne.lst) then
+            goto 888
+         else
+            reviplus = 1
+            lst = lst - 1
+         endif
+      endif
+
+      ind2 = index(trim(string(ind1:lst)),".")
+      if (ind2.eq.0) then
+         ind2=ind1
+      else
+         ind2=ind1+ind2-2
+      endif
+      read (string(ind1:ind2),*,iostat=flag) majeure
+      if (flag.gt.0) goto 888
+
+      ind1 = ind2 + 2
+      if (ind1.gt.lst) goto 888
+      ind2 = index(trim(string(ind1:lst)),".")
+      if (ind2.eq.0) then
+         ind2=lst
+      else
+         ind2=ind1+ind2-2
+      endif
+      read (string(ind1:ind2),*,iostat=flag) mineure
+      if (flag.gt.0) goto 888
+
+      ind1 = ind2 + 2
+      if (ind1.gt.lst) goto 888
+      ind2 = index(trim(string(ind1:lst)),".")
+      if (ind2.eq.0) then
+         ind2=lst
+      else
+         ind2=ind1+ind2-2
+      endif
+      read (string(ind1:ind2),*,iostat=flag) revi
+
+ 888  return
+      end
+

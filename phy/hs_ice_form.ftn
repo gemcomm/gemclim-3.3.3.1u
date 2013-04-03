@@ -1,0 +1,46 @@
+c Version 1.0
+c calcs the fractional coverage of new ice that
+c has formed over the open water during this dt
+
+      subroutine hs_ice_form (qnetice,t,depth,Tcutoff,
+     +                    fracprv,salty,hi)
+      implicit none
+#include "lakes.cdk"
+#include "lakepar.cdk"
+      integer j
+      real t(depth,2)
+      real salty(INL,n_trace)
+	real qnetice,Tcutoff,fracprv,fracadd,fracice,hi,sum,extra,
+     +     cp,di,xfrac,dnsty
+
+      call hs_salt_init (Tcutoff,salty(1,n_trace))
+      sum=0.
+      do j=1,depth
+        if (t(j,1).lt.Tcutoff) then
+c	write(*,*)"new ice formation ",t(j,1)," ", Tcutoff
+           call hs_density (t(j,1),salty(j,n_trace),dnsty)
+           call hs_specheat (t(j,1),salty(j,n_trace),cp)
+           extra=(Tcutoff-t(j,1))*yz*(dnsty+1.e3)*cp
+           if (j.eq.1) extra=(Tcutoff-t(j,1))*
+     +     surf*(dnsty+1.e3)*cp
+           t(j,1)=Tcutoff
+           sum=sum+extra
+        endif
+      enddo
+      qnetice=(sum/dt)*(1.0-fracprv) ! heat flux absorbed into ice
+
+      hi=sum/(fusion*rhoice) ! thickness of new ice
+
+!     if (fracprv.le.0.0) hi=0.0
+!	hi=hi+di
+
+!      di=sum/(fusion*rhoice) ! thickness of new ice
+!      fracadd=(di/fracmin)*(1.0-fracprv) ! convert to fracadd
+!      if ((fracadd+fracice).gt.1.0) then  ! too much added
+!        xfrac=(fracice+fracadd)-1.0
+!        di=xfrac*fracmin/1.0
+!        hi=hi+di
+!        fracadd=-999.
+!      endif
+      return
+      end

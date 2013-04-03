@@ -1,0 +1,3299 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P KFCP5
+**
+*
+#include "phy_macros_f.h"
+      SUBROUTINE KFCP5 (IX,KX,FLAGCONV,KKFC,PSB,TP1,QP1,
+     +                  UB,VB,SCR3,
+     +                  DTDT,DQDT,DUDT,DVDT,DQCDT,DQRDT,
+     +                  A,DXDY,ZCRR,GZM,
+     +                  RAD, CDEPTH, DETREG, DETTOT, 
+     +                  TIMEC, TIMEA, 
+     +                  CAPEOUT,AREAUP,CLOUDS,DMFOUT,PEFFOUT,
+     +                  UMFOUT, ZBASEOUT, ZTOPOUT,
+     +                  WUMAXOUT,RLIQOUT,RICEOUT,
+     +                  RLIQ_INT,RICE_INT,
+     +                  RNFLX,SNOFLX,
+     +                  FCPMASK,KOUNT,XLAT,MG,MLAC)
+*
+#include "impnone.cdk"
+*
+*
+      INTEGER IX,KX
+      INTEGER KOUNT
+      REAL FLAGCONV(IX),KKFC(IX)
+      REAL UB(IX,KX),VB(IX,KX),TP1(IX,KX),QP1(IX,KX)
+      REAL PSB(IX),SCR3(IX,KX),A(IX,KX)
+      REAL DTDT(IX,KX),DQDT(IX,KX),DUDT(IX,KX),DVDT(IX,KX)
+      REAL DQRDT(IX,KX),DQCDT(IX,KX)
+      REAL RAD, CDEPTH, DETREG, DETTOT
+      REAL TIMEC, TIMEA
+      REAL ZCRR(IX),DXDY(IX)
+      REAL CAPEOUT(IX), DMFOUT(IX,KX)
+      REAL WUMAXOUT(IX), AREAUP(IX,KX), CLOUDS(IX,KX)
+      REAL RLIQOUT(IX,KX), RICEOUT(IX,KX)
+      REAL RLIQ_INT(IX), RICE_INT(IX)
+      REAL RNFLX(IX,KX), SNOFLX(IX,KX)
+      REAL NORM
+      REAL PEFFOUT(IX), UMFOUT(IX,KX)
+      REAL ZBASEOUT(IX), ZTOPOUT(IX)
+      REAL GZM(IX,KX), FCPMASK(IX)
+      REAL XLAT(IX)
+      REAL MG(IX),MLAC(IX)
+*
+*Author
+*          Jack Kain and JM Fritsch (Oct 14,1990)
+*
+*Revision
+* 001      Stephane Belair and Zonghui Huo (Dec.1994)
+*               inclusion into the RPN physics package
+* 002      Stephane Belair (Nov. 1998) documentation of the code
+* 003      Gerard Pellerin (Dec.1998) optimisation trigger
+* 004      Richard Moffet  (Fev. 1999) RPN/CMC thermodynamic functions
+* 005      Andre Methot correct bugs with NCA update and < 0
+* 006      R. Moffet and S. Belair (Jan. 2000)
+*                   Cleaning of the code
+* 007      S. Belair (Nov. 2000)  new output diagnostics
+* 008      A.-M. Leduc (Jan 2001) Automatic arrays
+* 009      S. Belair (Apr. 2001)  force detrainment in the upper portion
+*                                 of the updraft
+* 010      S.Belair, G.Lemay, A-M Leduc (Apr 2001) Debugging
+* 011      S.Belair (July 2001) convective transport of momentum
+* 012      A-M. Leduc (Nov 2001) kfcp1 -->kfcp2 (changed arguments in call+
+*                                NCA becomes FLAGCONV)
+* 013      A-M. Leduc (Feb 2002) reactivation of cloud fraction.
+* 014      S. Belair, A-M. Leduc (nov 2002) add convective 1D counter kkfc.
+*                                argument kkfc added, kfcp2-->kfcp3.
+* 015      K. Winger (nov 2002) conservation of water.
+* 016      A-M. Leduc (Dec 2002) add switch ikfcpcp
+* 017      L. Spacek (Sep 2003) do loop 107 changes LFS to LFS-1
+* 018      A-M. Leduc (Sep 2003) Initialize LDB and minimize value of wabs.
+* 019      L.Spacek (Dec 2003) loops 260,261 D/UMFOUT(kx-nk+1)=D/UMF(nk)
+* 020      B. Bilodeau (Feb 2004) NUP is declared NK instead of IX
+* 021      S. Belair (Fall 2003) Output precipitation fluxes
+* 022      B. Bilodeau (Mar 2004) Add rliq_int and rice_int
+* 023      B. Bilodeau (Mar 2004) Add "ramp" for wklcl
+* 024      L.Spacek (May 2004)    In convective loop test
+*                                 the vertical loop to ITOP instead LMAX
+*                                 JKP replaced by LC+1       
+* 025      L.Spacek (Nov 2004)    cloud clean-up, multiplication of RLIQOUT
+*                                 RICEOUT by CLOUDS
+* 026      B. Bilodeau (Dec 2004) Correct KKFC bug
+* 027      B. Bilodeau (Jan 2005) Move the normalization of pcpn fluxes 
+*                                 after ZCRR is recalculated
+* 028      D. Figueras Nieto (Fev 2005) add D/UMFOUT(kx-nk+1)=D/UMF(nk) 
+*                                       loop 170
+* 029      D. Talbot (Spring 2005) wklcl = 0.02 at end of trigger function
+*                    to make the scheme more active
+* 030      B.Dugas (Jun 2005)     Add surface modulation of WKLCL via KFCTRIGA
+* 031      B. Bilodeau and S. Belair (Aug 2005) - 
+*                       Correct RLIQOUT and RICEOUT bug.
+*                       Limit cloud fraction to values between (0.,1.)
+* 032      R. McTaggart-Cowan and M. Desgagne (Jul 2006) - 
+*                       Revert back to a more vectorizable form 
+*                       for Vector processors
+* 033      K. Winger (Sep 2004)   Correct normalization of precipitation fluxes
+*
+* 034      A-M. Leduc (Feb 2009) Add latitudinal variation to WKLCL over the ocean
+*                      using logical key kfctriglat. Add arguments MG ,  Mlac and 
+*                      xlat in call. kfcp4 becomes kfcp5.
+* 035      L. Spacek (Feb 2009)  Add UD=0, VD=0 in loop 117
+*
+*
+*Object
+*          to compute the effects of deep convection using
+*          the Kain-Fritsch convective paramerization scheme.(MKS units)
+*
+*Arguments
+*
+*          - Input -
+* IX       X dimension of the model grid (NI)
+* KX       Z dimension of the model grid (NK)
+*
+*          - Input/Output -
+* FLAGCONV   counter for whether convection is activated?
+*
+*          - Input -
+* PSB      pressure at the bottom of the atmosphere
+* TP1      temperature at time (T+1)
+* QP1      specific humidity at time (T+1)
+* UB       wind in X direction at time (T+1)
+* VB       wind in Y direction at time (T+1)
+* SCR3     vertical velocity at time (T+1)
+*
+*          - Input/Output
+* DTDT     convective effects of heating
+* DQDT     convective effects of moistening
+* DUDT     convective effects on u-momentum
+* DVDT     convective effects of v-momentum
+* DQCDT    cloud water/ ice due to the Kain and Fritsch scheme
+* DQRDT    rain water/ snow due to the Kain and Fritsch scheme
+*
+*          - Input -
+* GZM      geopotential
+* A        a subset of the sigma levels in the model
+* DXDY     area of each tile of the grid
+* FCPMASK  switch to indicate which convection scheme is used for a
+*          given point for CONVEC="KFC" or CONVEC="KFCKUO2" options
+*          =  0        KFC no
+*          otherwise   KFC yes
+* XLAT     latitude(radians)
+* MG       land-sea mask
+* MLAC     fraction of lakes (mask)
+*
+*          - Output -
+* ZCRR     convective rainfall rate
+*
+*
+*          - Input -
+* RAD      radius of the convective updraft at cloud base
+* CDEPTH   minimum cloud depth
+*
+*          - Output (diagnostics) -
+* CAPEOUT  available buoyant energy
+* AREAUP   cloud coverage area (m^2)
+* CLOUDS   cloud fractional coverage area (fraction between 0 and 1)
+* DMFOUT   downdraft mass flux
+* PEFFOUT  precipitation efficiency
+* UMFOUT   updraft mass flux
+* ZBASEOUT cloud base height (i.e., LCL height)
+* ZTOPOUT  cloud base top
+* WUMAXOUT maximum velocity in the convective updrafts (m/s)
+* RLIQOUT  mixing ratio of liquid water in the updrafts (kg/kg)
+* RICEOUT  mixing ratio of ice in the updrafts (kg/kg)
+* RLIQ_INT vertical integral of RLIQOUT
+* RICE_INT vertical integral of RICEOUT
+*
+*
+*  References:
+*  Fritsch and Chappell (1980), J. Atmos. Sci., 1722-1733.
+*  Zhang and Fritsch (1986), J. Atmos. Sci., 1913-1943.
+*  Kain and Fritsch (1990), J. Atmos. Sci., 2784-2802.
+*
+*
+*THINGS THAT REMAINS TO BE DONE IN THIS SCHEME:
+*=============================================
+*
+* 1) Verify the sensitivity to RAD (=3000 for the moment)
+*
+* 2) Convert to "mixing ratios" at the beginning of the
+*    subroutine
+*
+* 3) Allow detrainment of ice nucleis, as well as cloud water
+*
+**
+*
+      INTEGER I,K,IFEXFB,IFLAG
+      INTEGER KLCL,KMIN,KMIX,KFRZ,KPBL,LC,LCL,LDT
+      INTEGER IL,JK,JKK,JKM,JKP
+      INTEGER LDB,LET,LMIN,LMAX,LOW,LTOP,LTOP1,LTOPM1,LVF,LFS,ML
+      INTEGER ND,ND1,NDK,NCOUNT,NIC,NJ,NK,NK1,NM
+      INTEGER NSTEP,NTC,NLAYRS,NUPNK
+      INTEGER KTOP
+*
+      REAL A1,ABE,ABEG,AICE,AINC,AINCM1,AINCM2,AINCMX,ALIQ,AU0
+      REAL BE,BICE,BLIQ,BOTERM,CLDHGT
+      REAL C5,CBH,CICE,CLIQ,CLVF,CNDTNF,CPM,CPORQ,CPR,CV
+      REAL DABE,DQ,DLP,DPT,DTT,DTT1,DZZ,DLIQ,DICE
+      REAL DEVDMF,DMFMIN,DMFLFS,DPTT
+      REAL ZLCL
+      REAL BETAW,BETAI,GAMW,GAMI
+      REAL DPDD,DPLIN,DPPTDF,DDPPT,DDINC,DQSDT
+      REAL DTMP,DTIME,DTMLTE,DTMLTD,DTLCL
+      REAL DUMFDP
+      REAL ES,EE,EE1,EE2,EMIX,EFFQ,ENTERM
+      REAL F1,F2,FABE,FRC,FRC1
+      REAL GDT,GDRY,LIQFRAC,ICEFRAC
+      REAL P00,P165,PEF,PEFF,PEFMIN,PEFMAX,PEFCBH
+      REAL PMID,PPR,PPTFLX,PPTFL2,PPTMLT,PPTML2
+      REAL QENV,QESE,QNEWIC,QNEWLQ,QNWFRZ,QS,QSRH
+      REAL R1,RL,RF,REI,RDD
+      REAL ROVG,ROCPQ,RATE,RCBH,RCED,RHBC,RHIC,RTMP
+      REAL STAB,SHSIGN,SUMFLX
+      REAL TVLCL,TLOG,TENV,TVEN,TDPT,TBFRZ
+      REAL TVAVG,TVBAR,THATA,THTFC,THTUDL,THTMIN,THTTMP
+      REAL TTMP,TTEMP,TMPLIQ,TMPICE,TTFRZ,TRPPT,TSAT
+      REAL TDP,TDER,TDER2,T1RH,TOPOMG
+      REAL ONEOVG, MAXZPAR, DPMIX, BETAENT
+      REAL TU10,TU95,TUDL
+      REAL UD1,UD2,USR,UDLBE,UPDINC,UPDIN2
+      REAL UPOLD,UPNEW
+      REAL VWS,VMFLCL
+      REAL WLCL,WKL,WSIGNE,WSQ,WTW
+      REAL XLS0,XLS1,XLV0,XLV1
+      REAL DPUP , DPDOWN, TAVG
+      REAL DQDTDK,DQCDTDK
+      REAL WKLCL, WKLCLD
+      REAL KFSCALE
+*
+*
+*
+      REAL DETFRAC
+*
+*                                For the optimisation and 
+*                                thermodynamic functions
+*
+*
+      INTEGER L5,ISTOP,KLM,KL,LLFC,MXLAYR
+*
+      REAL DXSQ,TMC,RHOLCL,WABS,ZMIX,P300,THTA
+c     
+c
+      REAL TPDD
+C
+C
+*
+***********************************************************************
+*     AUTOMATIC ARRAYS
+***********************************************************************
+*
+      AUTOMATIC ( ACTIV   , LOGICAL , (IX   ) )
+      AUTOMATIC ( POSSIB  , LOGICAL , (IX   ) )
+      AUTOMATIC ( TRIGGR  , LOGICAL , (IX   ) )
+      AUTOMATIC ( TRIGG2  , LOGICAL , (IX   ) )
+*
+      AUTOMATIC ( ITOP    , INTEGER , (IX   ) )
+      AUTOMATIC ( IPBL    , INTEGER , (IX   ) )
+      AUTOMATIC ( IDPL    , INTEGER , (IX   ) )
+      AUTOMATIC ( LCLG    , INTEGER , (IX   ) )
+*
+      AUTOMATIC ( NUP     , INTEGER , (KX   ) )
+*
+      AUTOMATIC ( TT0     , REAL    , (IX,KX) )
+      AUTOMATIC ( TV00    , REAL    , (IX,KX) )
+      AUTOMATIC ( Q00     , REAL    , (IX,KX) )
+      AUTOMATIC ( U00     , REAL    , (IX,KX) )
+      AUTOMATIC ( V00     , REAL    , (IX,KX) )
+      AUTOMATIC ( WW0     , REAL    , (IX,KX) )
+      AUTOMATIC ( DZP     , REAL    , (IX,KX) )
+      AUTOMATIC ( DPP     , REAL    , (IX,KX) )
+      AUTOMATIC ( QST1    , REAL    , (IX,KX) )
+      AUTOMATIC ( PP0     , REAL    , (IX,KX) )
+      AUTOMATIC ( THTS    , REAL    , (IX,KX) )
+      AUTOMATIC ( Z0G     , REAL    , (IX,KX) )
+      AUTOMATIC ( DPTHMXG , REAL    , (IX   ) )
+      AUTOMATIC ( PMIXG   , REAL    , (IX   ) )
+      AUTOMATIC ( TMIXG   , REAL    , (IX   ) )
+      AUTOMATIC ( QMIXG   , REAL    , (IX   ) )
+      AUTOMATIC ( ZDPL    , REAL    , (IX   ) )
+      AUTOMATIC ( ZLCLG   , REAL    , (IX   ) )
+      AUTOMATIC ( ROLCL   , REAL    , (IX   ) )
+      AUTOMATIC ( CAPE    , REAL    , (IX   ) )
+      AUTOMATIC ( ZTOP    , REAL    , (IX   ) )
+      AUTOMATIC ( WORK1   , REAL    , (IX   ) )
+      AUTOMATIC ( WORK2   , REAL    , (IX   ) )
+      AUTOMATIC ( WORK3   , REAL    , (IX   ) )
+      AUTOMATIC ( THEUL   , REAL    , (IX   ) )
+      AUTOMATIC ( THMIXG  , REAL    , (IX   ) )
+      AUTOMATIC ( TLCLG   , REAL    , (IX   ) )
+      AUTOMATIC ( PLCLG   , REAL    , (IX   ) )
+      AUTOMATIC ( WLCLG   , REAL    , (IX   ) )
+      AUTOMATIC ( TENVG   , REAL    , (IX   ) )
+      AUTOMATIC ( QENVG   , REAL    , (IX   ) )
+      AUTOMATIC ( WKLCLA  , REAL    , (IX   ) )
+      AUTOMATIC ( DDR     , REAL    , (KX   ) )
+      AUTOMATIC ( DDR2    , REAL    , (KX   ) )
+      AUTOMATIC ( DER     , REAL    , (KX   ) )
+      AUTOMATIC ( DER2    , REAL    , (KX   ) )
+      AUTOMATIC ( DETIC   , REAL    , (KX   ) )
+      AUTOMATIC ( DETIC2  , REAL    , (KX   ) )
+      AUTOMATIC ( DETLQ   , REAL    , (KX   ) )
+      AUTOMATIC ( DETLQ2  , REAL    , (KX   ) )
+      AUTOMATIC ( DMF     , REAL    , (KX   ) )
+      AUTOMATIC ( DMF2    , REAL    , (KX   ) )
+      AUTOMATIC ( DMS     , REAL    , (KX   ) )
+      AUTOMATIC ( DOMGDP  , REAL    , (KX   ) )
+      AUTOMATIC ( DTFM    , REAL    , (KX   ) )
+      AUTOMATIC ( EMS     , REAL    , (KX   ) )
+      AUTOMATIC ( EMSD    , REAL    , (KX   ) )
+      AUTOMATIC ( EQFRC   , REAL    , (KX   ) )
+      AUTOMATIC ( EXN     , REAL    , (KX   ) )
+      AUTOMATIC ( FXM     , REAL    , (KX   ) )
+      AUTOMATIC ( OMG     , REAL    , (KX+1 ) )
+      AUTOMATIC ( OMGA    , REAL    , (KX   ) )
+      AUTOMATIC ( PPTICE  , REAL    , (KX   ) )
+      AUTOMATIC ( PPTLIQ  , REAL    , (KX   ) )
+      AUTOMATIC ( QADV    , REAL    , (KX   ) )
+      AUTOMATIC ( QD      , REAL    , (KX   ) )
+      AUTOMATIC ( QDT     , REAL    , (KX   ) )
+      AUTOMATIC ( QG      , REAL    , (KX   ) )
+      AUTOMATIC ( QICOUT  , REAL    , (KX   ) )
+      AUTOMATIC ( QLQOUT  , REAL    , (KX   ) )
+      AUTOMATIC ( QMID    , REAL    , (KX   ) )
+      AUTOMATIC ( QPA     , REAL    , (KX   ) )
+      AUTOMATIC ( QU      , REAL    , (KX   ) )
+      AUTOMATIC ( RATIO2  , REAL    , (KX   ) )
+      AUTOMATIC ( RICE    , REAL    , (KX   ) )
+      AUTOMATIC ( RLIQ    , REAL    , (KX   ) )
+      AUTOMATIC ( TG      , REAL    , (KX   ) )
+      AUTOMATIC ( THETED  , REAL    , (KX   ) )
+      AUTOMATIC ( THETEE  , REAL    , (KX   ) )
+      AUTOMATIC ( THETEU  , REAL    , (KX   ) )
+      AUTOMATIC ( THADV   , REAL    , (KX   ) )
+      AUTOMATIC ( THMID   , REAL    , (KX   ) )
+      AUTOMATIC ( THPA    , REAL    , (KX   ) )
+      AUTOMATIC ( THTAD   , REAL    , (KX   ) )
+      AUTOMATIC ( THTAG   , REAL    , (KX   ) )
+      AUTOMATIC ( THTAU   , REAL    , (KX   ) )
+      AUTOMATIC ( THTA0   , REAL    , (KX   ) )
+      AUTOMATIC ( THTES   , REAL    , (KX   ) )
+      AUTOMATIC ( THTESG  , REAL    , (KX   ) )
+      AUTOMATIC ( TU      , REAL    , (KX   ) )
+      AUTOMATIC ( TVD     , REAL    , (KX   ) )
+      AUTOMATIC ( TVG     , REAL    , (KX   ) )
+      AUTOMATIC ( TVQU    , REAL    , (KX   ) )
+      AUTOMATIC ( TVU     , REAL    , (KX   ) )
+      AUTOMATIC ( TZ      , REAL    , (KX   ) )
+      AUTOMATIC ( UDR     , REAL    , (KX   ) )
+      AUTOMATIC ( UDR2    , REAL    , (KX   ) )
+      AUTOMATIC ( UER     , REAL    , (KX   ) )
+      AUTOMATIC ( UER2    , REAL    , (KX   ) )
+      AUTOMATIC ( UMF     , REAL    , (KX   ) )
+      AUTOMATIC ( UMF2    , REAL    , (KX   ) )
+      AUTOMATIC ( WD      , REAL    , (KX   ) )
+      AUTOMATIC ( WSPD    , REAL    , (KX   ) )
+      AUTOMATIC ( WU      , REAL    , (KX   ) )
+      AUTOMATIC ( UU      , REAL    , (KX   ) )
+      AUTOMATIC ( VU      , REAL    , (KX   ) )
+      AUTOMATIC ( UD      , REAL    , (KX   ) )
+      AUTOMATIC ( VD      , REAL    , (KX   ) )
+      AUTOMATIC ( UG      , REAL    , (KX   ) )
+      AUTOMATIC ( VG      , REAL    , (KX   ) )
+      AUTOMATIC ( UPA     , REAL    , (KX   ) )
+      AUTOMATIC ( VPA     , REAL    , (KX   ) )
+      AUTOMATIC ( UADV    , REAL    , (KX   ) )
+      AUTOMATIC ( VADV    , REAL    , (KX   ) )
+*
+******************************************************
+*
+*
+
+      EXTERNAL TPMIX
+      EXTERNAL CONDLOAD
+      EXTERNAL DTFRZNEW
+      EXTERNAL ENVIRTHT
+      EXTERNAL PROF5
+      EXTERNAL TPDD
+*
+*
+*
+#include "surfacepar.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+*
+*
+*
+*     "RAMP" FOR WKLCL : 
+*     ================
+*
+*     WKLCL WILL INCREASE FROM KFCTRIG4(3) TO KFCTRIG4(4)
+*     BETWEEN TIMESTEPS KFCTRIG4(1) AND KFCTRIG4(2)
+*
+      IF      (KOUNT .LE. INT(KFCTRIG4(1))) THEN
+         WKLCL = KFCTRIG4(3)
+      ELSE IF (KOUNT .GT. INT(KFCTRIG4(2))) THEN
+         WKLCL = KFCTRIG4(4)
+      ELSE
+*        LINEAR INTERPOLATION
+         WKLCL = KFCTRIG4(3) +  (REAL(KOUNT)  - KFCTRIG4(1))  /
+     +                          (KFCTRIG4(2)  - KFCTRIG4(1))  *
+     +                          (KFCTRIG4(4)  - KFCTRIG4(3))
+      ENDIF
+*
+*
+*      Latitudinal ramp for WKLCL :
+*     ============================
+*
+*     WKLCL will take on different values:
+*     over land and lakes: we kee the value set by the "ramp" above
+*     over sea water:
+*       for |lat| >= TRIGLAT(2) we keep value set by the "ramp" above
+*       for |lat| <= TRIGLAT(1) we use the new value KFCTRIGL
+*       and linear interpolation in between TRIGLAT(1) and TRIGLAT(2)
+*
+      WKLCLA(:) = WKLCL
+
+        IF (KFCTRIGLAT) THEN
+ 
+
+         DO I=1,IX
+
+
+          IF (ABS(XLAT(I)) .LE. TRIGLAT(1). and. 
+     +        MG(I) .le. critmask .and.
+     +        MLAC(I) .le. critmask) THEN
+            WKLCLA(I)= KFCTRIGL
+          ELSE IF (ABS(XLAT(I)).gt.TRIGLAT(1) .and.
+     +             ABS(XLAT(I)).lt.TRIGLAT(2) .and.
+     +             MG(I) .le. critmask .and.
+     +             MLAC(I) .le. critmask) THEN
+           WKLCLA(I)= ( ((ABS(XLAT(I))-TRIGLAT(1))/
+     +                (TRIGLAT(2)-TRIGLAT(1)))*
+     +             (WKLCL-KFCTRIGL) ) + KFCTRIGL
+          ELSE
+            WKLCLA(I)= WKLCL
+          ENDIF
+
+         END DO
+
+       ENDIF
+*===================================================
+*
+      IF (KFCTRIGA.GT.0.0) THEN
+*        (B. Dugas, June 15 2005)
+*
+*        IN WHAT FOLLOWS, WE ASSUME THAT
+*
+*           KFCTRIG * RESOLUTION = CONSTANT,
+*
+*         SO THAT
+*
+*           KFCTRIG(RES2) = KFCTRIG(RES1) * RES1 / RES2
+*
+*        THE 0.17 AND 0.01 LIMITS ARE THOSE THAT ARE DEEMED
+*        TO BE APPROPRIATE FOR 10KM AND 170KM, RESPECTIVELY.
+*        THESE LAST TWO VALUES DEFINE THE RESOLUTION INTERVAL
+*        AT WHICH THIS KF CONVECTION CODE WILL BE USED IN THE
+*        SGMIP AND/OR OPERATIONAL FRAMEWORK
+*
+*        CONVERT KFCTRIGA TO METRES
+         KFSCALE = 1000. * KFCTRIGA
+*
+         WKLCLA(:) = MIN( 0.17,
+     +                    MAX( 0.01,
+     +                         WKLCLA(:) * KFSCALE
+     +                         / SQRT( DXDY(:) )
+     +                       )
+     +                  )
+*
+      ENDIF
+*
+
+
+*     2.  USEFUL PARAMETERS
+*     =====================
+*
+      P00     = 1.E5
+      CV      = 717.
+      RHIC    = 1.
+      RHBC    = 0.90
+      TTFRZ =   268.16
+      TBFRZ   = 248.16
+      C5      = 1.0723E-3
+      RATE    = 0.01
+      MAXZPAR = 3.5E3
+      DPMIX   = 60.E2
+      BETAENT = 1.05
+      PEFMIN  = 0.2
+      PEFMAX  = 0.9
+C
+      ROVG   = RGASD/GRAV
+      GDRY   = -GRAV/CPD
+      ONEOVG = 101.9368
+      KL     = KX
+      KLM    = KL-1
+*
+      BETAW = 6822.459384
+      GAMW  = 5.13948
+      BETAI = 6295.421
+      GAMI  = 0.56313
+*
+*
+*                          Define constants for calculation
+*                          of latent heating
+*
+      XLV0 = 3.147E+6
+      XLV1 = 2369.
+      XLS0 = 2.905E+6
+      XLS1 = 259.532
+*
+*
+*
+*                          Define constants for calculation of
+*                          saturation vapor pressure according
+*                          to Buck (JAM, December 1981)
+*
+      ALIQ = 613.3
+      BLIQ = 17.502
+      CLIQ = 4780.8
+      DLIQ = 32.19
+      AICE = 613.2
+      BICE = 22.452
+      CICE = 6133.0
+      DICE = 0.61
+*
+*
+*                        Flag for feedback to explicit moisture
+*                        IFEXFB = O  No feedback of the convective
+*                                    scheme on the grid-scale
+*                                    cloud and rainwater variables
+*                        IFEXFB = 1  Feedback is included
+*
+      IFEXFB = 0
+*
+*     =============================================================
+*
+*
+*      4. INPUT A VERTICAL SOUNDING (ENVIRONMENTAL)
+*      ============================================
+*
+        DO K = 1, KX
+          NK = KX-K+1
+            DO I = 1, IX
+*
+*
+*                         The sounding
+*
+*
+*                         In the RPN physics, the K indices goes
+*                         from 1 at the top of the model to KX
+*                         at the surface.
+*                         In the Kain-Fritsch subroutine, we use
+*                         the opposite (of course).
+*                         The switch is done in this loop.
+*
+           PP0(I,K) = 1.E3*(A(I,NK)*PSB(I))
+           TT0(I,K) = TP1(I,NK)
+           Q00(I,K) = MAX(QP1(I,NK),1.0E-10 )
+           U00(I,K) = UB(I,NK)
+           V00(I,K) = VB(I,NK)
+
+*                        add the definition of z0g (geopotential height) 
+*                        from gzm(geopotential)
+
+           Z0G(I,K) = GZM(I,NK)/grav
+*
+*
+*
+*                         If Q0 is above saturation value, reduce it
+*                         to saturation level
+*
+           ES=ALIQ*EXP((BLIQ*TT0(I,K)-CLIQ)/(TT0(I,K)-DLIQ))
+           ES=MIN( ES, 0.5*PP0(I,K) )
+           QST1(I,K)=0.622*ES/(PP0(I,K)-ES)
+           QST1(I,K) = MAX( MIN(QST1(I,K),0.050) , 1.E-6 )
+           Q00(I,K)  = MIN(QST1(I,K),Q00(I,K))
+           TV00(I,K) = TT0(I,K) * (1. + 0.608*Q00(I,K) )
+           WW0(I,K)  = -ONEOVG*SCR3(I,NK)/PP0(I,K)*(RGASD*TV00(I,K))
+*
+       END DO
+      END DO
+*
+*
+      DO I=1,IX
+        DPP(I,1)   = ( A(I,KX)-A(I,KX-1) ) * PSB(I)*1.E3
+        DPP(I,KX)  = ( A(I,2) -A(I,1)    ) * PSB(I)*1.E3
+      END DO
+*
+*
+      DO K=2,KX-1
+        NK = KX-K+1
+        DO I=1,IX
+           DPUP      = ( A(I,NK)-A(I,NK-1) ) * PSB(I)*1.E3
+           DPDOWN    = ( A(I,NK+1)-A(I,NK) ) * PSB(I)*1.E3
+           DPP(I,K)  = 0.5 * (DPUP+DPDOWN)
+        END DO
+      END DO
+*
+**                         pass gzm as argument, so don't need to calculate z0g here,
+*                          only need to calculate the dzp (thickness) from the inverted z0g.   
+*
+        DO K = 2, KX
+        DO I = 1, IX
+           DZP(I,K-1) = Z0G(I,K)-Z0G(I,K-1)
+        END DO
+        END DO
+
+*                        at the top: do not put the thickness to zero but instead 
+*                        put the level kx-1 in kx   
+
+        DO I=1,IX
+           DZP(I,KX) = DZP(I,KX-1)
+        END DO
+
+ 
+**
+*
+*       5. COUNTER "FLAGCONV"
+*       ================
+*
+*
+*                          If FLAGCONV > 0
+*                          ==> convection is already activated
+*                              the tendencies on T, Q, QC, and
+*                              QR do not change.
+*                              Go to the next column
+*
+*                          If FLAGCONV =< 0
+*                          ==> convective tendencies and diagnostics
+*                              are put to "0"
+*
+*
+        DO I = 1, IX
+          ACTIV(I) = .FALSE.
+*
+          IF (FLAGCONV(I).EQ.1.) KKFC(I)=1.
+*
+          IF (FLAGCONV(I).LE.0) THEN
+*
+            RLIQ_INT(I) = 0.
+            RICE_INT(I) = 0.
+*
+            DO K=1,KX
+              DTDT(I,K)  = 0.0
+              DQDT(I,K)  = 0.0
+              DUDT(I,K)  = 0.0
+              DVDT(I,K)  = 0.0
+              DQCDT(I,K) = 0.0
+              DQRDT(I,K) = 0.0
+*
+              UMFOUT(I,K) = 0.
+              DMFOUT(I,K) = 0.
+*           
+              RLIQOUT(I,K) = 0.
+              RICEOUT(I,K) = 0.
+*
+              RNFLX(I,K)   = 0.
+              SNOFLX(I,K)  = 0.
+*
+              AREAUP(I,K) = 0.
+              CLOUDS(I,K) = 0.
+*
+            END DO
+*
+            ZCRR(I) = 0.0
+*
+            CAPEOUT(I)  = 0.
+            PEFFOUT(I)  = 0.
+            ZBASEOUT(I) = 0.
+            ZTOPOUT(I)  = 0.
+            WUMAXOUT(I) = 0.
+*
+          ELSE IF (FLAGCONV(I).GT.0) THEN
+*
+          ACTIV(I) = .TRUE.
+          FLAGCONV(I) = FLAGCONV(I) - 1
+          ZCRR(I) = 1000.*ZCRR(I)
+*
+          ENDIF
+        END DO
+*
+*
+*
+***************************BEGINNING OF KF TRIGGER *********************
+*
+*                                Initialize
+        DO IL = 1, IX
+          IDPL(IL) = 1
+          JK = IDPL(IL)
+          ZDPL(IL) = Z0G(IL,JK)
+          TRIGG2(IL)=.FALSE.
+        END DO
+*
+*                                Compute THTS
+       DO K = 1, KX
+       DO IL = 1,IX
+         THTS(IL,K) = TT0(IL,K)*(1.E5/PP0(IL,K))**(0.2854*
+     1                (1.-0.28*QST1(IL,K)))*
+     1                EXP((3374.6525/TT0(IL,K)-2.5403)*QST1(IL,K)*
+     1                (1.+0.81*QST1(IL,K)))
+       END DO
+       END DO
+*
+*                                Highest TOP
+*VDIR NOLSTVAL
+      DO K = 2, KX
+      DO IL = 1, IX
+        IF(Z0G(IL,K) - Z0G(IL,1) .LT. MAXZPAR ) ITOP(IL)=K
+      END DO
+      END DO
+*
+*                                Begin convection test loop
+*VDIR NOLSTVAL
+      DO JKK= 1, KX
+         DO IL = 1,IX
+C         WKLCL = WKLCLA(IL)
+         POSSIB(IL)= ZDPL(IL) - Z0G(IL,1) .LT. MAXZPAR
+*
+         IF(POSSIB(IL)) THEN
+            THMIXG(IL)=0.
+            QMIXG(IL)=0.
+            PMIXG(IL)=0.
+            DPTHMXG(IL)=0.
+            TRIGGR(IL)=.FALSE.
+         ENDIF
+         end do
+*
+*                             Construct mixed layer
+*
+*VDIR NOLSTVAL
+         DO JK = JKK, KX-1
+            JKM = JK + 1
+            DO IL = 1,IX
+            IF(POSSIB(IL) .AND. DPTHMXG(IL) .LT. DPMIX) THEN
+               ZDPL(IL) = Z0G(IL,JKK)
+               IDPL(IL) = JKK
+               IPBL(IL) = JK
+               ROCPQ=0.2854*(1.-0.28*Q00(IL,JK))
+               THMIXG(IL)=THMIXG(IL) +DPP(IL,JK)*TT0(IL,JK)*
+     %          (P00/PP0(IL,JK))**ROCPQ
+               QMIXG(IL)= QMIXG(IL) +DPP(IL,JK)*Q00(IL,JK)
+               PMIXG(IL)= PMIXG(IL) +DPP(IL,JK)*PP0(IL,JK)
+               DPTHMXG(IL)=DPTHMXG(IL)+DPP(IL,JK)
+            ENDIF
+            end do
+         END DO
+*
+*
+*                             Determine temperature and pressure 
+*                             at LCL
+*
+         DO IL = 1,IX
+         IF(POSSIB(IL)) THEN
+            THMIXG(IL)=THMIXG(IL)/DPTHMXG(IL)
+            QMIXG(IL)=QMIXG(IL)/DPTHMXG(IL)
+            QMIXG(IL)=MAX( QMIXG(IL),1.0E-10 )
+            PMIXG(IL)=PMIXG(IL)/DPTHMXG(IL)
+            ROCPQ=0.2854*(1.-0.28*QMIXG(IL))
+            TMIXG(IL)=THMIXG(IL)*(PMIXG(IL)/P00)**ROCPQ
+            EMIX=QMIXG(IL)*PMIXG(IL)/(0.622+QMIXG(IL))
+            TLOG=ALOG(EMIX/ALIQ)
+            TDPT=(CLIQ-DLIQ*TLOG)/(BLIQ-TLOG)
+            WORK1(IL)=TDPT
+            TLCLG(IL)=TDPT-(.212+1.571E-3*(TDPT-TRPL)-4.36E-4*
+     %          (TMIXG(IL)-TRPL))*
+     %          (TMIXG(IL)-TDPT)
+            TLCLG(IL)=MIN(TLCLG(IL),TMIXG(IL))
+            TVLCL= TLCLG(IL) * ( 1. + 0.608 * QMIXG(IL) )
+            CPORQ=1./ROCPQ
+            PLCLG(IL)=P00*(TLCLG(IL)/THMIXG(IL))**CPORQ
+         ENDIF
+         end do
+*
+*
+*                           Set to saturation value
+*
+*                           Determine vertical loop index 
+*                           at LCL and DPL
+*
+*VDIR NOLSTVAL
+         DO JK = JKK, KX-1
+         DO IL = 1,IX
+            IF (POSSIB(IL) .AND. PLCLG(IL) .LT. PP0(IL,JK) ) THEN
+            LCLG(IL) = JK +1
+            ENDIF
+         end do
+         END DO
+*
+*
+*                           Estimate height and environment THETAV
+*                           at LCL
+*
+          DO IL = 1,IX
+          JK = LCLG(IL)
+          JKM= JK -1
+          IF (POSSIB(IL) ) THEN
+            DLP = ALOG(PLCLG(IL)/PP0(IL,JKM))/ALOG(PP0(IL,JK)/PP0(IL,JKM))
+            TENVG(IL) = TT0(IL,JKM)+(TT0(IL,JK)-TT0(IL,JKM))*DLP
+            QENVG(IL) = Q00(IL,JKM)+(Q00(IL,JK)-Q00(IL,JKM))*DLP
+            TVEN = TENVG(IL) * ( 1. + 0.608 * QENVG(IL) )
+            TVBAR = 0.5*(TV00(IL,JKM)+TVEN)
+            ZLCLG(IL) = Z0G(IL,JKM)+ROVG*TVBAR*ALOG(PP0(IL,JKM)/PLCLG(IL))
+            TVAVG = 0.5*(TV00(IL,JK)+ TENVG(IL)*(1.+0.608*QENVG(IL)))
+            PLCLG(IL) = PP0(IL,JK)*
+     %               EXP(GRAV/(RGASD*TVAVG)*(Z0G(IL,JK)-ZLCLG(IL)))
+            TVLCL = TLCLG(IL) * (1.+0.608*QMIXG(IL))
+            ROLCL(IL) = PLCLG(IL)/(RGASD*TVLCL)
+*
+*                           Compute grid-scale vertical 
+*                           velocity perturbation
+*
+            WKL = WW0(IL,JKM)+(WW0(IL,JK)-WW0(IL,JKM))*DLP-WKLCLA(IL)
+            WSIGNE = WKL/(ABS(WKL)+1.E-10)
+            WORK1(IL)=4.64*WSIGNE*(ABS(WKL)+1.E-10)**0.3333333
+*
+*
+*                           Compute vertical velocity 
+*                           at the LCL
+*
+            LC = IDPL(IL)
+            GDT =GRAV*WORK1(IL)*(ZLCLG(IL)-Z0G(IL,LC))/(TV00(IL,LC)+TVEN)
+            WLCLG(IL) = 1.+.5*WSIGNE*SQRT(ABS(GDT)+1.E-10)
+*
+*
+*                           Check to see if cloud is buoyant
+            IF( TLCLG(IL)+WORK1(IL).GT.TENVG(IL)
+     %          .AND. WLCLG(IL) .GT. 0.) TRIGGR(IL)=.TRUE.
+*
+          ENDIF
+*
+*
+*                          Look for parcels that produce sufficient
+*                          cloud depth.  Cloud top level is where
+*                          CAPE is less than critical value
+*
+*
+          CAPE(IL)=0.
+          THEUL(IL)=TMIXG(IL)*(1.E5/PMIXG(IL))**
+     1              (0.2854*(1.-0.28*QMIXG(IL)))*
+     1              EXP((3374.6525/TLCLG(IL)-2.5403)*
+     1              QMIXG(IL)*(1.+0.81*QMIXG(IL)))
+          end do
+          DO IL = 1,IX
+*
+          IF (TRIGGR(IL)) THEN
+            JK = LCLG(IL)
+            ZTOP(IL) = Z0G(IL,JK)
+            WORK3(IL)=0.
+*
+            DO LC  = JK,KX-2
+              DZZ = Z0G(IL,LC+1)-Z0G(IL,LC)
+              WORK1(IL) =((2.*THEUL(IL))/(THTS(IL,LC+1)+THTS(IL,LC))-1.)*DZZ
+              CAPE(IL) = CAPE(IL)+WORK1(IL)*GRAV
+*                                     FACTOR BETAENT FOR ENTRAINEMENT
+              WORK2(IL) = 1.333*GRAV*CAPE(IL) + BETAENT * WLCLG(IL)*WLCLG(IL)
+              WORK2(IL) = SIGN(1.,WORK2(IL))
+              WORK3(IL) = WORK3(IL) + MIN(0., WORK2(IL))
+              WORK3(IL) = MAX(-1.,WORK3(IL))
+*
+              ZTOP(IL) = Z0G(IL,LC)*0.5*(1+WORK2(IL))*(1+WORK3(IL))
+     %                 + ZTOP(IL)*0.5*(1-WORK2(IL))
+*                                IF CLDHGT > CDEPTH FLAG AGAIN
+              IF( ZTOP(IL)-ZLCLG(IL) .GE. CDEPTH
+     %                   .AND. .NOT.TRIGG2(IL) ) THEN
+                TRIGG2(IL)=.TRUE.
+              ENDIF
+            END DO
+          ENDIF
+*               END OF CONVECTIVE LOOP TEST
+       END DO
+      END DO
+**
+*
+*
+************************ END OF KF TRIGGER ***********************
+*
+*
+*
+*
+*                             The few points for which convective
+*                             activity is possible are determined and
+*                             are indicated by the TRIGG2 and ACTIV
+*                             logical variables.
+*
+*                             For the columns with TRIGG2 = .true. and
+*                                                   ACTIV = .false.
+*                             ... do the whole Kain-Fritsch calculations ...
+*
+*
+      DO 325 I = 1, IX
+*
+C        WKLCL = WKLCLA(I)
+*
+*       Do not perform calculation if iconvec=12 and fcpmask=0
+*       This is where KUO schem is requested
+*
+        ACTIV(I)=ACTIV(I) .OR.
+     $           ( iconvec.eq.12 .and. NINT( FCPMASK(I) ).EQ.0 )
+
+        IF ( .NOT. TRIGG2 (I) .OR. ACTIV(I) ) GO TO 325
+*
+*
+      KTOP = ITOP(I)
+*
+*
+      DO K=1,KX
+        RLIQ(K) = 0.
+        RICE(K) = 0.
+      END DO
+*
+*
+      DXSQ = DXDY(I)
+      TMC=2.E4*DXSQ/GRAV
+*
+C
+  10  P300 = 1000.*(PSB(I)*A(I,KL)-30.)
+*
+*
+*
+        ML = 0
+*VDIR NOLSTVAL
+        DO 15 K = 1, KX
+*
+           NK = KX-K+1
+*
+           PMID = 0.5 * ( 1000.*PSB(I) + 100.E2 )
+           IF (PP0(I,K).GE.PMID) L5 = K
+           IF (PP0(I,K).GE.P300) LLFC = K
+           IF (TT0(I,K).GT.TRPL) ML=K
+*
+  15    CONTINUE
+*
+*
+*
+*       5. COUNTER "FLAGCONV"
+*       ================
+*
+*
+*
+       IF (FLAGCONV(I).LE.0) THEN
+          DO 620 K=1,KX
+           DTDT(I,K)  = 0.0
+           DQDT(I,K)  = 0.0
+           DUDT(I,K)  = 0.0
+           DVDT(I,K)  = 0.0
+           DQCDT(I,K) = 0.0
+           DQRDT(I,K) = 0.0
+ 620      CONTINUE
+       ENDIF
+          ZCRR(I) = 0.0
+*
+*
+*      6. TRIGGER FUNCTION
+*      ===================
+*
+        KMIX=1
+25      LOW = KMIX
+*
+*                           No levels (or parcels) in the lowest
+*                           300 mb were found to be unstable
+*                           ==> go to the next grid point
+*
+        IF (LOW.GT.LLFC) GOTO 325
+        LC=LOW
+        MXLAYR=0
+*
+*
+*                           Find the number of layers needed to
+*                           have a mixed layer of at least 60 mb
+*
+*                           Note: in a future version of the scheme,
+*                           why not use results from the boundary-layer
+*                           scheme concerning the well-mixed layer ?
+*
+*                           DPthmixg(i) = pressure depth of the mixed layer
+*                           thmixg(i)   = potential temperature of the
+*                                     mixed layer
+*                           NLAYRS  = number of model layers in the
+*                                     mixed layer
+*
+        NLAYRS=0
+        DPTHMXG(I)=0.
+        DO 63 NK = LC,KX
+          DPTHMXG(I)=DPTHMXG(I)+DPP(I,NK)
+          NLAYRS=NLAYRS+1
+*
+*
+*
+*                           The layer is at least 60-mb deep
+*
+63        IF(DPTHMXG(I).GT.DPMIX)GOTO 64
+*
+        GOTO 325
+*
+64      KPBL=LC+NLAYRS-1
+        KMIX=LC+1
+18      THMIXG(I)=0.
+        QMIXG(I)=0.
+        ZMIX=0.
+        PMIXG(I)=0.
+        DPTHMXG(I)=0.
+*
+*
+*                           Integrated properties
+*
+        DO 17 NK = LC,KPBL
+          DPTHMXG(I)=DPTHMXG(I)+DPP(I,NK)
+          ROCPQ=0.2854*(1.-0.28*Q00(I,NK))
+          THMIXG(I)=THMIXG(I)+DPP(I,NK)*TT0(I,NK)*(P00/PP0(I,NK))**ROCPQ
+          QMIXG(I)=QMIXG(I)+DPP(I,NK)*Q00(I,NK)
+          ZMIX=ZMIX+DPP(I,NK)*Z0G(I,NK)
+17        PMIXG(I)=PMIXG(I)+DPP(I,NK)*PP0(I,NK)
+*
+*
+*                          Average to obtain the mixed properties
+*
+        THMIXG(I)=THMIXG(I)/DPTHMXG(I)
+        QMIXG(I)=QMIXG(I)/DPTHMXG(I)
+        QMIXG(I)=AMAX1( QMIXG(I),1.0E-10 )
+        ZMIX=ZMIX/DPTHMXG(I)
+        PMIXG(I)=PMIXG(I)/DPTHMXG(I)
+        ROCPQ=0.2854*(1.-0.28*QMIXG(I))
+        TMIXG(I)=THMIXG(I)*(PMIXG(I)/P00)**ROCPQ
+*
+*
+*                          We have all the characteristics of the
+*                          departure parcels (the mixed values).
+*                          Now we need the temperature and pressure
+*                          at the LCL.  First calculate dew point
+*                          temperature TDPT by inverting the saturated
+*                          water vapor equation (see Davis and Jones
+*                          1983).
+*
+        EMIX=QMIXG(I)*PMIXG(I)/(0.622+QMIXG(I))
+        TLOG=ALOG(EMIX/ALIQ)
+        TDPT=(CLIQ-DLIQ*TLOG)/(BLIQ-TLOG)
+        TLCLG(I)=TDPT-(.212+1.571E-3*(TDPT-TRPL)-4.36E-4*(TMIXG(I)-TRPL))*
+     *        (TMIXG(I)-TDPT)
+        TLCLG(I)=AMIN1(TLCLG(I),TMIXG(I))
+        TVLCL= TLCLG(I)*(1.+0.608*QMIXG(I))
+        CPORQ=1./ROCPQ
+        PLCLG(I)=P00*(TLCLG(I)/THMIXG(I))**CPORQ
+*
+*
+*
+*                         Find the first level above the LCL
+*
+        DO 29 NK = LC,KL
+         KLCL=NK
+29       IF(PLCLG(I).GE.PP0(I,NK))GO TO 35
+*
+        GOTO 325
+*
+35      K=KLCL-1
+        DLP=ALOG(PLCLG(I)/PP0(I,K))/ALOG(PP0(I,KLCL)/PP0(I,K))
+*
+*
+*                               Estimate environmental temperature
+*                               and mixing ratio at the LCL
+*
+*
+        TENV=TT0(I,K)+(TT0(I,KLCL)-TT0(I,K))*DLP
+        QENV=Q00(I,K)+(Q00(I,KLCL)-Q00(I,K))*DLP
+        TVEN= TENV*(1.+0.608*QENV)
+        TVBAR=0.5*(TV00(I,K)+TVEN)
+*
+*                               to avoid getting negative dzz later on: 
+*                               use simple linear interpolation to get 
+*                               the level zlcl    
+
+*        ZLCL=Z0G(I,K)+RGASD*TVBAR*ALOG(PP0(I,K)/PLCLG(I))/GRAV
+
+         ZLCL= Z0G(I,K)+ (Z0G(I,K+1) - Z0G(I,K)) *
+     1         ( PLCLG(I)-PP0(I,K) )/ ( PP0(I,K+1) - PP0(I,K) )
+
+*                               we do not want zlcl to be at the level 
+*                               z0g(k+1), otherwise we get dzz=0.
+*                               Therefore we impose a difference
+*                               of 1 metre.               
+
+         ZLCL= MIN (ZLCL, Z0G(I,K+1) - 1.)
+*
+*
+*                               Check to see if the parcel is buoyant
+*
+        WKLCLD = MIN(0.02,WKLCLA(I))
+        WKL = WW0(I,K)+(WW0(I,KLCL)-WW0(I,K))*DLP-WKLCLD
+        WABS = ABS(WKL)+1.E-10
+        WSIGNE = WKL/WABS
+        DTLCL = 4.64*WSIGNE*WABS**0.33
+        GDT=GRAV*DTLCL*(ZLCL-Z0G(I,LC))/(TV00(I,LC)+TVEN)
+        WLCL=1.+.5*WSIGNE*SQRT(ABS(GDT)+1.E-10)
+*
+*
+*                               Parcel is convectively unstable
+*                               Calculate the tendencies
+*
+        IF (TLCLG(I)+DTLCL.GT.TENV) GO TO 45
+*
+*
+*                                Parcel not buoyant.
+*                                Go to the next column.
+*
+        IF(KPBL.GE.LLFC)GO TO 325
+        GOTO 25
+*
+*
+*
+*      7. CHARACTERISTICS OF THE BUOYANT PARCELS AT THE LCL
+*      ====================================================
+*
+*
+*                                THETEU = equivalent potential temperature
+*                                         of the updraft just below the LCL.
+*
+*                                Note that K here is the level just below
+*                                the LCL, whereas KLCL is the level just
+*                                above it.
+*
+45    THETEU(K)=TMIXG(I)*(1.E5/PMIXG(I))**(0.2854*(1.-0.28*QMIXG(I)))*
+     *      EXP((3374.6525/TLCLG(I)-2.5403)*QMIXG(I)*(1.+0.81*QMIXG(I)))
+      ES=ALIQ*EXP((TENV*BLIQ-CLIQ)/(TENV-DLIQ))
+      ES=MIN( ES , 0.5*PLCLG(I) )
+*
+*
+*                                 Adjust the pressure at the LCL using the
+*                                 height of the LCL and an average temperature
+*                                 between the environmental and grid-scale
+*                                 temperature.
+*
+      TVAVG=0.5*(TV00(I,KLCL)+ TENV*(1.+0.608*QENV))
+      PLCLG(I)=PP0(I,KLCL)*EXP(GRAV/(RGASD*TVAVG)*(Z0G(I,KLCL)-ZLCL))
+*
+*
+*                                 Vertical motion of the parcel and equivalent
+*                                 pot. temperature of the environment at the
+*                                 LCL.
+*
+      QESE=0.622*ES/(PLCLG(I)-ES)
+      QESE=MAX( MIN( QESE , 0.050 ) , 1.E-6 )
+      GDT=GRAV*DTLCL*(ZLCL-Z0G(I,LC))/(TV00(I,LC)+TVEN)
+      WLCL=1.+.5*WSIGNE*SQRT(ABS(GDT)+1.E-10)
+      THTES(K)=TENV*(1.E5/PLCLG(I))**(0.2854*(1.-0.28*QESE))*
+     *      EXP((3374.6525/TENV-2.5403)*QESE*(1.+0.81*QESE))
+      WTW=WLCL*WLCL
+*
+*                                 No upward motion ==> take next slab
+*                                 and test for convective instability.
+*
+      IF(WLCL.LE.0.) GOTO 25
+      TVLCL=TLCLG(I)*(1.+0.608*QMIXG(I))
+      RHOLCL=PLCLG(I)/(RGASD*TVLCL)
+*
+      LCL=KLCL
+      LET = LCL
+*
+*
+*
+*      8. COMPUTE UPDRAFT PROPERTIES
+*      =============================
+*
+*
+*                           Initial updraft mass flux (VMFU)
+*
+*                           AU0 = area of the updraft at cloud base
+*                           UMF = updraft mass flux
+*                           VMFLCL = vertical mass flux at the LCL
+*                           RATIO2 = degree of glaciation
+*
+      WU(K)=WLCL
+      AU0=PI*RAD*RAD
+      UMF(K)=RHOLCL*AU0
+      VMFLCL=UMF(K)
+      UPOLD=VMFLCL
+      UPNEW=UPOLD
+      RATIO2(K)=0.
+*
+*
+*                           UER = environmental entrainment rate
+*                           ABE = the available buoyant energy
+*                           TRPPT = total rate of precip. production
+*
+*
+      UER(K)=0.
+      ABE=0.
+      TRPPT=0.
+*
+*                           TU, TVU, QU = updraft properties
+*
+      TU(K)=TLCLG(I)
+      TVU(K)=TVLCL
+      QU(K)=QMIXG(I)
+*
+*                           EQFRC = fraction of environmental air in
+*                                   mixed subparcels
+*
+      EQFRC(K)=1.
+*
+*                           RLIQ = liquid water in the updraft
+*                           RICE = ice in the updraft
+*
+      RLIQ(K)=0.
+      RICE(K)=0.
+*
+*                           QLQOUT = liquid water fallout from the updraft
+*                           QICOUT = ice fallout from the updraft
+*
+      QLQOUT(K)=0.
+      QICOUT(K)=0.
+*
+*                           DETLQ = detrained liquid water from the updraft
+*                           DETIC = detrained ice from the updraft
+*
+      DETLQ(K)=0.
+      DETIC(K)=0.
+*
+*                           PPTLIQ = liquid precipitation from conv. updraft
+*                           PPTICE = solid precipitation from conv. updraft
+*
+      PPTLIQ(K)=0.
+      PPTICE(K)=0.
+
+*
+*                           KFRZ = freezing level
+*
+      IFLAG = 0
+      KFRZ=LC
+*
+*
+*                          The amount of convective available potential
+*                          energy (CAPE) is calculated with respect to
+*                          an undiluted parcel ascent.
+*                          THUDL = equivalent potential temperature of an
+*                          undiluted parcel.
+*                          TUDL = temperature of an undiluted parcel
+*
+      THTUDL=THETEU(K)
+      TUDL=TLCLG(i)
+*
+*
+*                          TTEMP is used during the calculations of the
+*                          linear glaciation process.
+*                          This temperature is initially set to the
+*                          temperature at which freezing is specified
+*                          to occur within the glaciation interval.
+*                          It is set equal to the UPDR temperature
+*                          at the previous model level.
+*
+      TTEMP=TTFRZ
+*
+*
+*                          LOOP FOR UPDRAFT CALCULATIONS.  We calculate
+*                          here the updraft temperature, the mixing ratio,
+*                          the vertical mass flux, the lateral detrainment
+*                          of mass and moisture, and the precipitation
+*                          rates at each model level.
+*                          This loop is also pretty long...
+*
+       DO 60 NK=K,KLM
+         NK1=NK+1
+         RATIO2(NK1)=RATIO2(NK)
+*
+*
+*                          At a first stage, consider that THETEU,
+*                          QU, RLIQ, and RICE, are conserved from
+*                          one level to another (UNDILUTED ascent
+*                          before the role of ENTRAINMENT is evaluated).
+*
+*
+         FRC1=0.
+         TU(NK1)=TT0(i,nk1)
+         THETEU(NK1)=THETEU(NK)
+         QU(NK1)=QU(NK)
+         RLIQ(NK1)=RLIQ(NK)
+         RICE(NK1)=RICE(NK)
+*
+*
+*                          Call the mixing subroutine for the
+*                          UNDILUTED ASCENT.
+*
+         CALL TPMIX(PP0(I,NK1),THETEU(NK1),TU(NK1),QU(NK1),RLIQ(NK1),
+     *     RICE(NK1),QNEWLQ,QNEWIC,RATIO2(NK1),RL,XLV0,XLV1,XLS0,XLS1,
+     *     ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+         TVU(NK1)=TU(NK1)*(1.+0.608*QU(NK1))
+*
+*
+*                          Check to see if updraft temperature is
+*                          within the freezing interval.  If it is,
+*                          calculate the fractional conversion to
+*                          glaciation and adjust QNEWLQ to reflect the
+*                          gradual change in THETAU since the last
+*                          model level.  The glaciation effects will be
+*                          determined after the amount of condensate
+*                          available after precipitation fallout is
+*                          determined.  TTFRZ is the temperature at
+*                          which glaciation begins, TBFRZ is the
+*                          temperature at which it ends.
+*
+*                          FRC1 = fractional conversion to glaciation
+*                                 (considering the entire glaciation process,
+*                                  from TTFRZ to TBFRZ)
+*                          R1   = fractional conversion to glaciation
+*                                 (but this time considering only the
+*                                  remaining glaciation from TU(NK) to
+*                                  TBFRZ).
+*
+         IF(TU(NK1).LE.TTFRZ.AND.IFLAG.LT.1)THEN
+           IF(TU(NK1).GT.TBFRZ)THEN
+*
+*                              within the glaciation buffer zone...
+*
+             IF(TTEMP.GT.TTFRZ)TTEMP=TTFRZ
+             FRC1=(TTEMP-TU(NK1))/(TTFRZ-TBFRZ)
+             R1=(TTEMP-TU(NK1))/(TTEMP-TBFRZ)
+           ELSE
+*
+*                              glaciation processes are over...
+*
+             FRC1=(TTEMP-TBFRZ)/(TTFRZ-TBFRZ)
+             R1=1.
+             IFLAG=1
+           ENDIF
+*
+*
+*                              In this glaciation process, the new liquid
+*                              generated in the updraft directly goes into
+*                              QNEWFRZ.
+*
+           QNWFRZ=QNEWLQ
+*
+*                              Increase new ice and decrease new liquid
+*                              following the R1 fractional glaciation
+*
+           QNEWIC=QNEWIC+QNEWLQ*R1*0.5
+           QNEWLQ=QNEWLQ-QNEWLQ*R1*0.5
+           EFFQ=(TTFRZ-TBFRZ)/(TTEMP-TBFRZ)
+           TTEMP=TU(NK1)
+         ENDIF
+*
+*
+*                             Updraft vertical velocity and
+*                             precipitation fallout.
+*
+         IF(NK.EQ.K)THEN
+*
+*                             For the level just below the LCL
+*
+           BE=(TVLCL+TVU(NK1))/(TVEN+TV00(I,NK1))-1.
+           BOTERM=2.*(Z0G(I,NK1)-ZLCL)*GRAV*BE/1.5
+           ENTERM=0.
+           DZZ=Z0G(I,NK1)-ZLCL
+
+         ELSE
+*
+*                             And above...
+*
+           BE=(TVU(NK)+TVU(NK1))/(TV00(I,NK)+TV00(I,NK1))-1.
+           BOTERM=2.*DZP(I,NK)*GRAV*BE/1.5
+           ENTERM=2.*UER(NK)*WTW/UPOLD
+           DZZ=DZP(I,NK)
+         ENDIF
+         WSQ=WTW
+*
+*                             Condensation in the updraft.
+*
+         CALL CONDLOAD(RLIQ(NK1),RICE(NK1),WTW,DZZ,BOTERM,ENTERM,
+     *                 RATE,QNEWLQ,QNEWIC,QLQOUT(NK1),QICOUT(NK1),
+     *                 GRAV)
+*
+         WABS=SQRT(MAX(ABS(WTW),1.E-10))
+
+         WU(NK1)=WTW/WABS
+*
+*
+*                              If the vertical velocity is less
+*                              than zero, exit the updraft loop
+*                              and if the cloud is deep enough,
+*                              finalize the updraft calculations.
+*
+         IF(WU(NK1).LE.0.)GOTO 65
+*
+*
+*                              Update ABE for undilute ascent.
+*
+*                              Note that we still did not consider
+*                              any entrainment effect -
+*                              except for the calculation of w.
+*
+         THTES(NK1)=TT0(I,NK1)*(1.E5/PP0(I,NK1))**(0.2854*(1.-0.28*QST1(I,NK1)))*
+     *      EXP((3374.6525/TT0(I,NK1)-2.5403)*QST1(I,NK1)*(1.+0.81*QST1(I,NK1)))
+         UDLBE=((2.*THTUDL)/(THTES(NK)+THTES(NK1))-1.)*DZZ
+         IF(UDLBE.GT.0.)ABE=ABE+UDLBE*GRAV
+*
+*
+*                              Other effects of cloud
+*                              glaciation if within the specified
+*                              temperature interval
+*                              (on temperature, water variables, etc...).
+*
+*                              Phase change effects are calculated in
+*                              DTFRZNEW subroutine.
+*
+         IF(FRC1.GT.1.E-6)THEN
+*
+           CALL DTFRZNEW(TU(NK1),PP0(I,NK1),THETEU(NK1),QU(NK1),RLIQ(NK1),
+     *          RICE(NK1),RATIO2(NK1),TTFRZ,TBFRZ,QNWFRZ,RL,FRC1,EFFQ,
+     *          IFLAG,XLV0,XLV1,XLS0,XLS1,
+     *          ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+         ENDIF
+*
+*
+*
+*                             Call subroutine to calculate ENVIRONMENTAL
+*                             potential temperature within glaciation
+*                             interval.  THETAE must be calculated with
+*                             respect to the same degree of glaciation for
+*                             all entraining air.
+*
+         CALL ENVIRTHT(PP0(I,NK1),TT0(I,NK1),Q00(I,NK1),
+     *         THETEE(NK1),RATIO2(NK1),RL,
+     *         ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+*                             Trace the level of minimum eq. potential
+*                             temperature for the downdraft.
+*
+         IF(NK1.EQ.KLCL)THTMIN=THTES(NK1)
+         THTMIN=AMIN1(THTES(NK1),THTMIN)
+         IF(THTMIN.EQ.THTES(NK1))KMIN=NK1
+*
+*
+*
+*                             BEGINNING OF ENTRAINMENT/DETRAINMENT CALCULATIONS
+*
+*
+*                             REI is the rate of environmental inflow
+*
+         REI=VMFLCL*DPP(i,NK1)*0.03/RAD
+         TVQU(NK1)=TU(NK1)*(1.+0.608*QU(NK1)-RLIQ(NK1)-RICE(NK1))
+*
+*
+*                             UER   = updraft entrainment rate
+*                             UDR   = updraft detrainment rate
+*                             EQFRC = critical fraction of environmental
+*                                     air in the mixed subparcels at which
+*                                     they are neutrally stable.
+*
+*                             If cloud parcels are virtually colder than
+*                             the environment, no entrainment is allowed
+*                             at this level.
+*
+         IF(TVQU(NK1).LE.TV00(I,NK1))THEN
+           UER(NK1)=0.0
+           UDR(NK1)=REI
+           EE2=0.
+           UD2=1.
+           EQFRC(NK1)=0.
+           GOTO 55
+         ENDIF
+*
+         LET=NK1
+         TTMP=TVQU(NK1)
+*
+*
+*
+*                             Determine the critical mixed fraction of
+*                             updraft and environmental air.
+*
+*                             First suppose a subparcel with 5% updraft air
+*                             and 95% environmental air.
+*
+        F1=0.95
+        F2=1.-F1
+*
+*                             Properties of the subparcel
+*
+*                             THTMP = eq. pot. temperature
+*                             RTMP  = specific humidity
+*                             TMPLIQ = liquid water content
+*                             TMPICE = ice content
+*
+        THTTMP=F1*THETEE(NK1)+F2*THETEU(NK1)
+        RTMP=F1*Q00(I,NK1)+F2*QU(NK1)
+        TMPLIQ=F2*RLIQ(NK1)
+        TMPICE=F2*RICE(NK1)
+*
+*                             Find the temperature and new liquid for
+*                             this temporary subparcel.
+*
+        CALL TPMIX(PP0(I,NK1),THTTMP,TTMP,RTMP,TMPLIQ,TMPICE,QNEWLQ,
+     *                QNEWIC,RATIO2(NK1),RL,XLV0,XLV1,XLS0,XLS1,
+     *                ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+*                             moist virtual temperature of the subparcel
+*
+        TU95=TTMP*(1.+0.608*RTMP-TMPLIQ-TMPICE)
+*
+*                             If the parcel is buoyant with these mixing
+*                             proportions, then the critical fraction of
+*                             environmental air is close to 1.
+*                             (In fact, we set it to 1. in this case).
+*                             No detrainment in this case, only entrainment.
+*
+        IF(TU95.GT.TV00(I,NK1))THEN
+          EE2=1.
+          UD2=0.
+          EQFRC(NK1)=1.0
+          GOTO 50
+        ENDIF
+*
+*
+*                             Calculate the critical fraction of environmental
+*                             air by creating a supbarcel with 10% updraft and
+*                             90* environmental air.
+*
+        F1=0.10
+        F2=1.-F1
+        THTTMP=F1*THETEE(NK1)+F2*THETEU(NK1)
+        RTMP=F1*Q00(I,NK1)+F2*QU(NK1)
+        TMPLIQ=F2*RLIQ(NK1)
+        TMPICE=F2*RICE(NK1)
+*
+        CALL TPMIX(PP0(I,NK1),THTTMP,TTMP,RTMP,TMPLIQ,TMPICE,QNEWLQ,
+     *            QNEWIC,RATIO2(NK1),RL,XLV0,XLV1,XLS0,XLS1,
+     *            ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+        TU10=TTMP*(1.+0.608*RTMP-TMPLIQ-TMPICE)
+*
+*                            It is possible, from this subparcel, to
+*                            evaluate the critical fraction EQFRC.
+*
+        EQFRC(NK1)=(TV00(I,NK1)-TVQU(NK1))*F1/(TU10-TVQU(NK1)+1.E-20)
+        EQFRC(NK1)=AMAX1(0.0,EQFRC(NK1))
+        EQFRC(NK1)=AMIN1(1.0,EQFRC(NK1))
+*
+*                            In the simple cases in which the subparcel
+*                            mixing possibilities are all buoyant or all
+*                            non-buoyant, no need to integrate the
+*                            Gaussian distribution.
+*
+        IF(EQFRC(NK1).EQ.1)THEN
+*
+*                            All buoyant case
+*
+          EE2=1.
+          UD2=0.
+          GOTO 50
+        ELSEIF(EQFRC(NK1).EQ.0.)THEN
+*
+*                            All non-buoyant case
+*
+          EE2=0.
+          UD2=1.
+          GOTO 50
+        ELSE
+*
+*
+*                            Subroutine PROF5 integrates over the
+*                            Gaussian distribution to determine the
+*                            fractional entrainment and detrainment
+*                            rates.
+*
+          CALL PROF5(EQFRC(NK1),EE2,UD2)
+*
+        ENDIF
+*
+*
+*                            EE1 and UD1 are the entrainment and detrainment
+*                            rates from the previous level.
+*
+50      IF(NK.EQ.K)THEN
+           EE1=1.
+           UD1=0.
+        ENDIF
+*
+*
+*                           Net entrainment and detrainment rates are
+*                           given by the average fractional values in
+*                           the layer.
+*
+        UER(NK1)=0.5*REI*(EE1+EE2)
+        UDR(NK1)=0.5*REI*(UD1+UD2)
+*
+*
+*
+*                           Modification of the updraft detrainment rate
+*                           to include the effect of an "ensemble" of 
+*                           updrafts.  This is to avoid the problem of
+*                           intense detrainment at a single layer at the
+*                           cloud top level (between the LET and the top
+*                           in fact).
+*
+        IF ( Z0G(I,NK1).GT.ZLCL+(1.-DETREG)*(ZTOP(I)-ZLCL) ) THEN
+          DETFRAC  = DETTOT / MAX( FLOAT( KTOP-NK1 + 1 ), 1. )
+          DETFRAC  = MIN( DETFRAC, 0.25 )
+          UDR(NK1) = MAX( UDR(NK1), DETFRAC*UMF(NK) )
+          UDR(NK1) = MIN( UDR(NK1), UMF(NK) - 11. )
+        END IF
+*
+*
+*                           If the calculated updraft detrainment rate
+*                           is greater than the total updraft mass flux,
+*                           all cloud mass detrains.  Exit updraft
+*                           calculations.
+*
+55      IF(UMF(NK)-UDR(NK1).LT.10.)THEN
+*
+*
+*                           If the calculated detrained mass flux is
+*                           greater than the total updraft flux, impose
+*                           total detrainment of updraft mass at the
+*                           previous model level.
+*
+          IF(UDLBE.GT.0.)ABE=ABE-UDLBE*GRAV
+          LET=NK
+          GOTO 65
+        ENDIF
+*
+*
+*                           New updraft mass flux (remove the part that
+*                           was detrained - and add the part that was
+*                           entrained).
+*
+         EE1=EE2
+         UD1=UD2
+         UPOLD=UMF(NK)-UDR(NK1)
+         UPNEW=UPOLD+UER(NK1)
+         UMF(NK1)=UPNEW
+*
+*                          DETLQ and DETIC are the rates of detrainment
+*                          of liquid and ice in the detraining updraft mass
+*
+         DETLQ(NK1)=RLIQ(NK1)*UDR(NK1)
+         DETIC(NK1)=RICE(NK1)*UDR(NK1)
+         QDT(NK1)=QU(NK1)
+*
+*                          New properties of the updraft after
+*                          entrainment processes
+*
+         QU(NK1)=(UPOLD*QU(NK1)+UER(NK1)*Q00(I,NK1))/UPNEW
+         THETEU(NK1)=(THETEU(NK1)*UPOLD+THETEE(NK1)*UER(NK1))/UPNEW
+         RLIQ(NK1)=RLIQ(NK1)*UPOLD/UPNEW
+         RICE(NK1)=RICE(NK1)*UPOLD/UPNEW
+*
+*
+*
+*                          END OF ENTRAINMENT/DETRAINMENT CALCULATIONS
+*
+*
+*
+*                         KFRZ is the highest model level at which
+*                         liquid condensate is generated.  PPTLIQ is the
+*                         rate of generation (fallout) of liquid precipitation
+*                         at a given model level.  PPTICE is the same for ice.
+*                         TRPPT is the total rate of production of precip.
+*                         up to the current model level.
+*
+         IF(ABS(RATIO2(NK1)-1.).GT.1.E-6)KFRZ=NK1
+         PPTLIQ(NK1)=QLQOUT(NK1)*UMF(NK)
+         PPTICE(NK1)=QICOUT(NK1)*UMF(NK)
+         TRPPT=TRPPT+PPTLIQ(NK1)+PPTICE(NK1)
+         IF(NK1.LE.KPBL)UER(NK1)=UER(NK1)+VMFLCL*DPP(i,NK1)/DPTHMXG(I)
+60     CONTINUE
+*
+*
+*                           END OF THE PRETTY LONG LOOP for
+*                           the updraft calculations.
+*
+*
+*
+*                           Check cloud depth.  If the cloud is deep
+*                           enough, estimate the equilibrium temperature
+*                           level (ETL) and adjust the mass flux profile
+*                           at cloud top so that the mass flux decreases
+*                           to zero as a linear function of pressure
+*                           difference the LET and cloud top.
+*
+*                           LTOP is the model level just below the level
+*                           at which vertical velocity first becomes
+*                           negative.
+*
+65    LTOP=NK
+      CLDHGT=Z0G(I,LTOP)-ZLCL
+*
+*
+*                           If the cloud top height is less than the
+*                           specified minimum height, go back to the
+*                           next highest 50 mb layer to see if a bigger
+*                           cloud can be obtained from the parcel.
+*
+      IF(CLDHGT.LT.CDEPTH .OR. ABE.LT.1.)THEN
+        DO 70 NK=K,LTOP
+          UMF(NK)=0.
+          UDR(NK)=0.
+          UER(NK)=0.
+          DETLQ(NK)=0.
+          DETIC(NK)=0.
+          PPTLIQ(NK)=0.
+70        PPTICE(NK)=0.
+        GOTO 25
+      ENDIF
+*
+*
+*
+      ZBASEOUT(I) = ZLCL
+      ZTOPOUT(I)  = Z0G(I,LTOP)
+*
+*
+*                          ABOVE THE LET
+*
+*
+*                          If the LET and LTOP are the same, detrain all
+*                          of the updraft mass at this level.
+*
+      IF(LET.EQ.LTOP)THEN
+         UDR(LTOP)=UMF(LTOP)+UDR(LTOP)-UER(LTOP)
+         DETLQ(LTOP)=RLIQ(LTOP)*UDR(LTOP)*UPNEW/UPOLD
+         DETIC(LTOP)=RICE(LTOP)*UDR(LTOP)*UPNEW/UPOLD
+         UER(LTOP)=0.
+         UMF(LTOP)=0.
+         GOTO 85
+      ENDIF
+*
+*
+*                         Begin total detrainment at the level above the
+*                         LET.
+*
+       DPTT=0.
+       DO 71 NJ=LET+1,LTOP
+71       DPTT=DPTT+DPP(I,NJ)
+       DUMFDP=UMF(LET)/DPTT
+*
+*
+*                        Adjust mass flux profiles, detrainment rates,
+*                        and precipitation fall rates to reflect the
+*                        linear decrease in mass flux between the LET
+*                        and cloud top.
+*
+      DO 75 NK=LET+1,LTOP
+*
+*
+*                        A small part is detrained at each level above the
+*                        LET.
+*
+        UDR(NK)=DPP(I,NK)*DUMFDP
+        UMF(NK)=UMF(NK-1)-UDR(NK)
+        DETLQ(NK)=RLIQ(NK)*UDR(NK)
+        DETIC(NK)=RICE(NK)*UDR(NK)
+*
+        IF(NK.GE.LET+2)THEN
+          TRPPT=TRPPT-PPTLIQ(NK)-PPTICE(NK)
+          PPTLIQ(NK)=UMF(NK-1)*QLQOUT(NK)
+          PPTICE(NK)=UMF(NK-1)*QICOUT(NK)
+          TRPPT=TRPPT+PPTLIQ(NK)+PPTICE(NK)
+        ENDIF
+*
+75    CONTINUE
+*
+*
+85    CONTINUE
+*
+*
+*
+*                              BELOW CLOUD BASE
+*
+      DO NK=1,LC-1
+        TU(NK)=0.
+        QU(NK)=0.
+        TVU(NK)=0.
+        UMF(NK)=0.
+        WU(NK)=0.
+        UER(NK)=0.
+      ENDDO
+*
+*                              Between the departure and cloud base levels.
+*
+      UMF(LC)=VMFLCL*DPP(i,LC)/DPTHMXG(I)
+      UER(LC)=UMF(LC)
+      DO NK=LC+1,KPBL
+        UER(NK)=VMFLCL*DPP(i,NK)/DPTHMXG(I)
+        UMF(NK)=UMF(NK-1)+UER(NK)
+      ENDDO
+      DO NK=KPBL+1,K
+        UMF(NK)=VMFLCL
+        UER(NK)=0.
+      ENDDO
+      DO NK=LC,K
+	TU(NK)=TMIXG(I)+(Z0G(I,NK)-ZMIX)*GDRY
+        QU(NK)=QMIXG(I)
+        TVU(NK)= TU(NK)*(1.+0.608*QU(NK))
+        WU(NK)=WLCL
+      ENDDO
+      DO 90 NK=1,K
+*
+*                              Between the departure and cloud base levels.
+*
+        UDR(NK)=0.
+        QDT(NK)=0.
+        UU(NK)=0.
+        VU(NK)=0.
+        RLIQ(NK)=0.
+        RICE(NK)=0.
+        QLQOUT(NK)=0.
+        QICOUT(NK)=0.
+        PPTLIQ(NK)=0.
+        PPTICE(NK)=0.
+        DETLQ(NK)=0.
+        DETIC(NK)=0.
+        RATIO2(NK)=0.
+        EE=Q00(I,NK)*PP0(I,NK)/(0.622+Q00(I,NK))
+        TLOG=ALOG(EE/ALIQ)
+        TDPT=(CLIQ-DLIQ*TLOG)/(BLIQ-TLOG)
+        TSAT=TDPT-(.212+1.571E-3*(TDPT-TRPL)-4.36E-4*(TT0(I,NK)-TRPL))*
+     *        (TT0(I,NK)-TDPT)
+        THTA=TT0(I,NK)*(1.E5/PP0(I,NK))**(0.2854*(1.-0.28*Q00(I,NK)))
+        THETEE(NK)=THTA*
+     *        EXP((3374.6525/TSAT-2.5403)*Q00(I,NK)*(1.+0.81*Q00(I,NK)))
+        THTES(NK)=THTA*
+     *    EXP((3374.6525/TT0(I,NK)-2.5403)*QST1(I,NK)*(1.+0.81*QST1(I,NK)))
+        EQFRC(NK)=1.0
+90    CONTINUE
+*
+*
+*                            Some more definitions.
+*
+      LTOP1=LTOP+1
+      LTOPM1=LTOP-1
+*
+*                            Make sure that the updraft vertical motion
+*                            is not too small so that the cloud fraction
+*                            becomes not too large just above the lifting
+*                            condensation level (first level in the cloud
+*                            above which WU is different from WLCL)
+*
+      DO NK=LC+1,LTOPM1
+         IF (WU(NK).LT.WLCL) THEN
+            WU(NK) = MAX(WLCL,WU(NK))
+         ELSE IF (WU(NK).GT.WLCL) THEN
+            GOTO 900
+         ENDIF
+      END DO
+900   CONTINUE
+*
+*
+      UU(LC)=U00(I,LC)
+      VU(LC)=V00(I,LC)
+      UU(LC+1)=UU(LC)
+      VU(LC+1)=VU(LC)
+*
+      DO 91 NK = LC+1,LTOPM1
+        UPOLD=UMF(NK-1)-UDR(NK)
+        UPNEW=UPOLD+UER(NK)
+        UU(NK+1)=(UU(NK)*UPOLD+U00(I,NK)*UER(NK))/UPNEW
+91      VU(NK+1)=(VU(NK)*UPOLD+V00(I,NK)*UER(NK))/UPNEW
+*
+*
+*
+*                          Define variables above cloud top.
+*
+         DO 95 NK = LTOP1, KX
+            UMF(NK) = 0.
+            UDR(NK)=0.
+            UU(NK)  = 0.
+            VU(NK)  = 0.
+            UER(NK)=0.
+            QDT(NK)=0.
+            RLIQ(NK)=0.
+            RICE(NK)=0.
+            QLQOUT(NK)=0.
+            QICOUT(NK)=0.
+            DETLQ(NK)=0.
+            DETIC(NK)=0.
+            PPTLIQ(NK)=0.
+            PPTICE(NK)=0.
+            IF(NK.GT.LTOP1)THEN
+              TU(NK)=0.
+              QU(NK)=0.
+              TVU(NK)=0.
+              WU(NK)=0.
+            ENDIF
+            THTA0(NK)=0.
+            THTAU(NK)=0.
+            EMS(NK)=DPP(I,NK)*DXSQ/GRAV
+            EMSD(NK)=1./EMS(NK)
+            UG(NK) = U00(I,NK)
+            VG(NK) = V00(I,NK)
+            TG(NK) = TT0(I,NK)
+            QG(NK) = Q00(I,NK)
+            DMS(NK)=0.
+            DTFM(NK)=0.
+*
+            OMGA(NK)=0.
+            NUP(NK)=NK
+            THADV(NK)=0.
+            QADV(NK)=0.
+*
+95          OMG(NK)=0.
+            OMG(KX+1)=0.
+       P165=PP0(I,KLCL)-1.65E4
+       PPTMLT=0.
+*
+*
+*                       Initialize some other variables to be used later
+*                       in the vertical advection scheme (from the
+*                       surface to the cloud top).
+*
+      DO 100 NK=1,LTOP
+        EMS(NK)=DPP(I,NK)*DXSQ/GRAV
+        EMSD(NK)=1./EMS(NK)
+        DTFM(NK)=0.
+*
+        EXN(NK)=(P00/PP0(I,NK))**(0.2854*(1.-0.28*QDT(NK)))
+        THTAU(NK)=TU(NK)*EXN(NK)
+        EXN(NK)=(P00/PP0(I,NK))**(0.2854*(1.-0.28*Q00(I,NK)))
+        THTA0(NK)=TT0(I,NK)*EXN(NK)
+*
+        IF(PP0(I,NK).GT.P165)LVF=NK
+        PPTMLT=PPTMLT+PPTICE(NK)
+*
+100     OMG(NK)=0.
+*
+        CLVF=0.
+*
+        DO 101 NK = KLCL,LVF+1
+          CLVF=CLVF+PPTLIQ(NK)+PPTICE(NK)
+101     CONTINUE
+*
+        USR=UMF(LVF+1)*QU(LVF+1)+CLVF
+        USR=AMIN1(USR,TRPPT)
+*
+*
+*
+*      9. CONVECTIVE TIME SCALE AND PRECIPITATION EFFICIENCY
+*      =====================================================
+*
+*
+*                              Compute convective time scale (TIMEC).
+*                              The mean wind at the LCL and midtroposphere
+*                              is used.
+*
+         WSPD(KLCL)=SQRT(U00(I,KLCL)*U00(I,KLCL)+V00(I,KLCL)*V00(I,KLCL))
+         WSPD(L5)=SQRT(U00(I,L5)*U00(I,L5)+V00(I,L5)*V00(I,L5))
+         WSPD(LTOP)=SQRT(U00(I,LTOP)*U00(I,LTOP)+V00(I,LTOP)*V00(I,LTOP))
+*
+*
+*
+         NIC   = NINT(TIMEC/DELT)
+         TIMEC = FLOAT(NIC) * DELT
+*
+*                              Recalculate NIC using TIMEA
+         NIC   = NINT(TIMEA/DELT)
+*
+*
+*                              Compute wind shear and precipitation
+*                              efficiency.
+*
+        IF(WSPD(LTOP).GT.WSPD(KLCL))THEN
+          SHSIGN=1.
+        ELSE
+          SHSIGN=-1.
+        ENDIF
+*
+        VWS=(U00(I,LTOP)-U00(I,KLCL))*(U00(I,LTOP)-U00(I,KLCL))+
+     *      (V00(I,LTOP)-V00(I,KLCL))*(V00(I,LTOP)-V00(I,KLCL))
+        VWS = 1.E3*SHSIGN*SQRT(VWS)/(Z0G(I,LTOP)-Z0G(I,LCL))
+        PEF = 1.591+VWS*(-.639+VWS*(9.53E-2-VWS*4.96E-3))
+        PEF = AMAX1(PEF,PEFMIN)
+        PEF = AMIN1(PEF,PEFMAX)
+*
+*
+*                              Precipitation efficiency as a
+*                              function of cloud base
+*
+         CBH = (ZLCL-Z0G(I,1))*3.281E-3
+*
+         IF (CBH.LT.3.) THEN
+            RCBH = .02
+         ELSE
+            RCBH = .96729352+CBH*(-.70034167+CBH*(.162179896+CBH*(-
+     *         1.2569798E-2+CBH*(4.2772E-4-CBH*5.44E-6))))
+         ENDIF
+*
+         IF (CBH.GT.25) RCBH = 2.4
+         PEFCBH = 1./(1.+RCBH)
+         PEFCBH=AMIN1(PEFCBH,.9)
+*
+*
+*                              Mean precipitation efficiency used
+*                              to compute rainfall.
+*
+         PEFF = .5*(PEF+PEFCBH)
+         PEFFOUT(I) = PEFF
+*
+*
+*
+*      10. DOWNDRAFT PROPERTIES
+*      ========================
+*
+*
+*                      Let the representative downdraft originate at
+*                      the level of minimum saturation equivalent
+*                      potential temperature (SEQT) in the cloud layer.
+*                      Extend downward toward the surface, down to the
+*                      level of downdraft buoyancy (LDB), where SEQT is
+*                      less than min(SEQT) in the cloud layer.  Let downdraft
+*                      detrain over a layer of specified pressure-depth
+*                      (i.e., DPDD).
+*
+      TDER = 0.
+      DDPPT = 0.
+*
+*
+*                          KMIN = level of minimum environmental saturation
+*                                 equivalent potential temperature
+*
+*                          If the level KMIN is higher than the cloud top
+*                          ==> track again the level between LCL and LTOP.
+*
+       IF(KMIN.GE.LTOP)THEN
+         THTMIN=THTES(KLCL)
+         KMIN=KLCL
+         DO 104 NK=KLCL+1,LTOP-1
+           THTMIN=AMIN1(THTMIN,THTES(NK))
+           IF(THTMIN.EQ.THTES(NK))KMIN=NK
+104      CONTINUE
+       ENDIF
+*
+*
+*                          The LFS is defined as KMIN
+*
+      LFS=KMIN
+*
+*
+*
+      IF(RATIO2(LFS).GT.0.) 
+     1       CALL ENVIRTHT(PP0(I,LFS),TT0(I,LFS),Q00(I,LFS),
+     *                     THETEE(LFS),0.,RL,
+     *                     ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+*
+*                          The EQFRC fraction again represents the fraction
+*                          of environmental air in mixed subparcels
+*                          (from updraft and environmental) at the LFS.
+*
+      EQFRC(LFS)=(THTES(LFS)-THETEU(LFS))/(THETEE(LFS)-THETEU(LFS)+1.E-20)
+      EQFRC(LFS)=AMAX1(EQFRC(LFS),0.)
+      EQFRC(LFS)=AMIN1(EQFRC(LFS),1.)
+*
+*                           Eq. pot. temperature of the downdraft at the
+*                           LFS (saturated).
+*
+      THETED(LFS)=THTES(LFS)
+*
+*
+*                           Correction of the temperature due to melting
+*                           effects.
+*
+      IF(ML.GT.0)THEN
+        DTMLTD=0.5*(QU(KLCL)-QU(LTOP))*CHLF/CPD
+      ELSE
+        DTMLTD=0.
+      ENDIF
+*
+      TZ(LFS)=TT0(I,LFS)-DTMLTD
+*
+*
+*                           Recalculate the eq. pot. temperature using
+*                           this new temperature.
+*
+      ES = ALIQ*EXP((TZ(LFS)*BLIQ-CLIQ)/(TZ(LFS)-DLIQ))
+      QS = 0.622*ES/(PP0(I,LFS)-ES)
+      QD(LFS)=EQFRC(LFS)*Q00(I,LFS)+(1.-EQFRC(LFS))*QU(LFS)
+      THTAD(LFS)=TZ(LFS)*(P00/PP0(I,LFS))**(0.2854*(1.-0.28*QD(LFS)))
+*
+      IF(QD(LFS).GE.QS)THEN
+        THETED(LFS)=THTAD(LFS)*
+     *            EXP((3374.6525/TZ(LFS)-2.5403)*QS*(1.+0.81*QS))
+      ELSE
+        CALL ENVIRTHT(PP0(I,LFS),TZ(LFS),QD(LFS),
+     *                THETED(LFS),0.,RL,
+     *                ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+      ENDIF
+*
+*
+*
+*                             Find the level of downdraft buoyancy (LDB)
+*                             ==> level where THETAES for the downdraft
+*                             at the LFS becomes larger then the environmental
+*                             THETAES.
+*
+      LDB=1
+106   DO 107 NK=1,LFS-1
+        ND=LFS-NK
+        IF(THETED(LFS).GT.THTES(ND) .OR. ND.EQ.1)THEN
+          LDB=ND
+          GOTO 110
+        ENDIF
+107     CONTINUE
+*
+110   DPDD=2.5E2
+*
+      DPT=0.
+*
+*
+*                             Determine the LDT level (level where the
+*                             downdraft detrains).
+*
+      DO 115 NK=LDB,LFS
+        DPT=DPT+DPP(I,NK)
+        IF(DPT.GT.DPDD)THEN
+          LDT=NK
+          FRC=(DPDD+DPP(I,NK)-DPT)/DPP(I,NK)
+          GOTO 120
+        ENDIF
+115   CONTINUE
+120   CONTINUE
+*
+*
+*                            Properties of the downdrafts at the LFS:
+*                            TVD   = moist virtual temperature
+*                            RDD   = air density
+*                            DMF   = downdraft mass flux
+*                            DER   = downdraft entrainment rate
+*                            DDR   = downdraft detrainment rate
+*
+      TVD(LFS)=TT0(I,LFS)*(1.+0.608*QST1(I,LFS))
+      RDD=PP0(I,LFS)/(RGASD*TVD(LFS))
+      A1=(1.-PEFF)*AU0
+      DMF(LFS)=-A1*RDD
+      DER(LFS)=EQFRC(LFS)*DMF(LFS)
+      DDR(LFS)=0.
+*
+*
+*                           Loop for the dowdraft mass flux
+*
+      DO 140 ND=LFS-1,LDB,-1
+        ND1=ND+1
+*
+*                           At the lowest level
+*
+        IF(ND.LE.LDT)THEN
+          DER(ND)=0.
+          DDR(ND)=-DMF(LDT+1)*DPP(I,ND)*FRC/DPDD
+          DMF(ND)=DMF(ND1)+DDR(ND)
+          FRC=1.
+          THETED(ND)=THETED(ND1)
+          QD(ND)=QD(ND1)
+          TZ(ND)=TPDD(PP0(I,ND),THETED(ND),TT0(I,ND),QS,QD(ND),1.0,
+     *              XLV0,XLV1,
+     *              ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+          EXN(ND)=(P00/PP0(I,ND))**(0.2854*(1.-0.28*QD(ND)))
+          THTAD(ND)=TZ(ND)*EXN(ND)
+        ELSE
+*
+*                           Before reaching its lowest level, downdraft
+*                           entrains, but does not detrain.
+*
+          DER(ND)=DMF(LFS)*0.03*DPP(I,ND)/RAD
+          DDR(ND)=0.
+          DMF(ND)=DMF(ND1)+DER(ND)
+*
+*                           Recalculate THETEE
+*
+          IF(RATIO2(ND).GT.0.) 
+     1           CALL ENVIRTHT(PP0(I,ND),TT0(I,ND),Q00(I,ND),
+     *                         THETEE(ND),0.,RL,
+     *                         ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+*
+*                           Downdraft properties deduced from properties
+*                           at the previous level and entrained air.
+*
+          THETED(ND)=(THETED(ND1)*DMF(ND1)+THETEE(ND)*DER(ND))/DMF(ND)
+          QD(ND)=(QD(ND1)*DMF(ND1)+Q00(I,ND)*DER(ND))/DMF(ND)
+          TZ(ND)=TPDD(PP0(I,ND),THETED(ND),TT0(I,ND),QS,QD(ND),1.0,
+     *              XLV0,XLV1,
+     *              ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+          EXN(ND)=(P00/PP0(I,ND))**(0.2854*(1.-0.28*QD(ND)))
+          THTAD(ND)=TZ(ND)*EXN(ND)
+        ENDIF
+140   CONTINUE
+*
+      TDER=0.
+*
+*
+*                          Effect of downdraft reaching the LDB
+*                          (cooling and moistening).  Relative humidity
+*                          of 90% at this level.
+*
+      DO 135 ND=LDB,LDT
+        TZ(ND)=TPDD(PP0(I,ND),THETED(LDT),TT0(I,ND),QS,QD(ND),1.0,
+     *              XLV0,XLV1,
+     *              ALIQ,BLIQ,CLIQ,DLIQ,AICE,BICE,CICE,DICE)
+        ES = ALIQ*EXP((TZ(ND)*BLIQ-CLIQ)/(TZ(ND)-DLIQ))
+        QS = 0.622*ES/(PP0(I,ND)-ES)
+        DQSDT=(CLIQ-BLIQ*DLIQ)/((TZ(ND)-DLIQ)*(TZ(ND)-DLIQ))
+*
+*
+*                          Adjust temperature and humidity for a
+*                          relative humidity of 90%.
+*
+        RL=XLV0-XLV1*TZ(ND)
+        DTMP=RL*QS*(1.-RHBC)/(cpd+RL*RHBC*QS*DQSDT)
+        T1RH=TZ(ND)+DTMP
+        ES=RHBC*ALIQ*EXP((BLIQ*T1RH-CLIQ)/(T1RH-DLIQ))
+        ES=MIN( ES , 0.5*PP0(I,ND) )
+        QSRH=0.622*ES/(PP0(I,ND)-ES)
+        QSRH=MAX( MIN( QSRH , 0.050 ) , 1.E-6 )
+*
+*
+*                          Check to see if the mixing ratio at specified
+*                          relative humidity is less than the actual
+*                          mixing ratio.  If so, adjust to give zero
+*                          evaporation.
+*
+        IF(QSRH.LT.QD(ND))THEN
+          QSRH=QD(ND)
+          T1RH=TZ(ND)
+        ENDIF
+*
+*
+*                          If this is not the case, use the adjusted
+*                          values for temperature and humidity
+*
+        TZ(ND)=T1RH
+        QS=QSRH
+        TDER=TDER + (QS-QD(ND))*DDR(ND)
+        QD(ND)=QS
+135     THTAD(ND)=TZ(ND)*(P00/PP0(I,ND))**(0.2854*(1.-0.28*QD(ND)))
+*
+141     IF(TDER.LT.1.)THEN
+*
+*
+*                          No evaporation then no downdraft.
+*
+*                          PPTFLX = precipitation flux
+*                          CPR    = condensation production rate
+*                          TDER   = total downdraft evaporation rate (???)
+*
+            PPTFLX=TRPPT
+            CPR=TRPPT
+            TDER=0.
+            CNDTNF=0.
+            UPDINC=1.
+            LDB=LFS
+            DO 117 NDK=1,LTOP
+              UD(NDK)=0.            ! Clean-up added
+              VD(NDK)=0.            ! Clean-up added
+              DMS(NDK)=0.
+              DMF(NDK)=0.
+              DER(NDK)=0.
+              DDR(NDK)=0.
+              THTAD(NDK)=0.
+              WD(NDK)=0.
+              TZ(NDK)=0.
+117           QD(NDK)=0.
+            AINCM2=100.
+            DMFMIN=0.
+            GOTO 165
+         ENDIF
+
+
+*
+*
+*                            Adjust downdraft mass flux so that evaporation
+*                            rate in downdraft is consistent with
+*                            precipitation efficiency relationship
+*
+*                            PPTFLX = precipitation flux =
+*                                     updraft supply rate times the
+*                                     precipitation efficiency
+*                            RCED   = Rate of condensate evaporation
+*                                     in downdraft =
+*                                     total precipitation rate -
+*                                     precipitation flux
+*                                     (this is the precip that evaporates
+*                                     in downdraft).
+*                            PPR    = total fallout of liquid water and
+*                                     and ice in the updraft.
+*                            DMFLFS = adjusted downward mass flux at
+*                                     the LFS
+*                            CNDTNF = condensate in updraft air at the LFS.
+*                            DPPTDF = total fallout precip rate in updraft.
+*
+        DEVDMF=TDER/DMF(LFS)
+        PPR=0.
+*
+        PPTFLX=PEFF*USR
+        RCED=TRPPT-PPTFLX
+*
+        DO 132 NM=KLCL,LFS
+132       PPR=PPR+PPTLIQ(NM)+PPTICE(NM)
+*
+        IF(LFS.GE.KLCL)THEN
+*
+        DPPTDF=(1.-PEFF)*PPR*(1.-EQFRC(LFS))/UMF(LFS)
+*
+        ELSE
+          DPPTDF=0.
+        ENDIF
+        CNDTNF=(RLIQ(LFS)+RICE(LFS))*(1.-EQFRC(LFS))
+*
+        DMFLFS=RCED/(DEVDMF+DPPTDF+CNDTNF)
+*
+        IF(DMFLFS.GT.0.)THEN
+          TDER=0.
+          GOTO 141
+        ENDIF
+*
+*
+*                        Adjust the downdraft fluxes.
+*
+*                        DDINC = downdraft increase
+*                        UPDINC = updraft increase
+*
+        DDINC=DMFLFS/DMF(LFS)
+        IF(LFS.GE.KLCL)THEN
+          UPDINC=(UMF(LFS)-(1.-EQFRC(LFS))*DMFLFS)/UMF(LFS)
+        ELSE
+          UPDINC=1.
+        ENDIF
+      DO 149 NK=LDB,LFS
+        DMF(NK)=DMF(NK)*DDINC
+        DER(NK)=DER(NK)*DDINC
+149     DDR(NK)=DDR(NK)*DDINC
+      CPR=TRPPT+PPR*(UPDINC-1.)
+      TDER=TDER*DDINC
+*
+*
+*                             Adjust upward mass flux, mass detrainment
+*                             rate, and liquid water detrainment rates to
+*                             be consistent with the transfer of the
+*                             estimate from the updraft to the downdraft
+*                             at the LFS.
+*
+      DO 155 NK=LC,LFS
+        UMF(NK)=UMF(NK)*UPDINC
+        UDR(NK)=UDR(NK)*UPDINC
+        UER(NK)=UER(NK)*UPDINC
+        PPTLIQ(NK)=PPTLIQ(NK)*UPDINC
+        PPTICE(NK)=PPTICE(NK)*UPDINC
+        DETLQ(NK)=DETLQ(NK)*UPDINC
+155     DETIC(NK)=DETIC(NK)*UPDINC
+*
+*
+*                            Set values below the downdraft buoyancy level...
+*
+      IF(LDB.GT.1)THEN
+        DO 156 NK=1,LDB-1
+          DMF(NK)=0.
+          DER(NK)=0.
+          DDR(NK)=0.
+          WD(NK)=0.
+          TZ(NK)=0.
+          QD(NK)=0.
+          THTAD(NK)=0.
+          UD(NK)=0.
+156       VD(NK)=0.
+      ENDIF
+*
+*                           and above the LFS...
+*
+      DO 157 NK=LFS+1,KX
+        DMF(NK)=0.
+        DER(NK)=0.
+        DDR(NK)=0.
+        WD(NK)=0.
+        TZ(NK)=0.
+        QD(NK)=0.
+        THTAD(NK)=0.
+        UD(NK)=0.
+157     VD(NK)=0.
+      DO 158 NK=LDT+1,LFS-1
+        TZ(NK)=0.
+158     QD(NK)=0.
+*
+*
+*                          Set limits on the updraft and downdraft mass
+*                          fluxes so that the influx into convective drafts
+*                          from a given layer is no more than is available
+*                          in that layer initially.  Also, do not allow
+*                          updraft detrainment to exceed twice the mass
+*                          in a layer initially.  Or downdraft detrainment
+*                          exceed one time the initial mass in a layer.
+*
+*                          LMAX is either the LCL or the LFS.
+*
+165   AINCMX=1000.
+      LMAX=MAX0(KLCL,LFS)
+*
+*
+*                          EMS = total mass of one model grid box
+*
+      DO 166 NK=LC,LMAX
+          IF((UER(NK)-DER(NK)).GT.0.)
+     * AINCM1=EMS(NK)/((UER(NK)-DER(NK))*TIMEC)
+*
+*                          If smaller than 1, entrainment exceeds the
+*                          mass available in one model grid box.
+*
+       AINCMX=AMIN1(AINCMX,AINCM1)
+166    CONTINUE
+*
+*
+*
+       UD(LFS)=EQFRC(LFS)*U00(I,LFS)+(1.-EQFRC(LFS))*UU(LFS+1)
+       VD(LFS)=EQFRC(LFS)*V00(I,LFS)+(1.-EQFRC(LFS))*VU(LFS+1)
+       DO 150 NK=1,LFS-LDB
+         NJ=LFS-NK
+         IF(NJ.GT.LDT)THEN
+           UD(NJ)=(UD(NJ+1)*DMF(NJ+1)+U00(I,NJ)*DER(NJ))/DMF(NJ)
+           VD(NJ)=(VD(NJ+1)*DMF(NJ+1)+V00(I,NJ)*DER(NJ))/DMF(NJ)
+         ELSE
+           UD(NJ)=UD(LDT+1)
+           VD(NJ)=VD(LDT+1)
+         ENDIF
+150    CONTINUE
+*
+*
+*                           If the entrainment rates for the updraft
+*                           are reasonable physically speaking, then
+*                           we should have AINCMX > 1, thus AINC=1 most
+*                           of the time here.  If, on the other hand,
+*                           the entrainment rates are so large so that
+*                           AINCMX < 1, then AINC is equal to this fraction.
+*                           (this correction is done to avoid removing
+*                           more air than available).
+*
+      AINC=1.
+      IF(AINCMX.LT.AINC)AINC=AINCMX
+*
+*
+*                           Save the relevant variables for a unit
+*                           updraft and downdraft.  They are adjusted by
+*                           the factor AINC to satisfy the stabilization
+*                           closure
+*
+      NCOUNT=0
+      PPTMLT=0.
+      TDER2=TDER
+      PPTFL2=PPTFLX
+*
+      DO 170 NK=1,LTOP
+         DETLQ2(NK)=DETLQ(NK)
+         DETIC2(NK)=DETIC(NK)
+         UDR2(NK)=UDR(NK)
+         UER2(NK)=UER(NK)
+         DDR2(NK)=DDR(NK)
+         DER2(NK)=DER(NK)
+         UMF2(NK)=UMF(NK)
+         DMF2(NK)=DMF(NK)
+         DMS(NK)=0.
+         
+         UMFOUT(I,KX-NK+1) = UMF(NK)
+         DMFOUT(I,KX-NK+1) = DMF(NK)         
+
+*
+*                          Between the melting and cloud top levels.
+*
+         DPLIN=0.5*DPP(I,NK)/(PP0(I,NK)-PP0(I,NK+1))
+         DLP=ALOG((PP0(I,NK)-0.5*DPP(I,NK))/PP0(I,NK))/ALOG(PP0(I,NK+1)/PP0(I,NK))
+         THMID(NK+1)=THTA0(NK)+(THTA0(NK+1)-THTA0(NK))*DPLIN
+170      QMID(NK+1)=Q00(I,NK)+(Q00(I,NK+1)-Q00(I,NK))*DLP
+*
+      DO NK=ML+1,LTOP-1
+	PPTMLT=PPTMLT+PPTICE(NK+1)
+      ENDDO
+      PPTML2=PPTMLT
+      THMID(1)=0.
+      QMID(1)=0.
+      DMFMIN=UER(LFS)-EMS(LFS)/TIMEC
+      FABE=1.
+      STAB=0.95
+      IF(AINC/AINCMX.GT.0.999)GOTO 255
+      ISTOP=0
+*
+*
+*                          BEGINNING OF THE STABILIZATION ITERATION
+*
+175   NCOUNT=NCOUNT+1
+*
+*
+*                          Evaluate the vertical velocity OMGA (Pa/s) from
+*                          the entrainment and detrainment rates.  (vertical
+*                          velocity for the environment).
+*
+*                          DOMGDP = D(omega) / Dp
+*                          DTT    = timestep for the vertical advection
+*                                   process (later).
+*
+185      CONTINUE
+         DTT=TIMEC
+         DO 200 NK = 1, LTOP
+           DOMGDP(NK)=-(UER(NK)-DER(NK)-UDR(NK)-DDR(NK))*EMSD(NK)
+           IF(NK.GT.1)THEN
+             OMG(NK)=OMG(NK-1)-DPP(I,NK-1)*DOMGDP(NK-1)
+             DTT1 = 0.75*DPP(I,NK-1)/(ABS(OMG(NK))+1.E-10)
+             DTT=AMIN1(DTT,DTT1)
+           ENDIF
+200        CONTINUE
+      DO 488 NK=1,LTOP
+         THPA(NK)=THTA0(NK)
+         QPA(NK)=Q00(I,NK)
+         NSTEP=NINT(TIMEC/DTT+1)
+         DTIME=TIMEC/FLOAT(NSTEP)
+         FXM(NK)=OMG(NK)*DXSQ/GRAV
+         IF(NK.LT.KLCL)THEN
+           OMGA(NK)=(DMF(NK)-0.5*(DDR(NK)-DER(NK)))*GRAV/DXSQ
+         ELSE
+           OMGA(NK)=(UMF(NK)+0.5*(UDR(NK)-UER(NK))+
+     *           DMF(NK)-0.5*(DDR(NK)-DER(NK)))*GRAV/DXSQ
+         ENDIF
+488      CONTINUE
+      DO 495 NTC=1,NSTEP
+*
+*
+*                             Assign THETA and Q values at the top and
+*                             bottom of each layer based on the sigh of
+*                             OMEGA
+*
+       DO 594 NK = 1,LTOP
+          IF(OMGA(NK).LE.0.)THEN
+            IF(NK.EQ.1)THEN
+              NUP(NK)=NK+1
+              THADV(NK)=THPA(NK)
+              QADV(NK)=QPA(NK)
+            ELSE
+              NUP(NK)=NK-1
+              THADV(NK)=THPA(NK-1)
+              QADV(NK)=QPA(NK-1)
+            ENDIF
+          ELSE
+            NUP(NK)=NK+1
+            THADV(NK)=THPA(NK+1)
+            QADV(NK)=QPA(NK+1)
+          ENDIF
+594     CONTINUE
+*
+*
+*                           Compute new values for the potential temperature
+*                           including the tendencies due vertical advection
+*                           of environmental properties, as well as
+*                           detrainment effect from the updraft and downdraft.
+*
+       DO 592 NK = 2, LTOPM1
+         NUPNK = NUP(NK)
+*
+         THPA(NK) = (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                ( THPA(NK) + UDR(NK)*EMSD(NK)*THTAU(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*THTAD(NK)*DTIME  )
+     *                        - OMGA(NK)*THADV(NK)*DTIME
+     *                                                                  )
+     *                                       /
+     *              (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                (       1. + UDR(NK)*EMSD(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*DTIME            )
+     *                             - OMGA(NK)*DTIME
+     *                                                                  )
+*
+          QPA(NK) = (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                (  QPA(NK) + UDR(NK)*EMSD(NK)*QDT(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*QD(NK) *DTIME  )
+     *                        - OMGA(NK)*QADV(NK)*DTIME
+     *                                                                  )
+     *                                       /
+     *              (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                (       1. + UDR(NK)*EMSD(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*DTIME            )
+     *                             - OMGA(NK)*DTIME
+     *                                                                  )
+*
+592    CONTINUE
+*
+*                        At the surface, no contribution from the updraft.
+*
+       NK = 1
+       NUPNK = NUP(NK)
+*
+       THPA(NK) = (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              ( THPA(NK) + DDR(NK)*EMSD(NK)*THTAD(NK)*DTIME  )
+     *                      - OMGA(NK)*THADV(NK)*DTIME
+     *                                                                )
+     *                                     /
+     *            (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              (       1. + DDR(NK)*EMSD(NK)*DTIME            )
+     *                           - OMGA(NK)*DTIME
+     *                                                                )
+*
+        QPA(NK) = (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              (  QPA(NK) + DDR(NK)*EMSD(NK)*QD(NK) *DTIME  )
+     *                      - OMGA(NK)*QADV(NK)*DTIME
+     *                                                                )
+     *                                     /
+     *            (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              (       1. + DDR(NK)*EMSD(NK)*DTIME            )
+     *                           - OMGA(NK)*DTIME
+     *                                                                )
+*
+*
+*
+*                        At the cloud top, only detrainment from the
+*                        updraft.
+*
+       NK = LTOP
+*
+       THPA(NK) = ( THPA(NK) + UDR(NK)*THTAU(NK)*EMSD(NK)*DTIME )
+     *                                   /
+     *                    ( 1. + UDR(NK)*EMSD(NK)*DTIME )
+*
+        QPA(NK) = (  QPA(NK) + UDR(NK)*QDT(NK)  *EMSD(NK)*DTIME )
+     *                                   /
+     *                    ( 1. + UDR(NK)*EMSD(NK)*DTIME )
+*
+495   CONTINUE
+*
+*
+*                         Specify the "G" grid values after convective
+*                         adjustment.  New values after each stabilization
+*                         iteration.
+*
+      DO 498 NK=1,LTOP
+        THTAG(NK)=THPA(NK)
+        QG(NK)=QPA(NK)
+        QG(NK)=AMAX1(QG(NK),1.E-9)
+498   CONTINUE
+*
+*                         TOPOMG = vertical motion at the cloud top.
+*
+      TOPOMG = (UDR(LTOP)-UER(LTOP))*DPP(I,LTOP)*EMSD(LTOP)
+      IF(ABS(TOPOMG-OMG(LTOP)).GT. 1.E-3)THEN
+        ISTOP=1
+      ENDIF
+*
+*
+*                               Convert THETA to T, freeze all supercooled
+*                               detrained liquid water because no supercooled
+*                               water is supposed to be allowed in the
+*                               explicit condensation scheme (anyone of
+*                               those available from the subroutine
+*                               VKUOCON).
+*
+      DO 230 NK=1,LTOP
+        EXN(NK)=(P00/PP0(I,NK))**(0.2854*(1.-0.28*QG(NK)))
+        TG(NK)=THTAG(NK)/EXN(NK)
+*
+*                               Temperature effect of melting above the
+*                               melting level (ML).
+*
+        IF(NK.GT.ML)THEN
+           DTFM(NK)=DETLQ(NK)*CHLF*EMSD(NK)/CPD
+        ENDIF
+        TG(NK)=TG(NK)+DTFM(NK)
+        TVG(NK)=TG(NK)*(1.+0.608*QG(NK))
+230     CONTINUE
+*
+*
+*                               Allow frozen precip to melt over a layer
+*                               of 200 mb below the melting level if
+*                               precipitation is not back to the explicit
+*                               condensation scheme.
+*                               In the current version, this melting effect
+*                               is not considered (i.e., DTMLTE = 0).
+*                               Note here that it should be considered.
+*
+      DTMLTE=0.
+      TDP=0.
+      DO 231 K = 1,ML
+        NK = ML-K+1
+        TDP=TDP+DPP(I,NK)
+*
+*                               Check for a 200 mb layer below the ML.
+*
+        IF(TDP.LT.2.E4)THEN
+          DTFM(NK)=DTMLTE
+          TG(NK)=TG(NK)+DTMLTE*TIMEC
+        ELSE
+          DTFM(NK)=DTMLTE*(2.E4+DPP(I,NK)-TDP)/DPP(I,NK)
+          TG(NK)=TG(NK)+DTMLTE*TIMEC*(2.E4+DPP(I,NK)-TDP)/DPP(I,NK)
+          GOTO 232
+        ENDIF
+231   CONTINUE
+232     CONTINUE
+*
+*
+*
+*      11.  COMPUTE NEW CLOUD AND CHANGE IN AVAILABLE BUOYANT ENERGY
+*      =============================================================
+*
+*
+*                              The following computations are similar to
+*                              those for the updraft, except they are
+*                              done using the convectively adjusted
+*                              TG and QG.
+*
+*                              Redo the calculations associated with the
+*                              trigger function.
+*
+*                              (not much comments in the following -
+*                               the reader is refered to the sections above).
+*
+*
+        THMIXG(I)=0.
+        QMIXG(I)=0.
+        PMIXG(I)=0.
+        DO 217 NK = LC,KPBL
+          ROCPQ=0.2854*(1.-0.28*QG(NK))
+          THMIXG(I)=THMIXG(I)+DPP(I,NK)*TG(NK)*(P00/PP0(I,NK))**ROCPQ
+          QMIXG(I)=QMIXG(I)+DPP(I,NK)*QG(NK)
+217       PMIXG(I)=PMIXG(I)+DPP(I,NK)*PP0(I,NK)
+        THMIXG(I)=THMIXG(I)/DPTHMXG(I)
+        QMIXG(I)=QMIXG(I)/DPTHMXG(I)
+C
+        QMIXG(I)=AMAX1( QMIXG(I),1.0E-10 )
+C
+        PMIXG(I)=PMIXG(I)/DPTHMXG(I)
+        ROCPQ=0.2854*(1.-0.28*QMIXG(I))
+        TMIXG(I)=THMIXG(I)*(PMIXG(I)/P00)**ROCPQ
+        ES=ALIQ*EXP((TMIXG(I)*BLIQ-CLIQ)/(TMIXG(I)-DLIQ))
+        ES=MIN( ES , 0.5*PMIXG(I) )
+        QS=0.622*ES/(PMIXG(I)-ES)
+        QS=MAX( MIN( QS , 0.050 ) , 1.E-6 )
+        IF(QMIXG(I).GT.QS)THEN
+          RL=XLV0-XLV1*TMIXG(I)
+          CPM=CPD*(1.+0.887*QMIXG(I))
+          DQSDT = QS*(CLIQ-BLIQ*DLIQ)/((TMIXG(I)-DLIQ)*(TMIXG(I)-DLIQ))
+          DQ = (QMIXG(I)-QS)/(1.+RL*DQSDT/CPM)
+          TMIXG(I) = TMIXG(I)+RL/CPD*DQ
+          QMIXG(I) = QMIXG(I)-DQ
+          ROCPQ = 0.2854*(1.-0.28*QMIXG(I))
+          THMIXG(I) = TMIXG(I)*(P00/PMIXG(I))**ROCPQ
+          TLCLG(I) = TMIXG(I)
+          PLCLG(I) = PMIXG(I)
+        ELSE
+          QMIXG(I)=AMAX1(QMIXG(I),0.)
+          EMIX=QMIXG(I)*PMIXG(I)/(0.622+QMIXG(I))
+          TLOG=ALOG(EMIX/ALIQ)
+          TDPT=(CLIQ-DLIQ*TLOG)/(BLIQ-TLOG)
+          TLCLG(I)=TDPT-(.212+1.571E-3*(TDPT-TRPL)-4.36E-4*(TMIXG(I)-TRPL))*
+     *        (TMIXG(I)-TDPT)
+          TLCLG(I)=AMIN1(TLCLG(I),TMIXG(I))
+          CPORQ=1./ROCPQ
+          PLCLG(I)=P00*(TLCLG(I)/THMIXG(I))**CPORQ
+        ENDIF
+        TVLCL=TLCLG(I)*(1.+0.608*QMIXG(I))
+        DO 235 NK = LC,KL
+          KLCL=NK
+235       IF(PLCLG(I).GE.PP0(I,NK))GO TO 240
+240     K=KLCL-1
+        DLP=ALOG(PLCLG(I)/PP0(I,K))/ALOG(PP0(I,KLCL)/PP0(I,K))
+*
+*
+*                                 Estimate the environmental temperature
+*                                 and mixing ratio at the LCL
+*
+        TENV=TG(K)+(TG(KLCL)-TG(K))*DLP
+        QENV=QG(K)+(QG(KLCL)-QG(K))*DLP
+        TVEN=TENV*(1.+0.608*QENV)
+        TVBAR=0.5*(TVG(K)+TVEN)
+*
+*
+*                                 Characteristics of the updraft at the
+*                                 LCL.  (height, virtual temperature,
+*                                 eq. pot. temperature, pressure,
+*                                 temperature and detrainment).
+*
+        ZLCL=Z0G(I,K)+RGASD*TVBAR*ALOG(PP0(I,K)/PLCLG(I))/GRAV
+        TVAVG=0.5*(TVEN+TG(KLCL)*(1.+0.608*QG(KLCL)))
+        PLCLG(I)=PP0(I,KLCL)*EXP(GRAV/(RGASD*TVAVG)*(Z0G(I,KLCL)-ZLCL))
+        THETEU(K)=TMIXG(I)*(1.E5/PMIXG(I))**(0.2854*(1.-0.28*QMIXG(I)))*
+     *            EXP((3374.6525/TLCLG(I)-2.5403)*QMIXG(I)*
+     *            (1.+0.81*QMIXG(I)))
+        ES=ALIQ*EXP((TENV*BLIQ-CLIQ)/(TENV-DLIQ))
+        ES=MIN( ES , 0.5*PLCLG(I) )
+        QESE=0.622*ES/(PLCLG(I)-ES)
+        QESE=MAX( MIN( QESE , 0.050 ) , 1.E-6 )
+        THTESG(K)=TENV*(1.E5/PLCLG(I))**(0.2854*(1.-0.28*QESE))*
+     *      EXP((3374.6525/TENV-2.5403)*QESE*(1.+0.81*QESE))
+*
+*
+*                            Compute adjusted ABE (ABEG)
+*
+      ABEG=0.
+      THTUDL=THETEU(K)
+      THATA = TMIXG(I)*(1.E5/PMIXG(I))**0.286
+      THTFC = THATA*EXP((XLV0-XLV1*TLCLG(I))*QMIXG(I)/(CPD*TLCLG(I)))
+*
+*
+*                             Loop for ABEG (adjusted).
+*
+      DO 245 NK=K,LTOPM1
+         NK1=NK+1
+         ES=ALIQ*EXP((TG(NK1)*BLIQ-CLIQ)/(TG(NK1)-DLIQ))
+         ES=MIN( ES , 0.5*PP0(I,NK1) )
+         QESE=0.622*ES/(PP0(I,NK1)-ES)
+         QESE=MAX( MIN( QESE , 0.050 ) , 1.E-6 )
+         THTESG(NK1)=TG(NK1)*(1.E5/PP0(I,NK1))**(0.2854*(1.-0.28*QESE))*
+     *      EXP((3374.6525/TG(NK1)-2.5403)*QESE*(1.+0.81*QESE))
+         IF(NK.EQ.K)THEN
+           DZZ=Z0G(I,KLCL)-ZLCL
+         ELSE
+           DZZ=DZP(I,NK)
+         ENDIF
+         BE=((2.*THTUDL)/(THTESG(NK1)+THTESG(NK))-1.)*DZZ
+245      IF(BE.GT.0.)ABEG=ABEG+BE*GRAV
+*
+*
+*                                Assume greater than 90% of CAPE is
+*                                removed by convection during the
+*                                period TIMEC
+*
+*                                DABE = difference between original ABE and
+*                                       adjusted ABE.  Cannot be smaller
+*                                       than 0.1 ABE).
+*                                FABE = fraction of ABE left after the
+*                                       convective adjustment.
+*                                STAB = 0.95 = stabilization factor.
+*
+      CAPEOUT(I) = ABE
+      DABE=AMAX1(ABE-ABEG,0.1*ABE)
+      FABE=ABEG/(ABE+1.E-8)
+*
+      IF(AINC/AINCMX.GT.0.999 .AND. FABE.GT.1.05-STAB)THEN
+        GOTO 265
+      ENDIF
+*
+*
+*                               IF THE COLUMN IS STABILIZED, THEN OUT
+*                               OF THE ITERATION LOOP.
+*
+      IF(FABE.LE.1.05-STAB.AND.FABE.GE.0.95-STAB)GO TO 265
+      IF(NCOUNT.GT.10)THEN
+         GOTO 265
+      ENDIF
+*
+*
+*                                If more than 10% of the original CAPE
+*                                remains, increase the convective mass
+*                                flux by the factor AINC
+*
+      AINC=AINC*STAB*ABE/(DABE+1.E-8)
+255   AINC=AMIN1(AINCMX,AINC)
+      AINC=AMAX1(AINC,0.0)
+*
+*
+*                                Adjustment of all the updraft/downdraft
+*                                characteristics.
+*
+      PPTMLT=PPTML2*AINC
+      TDER=TDER2*AINC
+      PPTFLX=PPTFL2*AINC
+*
+      DO 260 NK=1,LTOP
+        UMF(NK)=UMF2(NK)*AINC
+        DMF(NK)=DMF2(NK)*AINC
+        DETLQ(NK)=DETLQ2(NK)*AINC
+        DETIC(NK)=DETIC2(NK)*AINC
+        UDR(NK)=UDR2(NK)*AINC
+        UER(NK)=UER2(NK)*AINC
+        DER(NK)=DER2(NK)*AINC
+        DDR(NK)=DDR2(NK)*AINC
+        DTFM(NK)=0.
+        DMS(NK)=0.
+*
+        UMFOUT(I,KX-NK+1) = UMF(NK)
+        DMFOUT(I,KX-NK+1) = DMF(NK)
+*
+ 260  CONTINUE
+*
+*
+*                              If the downdraft overdraws the initial mass
+*                              available at the LFS, allow PEFF to change
+*                              so that updraft mass flux is not the
+*                              limiting factor in the total convective
+*                              mass flux.  This is usually necessary only
+*                              when the downdraft is very shallow.
+*
+        DMFMIN=UER(LFS)-EMS(LFS)/TIMEC
+*
+*                              DER is large enough (don't forger that
+*                              DER < 0).
+*
+        IF(DER(LFS).LT.DMFMIN .AND. DMFMIN.LT.0.)THEN
+*
+*                              RF is the proportionality constant for the
+*                              decrease of downdraft fluxes.  (RF < 1).
+*
+          RF=DMFMIN/DER(LFS)
+*
+          DO 261 NK=LDB,LFS
+            DER2(NK)=DER2(NK)*RF
+            DDR2(NK)=DDR2(NK)*RF
+            DMF2(NK)=DMF2(NK)*RF
+            DER(NK)=DER2(NK)*AINC
+            DDR(NK)=DDR2(NK)*AINC
+            DMF(NK)=DMF2(NK)*AINC
+*
+            DMFOUT(I,KX-NK+1) = DMF(NK)
+*
+ 261      CONTINUE
+*
+          TDER2=TDER2*RF
+          TDER=TDER2*AINC
+*
+*
+*                              Modify the UPDINC factor using the
+*                              new downdraft fluxes.
+*
+          IF(LFS.GE.KLCL)THEN
+            UPDIN2=1.-(1.-EQFRC(LFS))*DMF(LFS)*UPDINC/UMF(LFS)
+          ELSE
+            UPDIN2=1.
+          ENDIF
+*
+*
+*                              Recalculate the condensate production rate
+*                              (CPR) and precipitation efficiency.
+*
+          CPR=TRPPT+PPR*(UPDIN2-1.)
+          PEFF=1.-(TDER+(1.-EQFRC(LFS))*DMF(LFS)*(RLIQ(LFS)+RICE(LFS)))/
+     *                                                        (CPR*AINC)
+*
+*                              Adjust precipitation fluxes.
+*
+          PPTFL2=PEFF*CPR
+          PPTFLX=PPTFL2*AINC
+          F1=UPDIN2/(AINC*UPDINC)
+*
+*
+*                              Updraft characteristics have to change
+*                              accordingly.
+*
+*VDIR NODEP(UMF)
+          DO 361 NK=LC,LFS
+            UMF2(NK)=UMF(NK)*F1
+            UMF(NK)=UMF2(NK)*AINC
+            UDR2(NK)=UDR(NK)*F1
+            UDR(NK)=UDR2(NK)*AINC
+            UER2(NK)=UER(NK)*F1
+            UER(NK)=UER2(NK)*AINC
+            DETLQ2(NK)=DETLQ(NK)*F1
+            DETLQ(NK)=DETLQ2(NK)*AINC
+            DETIC2(NK)=DETIC(NK)*F1
+            DETIC(NK)=DETIC2(NK)*AINC
+            PPTML2=PPTML2-PPTICE(NK)*(1.-UPDIN2/UPDINC)
+            PPTLIQ(NK)=PPTLIQ(NK)*F1*AINC
+            PPTICE(NK)=PPTICE(NK)*F1*AINC
+*
+            UMFOUT(I,NK) = UMF(KX-NK+1)
+*
+ 361      CONTINUE
+*
+          PPTMLT=PPTML2*AINC
+          UPDINC=UPDIN2
+        ENDIF
+*
+*
+*                               REDO THE CALCULATIONS FOR CONVECTIVE
+*                               ADJUSTMENT.
+*
+      GO TO 175
+*
+265   CONTINUE
+*
+*
+*
+*                              Diagnostic outputs
+*                              WUMAXOUT, RLIQOUT, RICEOUT, AREAUP
+*
+      WUMAXOUT(I) = 0.
+      DO K=1,KX
+        NK = KX-K+1
+        RLIQOUT(I,NK)  = RLIQ(K)
+        RICEOUT(I,NK)  = RICE(K)
+*
+*                              Vertical integral of rliqout and riceout (in-cloud values)
+*
+        RLIQ_INT(I) = RLIQ_INT(I) + RLIQOUT(I,NK)/GRAV * DPP(I,K)
+        RICE_INT(I) = RICE_INT(I) + RICEOUT(I,NK)/GRAV * DPP(I,K)
+*
+        WUMAXOUT(I) = MAX( WU(K), WUMAXOUT(I) )
+*
+        IF (WU(K).GT.0.1) 
+     1    AREAUP(I,NK) = ( UMF(K)*RGASD*TVU(K) ) /
+     1                   ( PP0(I,K) * WU(K)    ) 
+*
+*
+*                              Convert updraft areas into cloud fractions.
+*                              Clip cloud fraction to eliminate negative values.
+*
+        CLOUDS (I,NK) = MAX(0.,AREAUP(I,NK)/DXDY(I))
+*
+*                              Normalize condensate mixing ratio
+*
+        RLIQOUT(I,NK) = RLIQOUT(I,NK)*CLOUDS(I,NK)
+        RICEOUT(I,NK) = RICEOUT(I,NK)*CLOUDS(I,NK)
+*
+      END DO
+*
+*
+*                              The iterative process is over.
+*                              The precipitation flux is given by:
+*                              (after removing the part that evaporates
+*                              in the downdraft).
+*
+      PPTFLX=PPTFLX-DDPPT*DMF(LFS)
+*
+*
+*
+*                             Compute convective momentum tendencies
+*
+*                             First initialize the momentum variables
+*                             for the vertical advection calculations
+*
+      DO 288 NK=1,LTOP
+         UPA(NK)=U00(I,NK)
+         VPA(NK)=V00(I,NK)
+288   CONTINUE
+*
+      DO 599 NTC=1,NSTEP
+*
+*
+*
+*                             Assign THETA and Q values at the top and
+*                             bottom of each layer based on the sigh of
+*                             OMEGA
+*
+       DO 596 NK = 1,LTOP
+          IF(OMGA(NK).LE.0.)THEN
+            IF(NK.EQ.1)THEN
+              NUP(NK)=NK+1
+              UADV(NK)=UPA(NK)
+              VADV(NK)=VPA(NK)
+            ELSE
+              NUP(NK)=NK-1
+              UADV(NK)=UPA(NK-1)
+              VADV(NK)=VPA(NK-1)
+            ENDIF
+          ELSE
+            NUP(NK)=NK+1
+            UADV(NK)=UPA(NK+1)
+            VADV(NK)=VPA(NK+1)
+          ENDIF
+596     CONTINUE
+*
+*
+*                           Compute new values for the potential temperature
+*                           including the tendencies due vertical advection
+*                           of environmental properties, as well as
+*                           detrainment effect from the updraft and downdraft.
+*
+       DO 598 NK = 2, LTOPM1
+         NUPNK = NUP(NK)
+*
+         UPA(NK) =  (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                ( UPA(NK) + UDR(NK)*EMSD(NK)*UU(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*UD(NK)*DTIME  )
+     *                        - 0.3*OMGA(NK)*UADV(NK)*DTIME
+     *                                                                  )
+     *                                       /
+     *              (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                (       1. + UDR(NK)*EMSD(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*DTIME            )
+     *                             - 0.3*OMGA(NK)*DTIME
+     *                                                                  )
+*
+         VPA(NK) =  (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                ( VPA(NK) + UDR(NK)*EMSD(NK)*VU(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*VD(NK)*DTIME  )
+     *                        - 0.3*OMGA(NK)*VADV(NK)*DTIME
+     *                                                                  )
+     *                                       /
+     *              (
+     *                         (PP0(I,NUPNK)-PP0(I,NK)) *
+     *                (       1. + UDR(NK)*EMSD(NK)*DTIME
+     *                           + DDR(NK)*EMSD(NK)*DTIME            )
+     *                             - 0.3*OMGA(NK)*DTIME
+     *                                                                  )
+*
+598    CONTINUE
+*
+*                        At the surface, no contribution from the updraft.
+*
+       NK = 1
+       NUPNK = NUP(NK)
+*
+       UPA(NK) = (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              ( UPA(NK) + DDR(NK)*EMSD(NK)*UD(NK)*DTIME  )
+     *                      - 0.3*OMGA(NK)*UADV(NK)*DTIME
+     *                                                                )
+     *                                     /
+     *            (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              (       1. + DDR(NK)*EMSD(NK)*DTIME            )
+     *                           - 0.3*OMGA(NK)*DTIME
+     *                                                                )
+*
+*
+       VPA(NK) = (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              ( VPA(NK) + DDR(NK)*EMSD(NK)*VD(NK)*DTIME  )
+     *                      - 0.3*OMGA(NK)*VADV(NK)*DTIME
+     *                                                                )
+     *                                     /
+     *            (
+     *                       (PP0(I,NUPNK)-PP0(I,NK)) *
+     *              (       1. + DDR(NK)*EMSD(NK)*DTIME            )
+     *                           - 0.3*OMGA(NK)*DTIME
+     *                                                                )
+*
+*
+*
+*
+*                        At the cloud top, only detrainment from the
+*                        updraft.
+*
+       NK = LTOP
+*
+       UPA(NK) = ( UPA(NK) + UDR(NK)*UU(NK)*EMSD(NK)*DTIME )
+     *                                   /
+     *                    ( 1. + UDR(NK)*EMSD(NK)*DTIME )
+*
+       VPA(NK) = ( VPA(NK) + UDR(NK)*VU(NK)*EMSD(NK)*DTIME )
+     *                                   /
+     *                    ( 1. + UDR(NK)*EMSD(NK)*DTIME )
+*
+*
+*
+599   CONTINUE
+*
+*
+      DO 298 NK=1,LTOP
+        UG(NK)=UPA(NK)
+        VG(NK)=VPA(NK)
+298   CONTINUE
+*
+*
+*
+*
+*
+*                             Update the convective counter FLAGCONV
+*
+      FLAGCONV(I) = NIC - 1
+*
+*
+*                             Note that DTFM is the temperature change due
+*                             to freezing of liquid condensate detrained
+*                             above the freezing level and melting of
+*                             precipitation in the environment below
+*                             the melting level.
+*
+         DO 320 K = 1, KX
+            NK = KX-K+1
+            DTDT(I,NK) = (TG(K)-TT0(I,K))/TIMEC
+            DQDT(I,NK) = (QG(K)-Q00(I,K))/TIMEC
+            IF(IFEXFB.EQ.0)THEN
+              DQRDT(I,NK)=0.
+            ELSE
+              IF(K.LT.KX)THEN
+              DQRDT(I,NK)=(PPTLIQ(K+1)+PPTICE(K+1))*PEFF*
+     *                       AINC*EMSD(K)
+              ELSE
+              ENDIF
+            ENDIF
+*
+            DQCDT(I,NK)=(DETLQ(K)+DETIC(K))*EMSD(K)
+            DQCDT(I,NK)=MAX( DQCDT(I,NK) , 0. )
+*
+*
+ 320    CONTINUE
+*
+*
+*
+*                              Produce outputs of precipitation fluxes
+*                              for assimilation purposes
+*
+        SUMFLX = 0.
+        RNFLX(I,1)  = 0.
+        SNOFLX(I,1) = 0.
+        DO K=KX-1,1,-1
+          NK = KX-K+1
+          LIQFRAC = ( TT0(I,K)-TBFRZ ) / ( TTFRZ - TBFRZ )
+          ICEFRAC = 1 - LIQFRAC
+          SUMFLX = SUMFLX + (PPTLIQ(K)+PPTICE(K)) / DXSQ
+          RNFLX(I,NK)  = MAX( MIN( 1. , LIQFRAC ), 0. ) * SUMFLX
+          SNOFLX(I,NK) = MAX( MIN( 1. , ICEFRAC ), 0. ) * SUMFLX
+        END DO
+*
+*
+*
+*
+*                              Using or not the transfer of momentum
+*
+
+           IF (KFCMOM) THEN
+
+              DO 321 K= 1, KX
+              NK = KX-K+1
+              DUDT(I,NK) = ( UG(K)-U00(I,K) ) / TIMEC
+              DVDT(I,NK) = ( VG(K)-V00(I,K) ) / TIMEC
+ 321     CONTINUE
+
+           ENDIF
+*
+*
+*                              Allow all of convective precipitation to be
+*                              dumped on the grid scale.
+*
+        ZCRR(I) = PPTFLX/DXSQ
+*
+        IF (IKFCPCP.EQ.1) THEN
+
+           DQDTDK = 0.
+           DQCDTDK = 0.
+           DO K=1,KX
+              NK = KX-K+1
+              DQDTDK  = DQDTDK  + DQDT(I,K)  / GRAV * DPP(I,NK)
+              DQCDTDK = DQCDTDK + DQCDT(I,K) / GRAV * DPP(I,NK)
+           END DO
+*
+           ZCRR(I) = MAX(0.0, -(DQDTDK + DQCDTDK))
+*
+*                              Normalize precipitation fluxes with new
+*                              (i.e., CONSERVATIVE) precipitation at the
+*                              surface
+*
+           DO K=1,KX
+              NORM        = ( ZCRR(I)
+     1                       / MAX(RNFLX(I,KX)+SNOFLX(I,KX),1.E-10) )
+              RNFLX(I,K)  = NORM * RNFLX(I,K)
+              SNOFLX(I,K) = NORM * SNOFLX(I,K)
+           END DO
+*
+        ENDIF 
+*
+*
+*
+  325  CONTINUE
+*
+*
+*      POST-PROCESSING
+*      - - - - - - - -
+*                              Convert updraft areas into cloud fractions.
+*                              Must be done every timestep because CCFCP
+*                              is an automatic array in vkuocon.
+*
+       DO K=1,KX
+          DO I=1,IX
+             CLOUDS(I,K) = AREAUP(I,K)/DXDY(I)
+          END DO
+       END DO
+*
+*
+*      COUNTER FOR CONVECTION
+*      ----------------------
+*
+*      COUNTER IS SET TO ZERO AT FIRST TIMESTEP FOR CONSISTENCY
+*      SINCE PRECIPITATION RATE IS SET TO ZERO IN VKUOCON AND
+*      TEMPERATURE/HUMIDITY TENDENCIES ARE NOT APPLIED IN DYNAMICS.
+*      HOWEVER, CLOUD FRACTION AND LIQUID/SOLID WATER CONTENT
+*      ARE KEPT FOR RADIATION CALCULATIONS AT KOUNT.EQ.1.
+*       
+       IF (KOUNT.EQ.0) THEN
+          DO I=1,IX
+             FLAGCONV(I) = 0.
+          END DO
+       ENDIF
+*
+       DO I=1,IX
+         IF (FLAGCONV(I).GT.0.) KKFC(I)=1.
+       END DO
+*
+*
+      RETURN
+      END

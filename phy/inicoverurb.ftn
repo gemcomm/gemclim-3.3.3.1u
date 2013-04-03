@@ -1,0 +1,500 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P INICOVERURB
+**
+*
+#include "phy_macros_f.h"
+      SUBROUTINE INICOVERURB( E, ESIZ, F, FSIZ, KOUNT, NI )
+*
+#include "impnone.cdk"
+*
+      INTEGER NI, KOUNT
+      INTEGER ESIZ, FSIZ
+      REAL    E(FSIZ), F(FSIZ)
+*
+*
+*Author
+*       Aude Lemonsu (July 2004)
+*
+*Object
+*       Initialize urban fields for the surface schemes
+*
+*Revision
+* 001      A. Lemonsu (Dec 2005) Change urban parameters
+*
+*Arguments
+*
+*       - Input/Ouput -
+* F        field for permanent physics variables
+*       - Input -
+* FSIZ     dimension of F
+* KOUNT    current timestep number
+* NI       horizontal slice dimension
+*
+*
+#include "nclassvg.cdk"
+#include "tebcst.cdk"
+*
+**
+*#include "indx_sfc.cdk"
+*#include "consphy.cdk"
+*#include "isbapar.cdk"
+*#include "surfacepar.cdk"
+*
+#include "options.cdk"
+#include "phybus.cdk"
+*
+*
+*                           the geophysical fields determined from
+*                           urban covers are done so using the following
+*                           classification:
+*
+*     Class       Urban type      
+*     =====       ==========
+*       1         High buildings
+*       2         Mid-high buildings 
+*       3         Low buildings      
+*       4         Very low buildings        
+*       5         Industrial areas   
+*       6         Sparse buildings 
+*       7         Roads and parkings
+*       8         Road borders   
+*       9         High-density suburbs
+*       10        Mid-density suburbs
+*       11        Low-density suburbs
+*       12        Mix built and nature
+*
+*
+*
+*************************************************************************
+*                TABLES FOR THE URBAN CHARACTERISTICS FOR URBANIZED AREAS
+*************************************************************************
+*
+*
+      REAL DATA_BLD         (NCLASSURB)       
+      REAL DATA_BLD_HEIGHT  (NCLASSURB)   
+      REAL DATA_Z0_TOWN     (NCLASSURB)   
+      REAL DATA_WALL_O_HOR  (NCLASSURB)   
+      REAL DATA_CAN_HW_RATIO(NCLASSURB)
+      REAL DATA_ALB_ROOF    (NCLASSURB) 
+      REAL DATA_ALB_ROAD    (NCLASSURB) 
+      REAL DATA_ALB_WALL    (NCLASSURB)
+      REAL DATA_EMIS_ROOF   (NCLASSURB)
+      REAL DATA_EMIS_ROAD   (NCLASSURB)
+      REAL DATA_EMIS_WALL   (NCLASSURB)
+      REAL DATA_HC_ROOF     (NCLASSURB,ROOF_LAYER)
+      REAL DATA_HC_ROAD     (NCLASSURB,ROAD_LAYER)
+      REAL DATA_HC_WALL     (NCLASSURB,WALL_LAYER)
+      REAL DATA_TC_ROOF     (NCLASSURB,ROOF_LAYER)
+      REAL DATA_TC_ROAD     (NCLASSURB,ROAD_LAYER)
+      REAL DATA_TC_WALL     (NCLASSURB,WALL_LAYER)
+      REAL DATA_D_ROOF      (NCLASSURB,ROOF_LAYER)
+      REAL DATA_D_ROAD      (NCLASSURB,ROAD_LAYER)
+      REAL DATA_D_WALL      (NCLASSURB,WALL_LAYER)
+      REAL DATA_H_TRAFFIC   (NCLASSURB) 
+      REAL DATA_H_INDUSTRY  (NCLASSURB)
+      REAL DATA_LE_TRAFFIC  (NCLASSURB)
+      REAL DATA_LE_INDUSTRY (NCLASSURB)
+*
+*
+* Geometric parameters
+* --------------------
+*     Building density (relatively to the built-up areas)
+      DATA DATA_BLD/
+     1               0.60  ,  0.50  ,  0.50  ,  0.50  ,  0.40  ,  
+     1               0.80  ,  0.10  ,  0.10  ,  0.55  ,  0.40  , 
+     1               0.40  ,  0.40                                 / 
+*
+*     Building height
+      DATA DATA_BLD_HEIGHT/
+     1                39.  ,   25.  ,   13.  ,    8.  ,    8.  ,
+     1                12.  ,    5.  ,    5.  ,    5.  ,    5.  ,
+     1                 8.  ,    8.                                 /
+*
+*     Roughness length of momentum for urban canopy
+      DATA DATA_Z0_TOWN/
+     1               3.9   ,  2.5   ,  1.3   ,  0.8   ,  0.8   ,
+     1               1.2   ,  0.5   ,  0.5   ,  0.5   ,  0.5   ,
+     1               0.8   ,  0.8                                  /
+*
+*     Ratio between wall areas and plan built-up areas
+      DATA DATA_WALL_O_HOR/
+     1                1.6  ,   1.1  ,   0.6  ,   0.4  ,   0.4  ,
+     1                2.3  ,   0.1  ,   0.1  ,   0.6  ,   0.8  , 
+     1                1.0  ,   0.4                                 /
+*
+*
+* Radiative properties
+* --------------------
+*     Roof, road and wall albedo
+      DATA DATA_ALB_ROOF/
+     1               0.15  ,  0.15  ,  0.15  ,  0.15  ,  0.12  ,
+     1               0.15  ,  0.15  ,  0.15  ,  0.15  ,  0.15  ,
+     1               0.15  ,  0.15                                 /
+*
+      DATA DATA_ALB_ROAD/
+     1               0.15  ,  0.15  ,  0.15  ,  0.15  ,  0.15  , 
+     1               0.15  ,  0.15  ,  0.15  ,  0.15  ,  0.15  ,
+     1               0.15  ,  0.15                                 / 
+*
+      DATA DATA_ALB_WALL/
+     1               0.25  ,  0.25  ,  0.25  ,  0.25  ,  0.50  ,
+     1               0.25  ,  0.25  ,  0.25  ,  0.25  ,  0.25  ,
+     1               0.25  ,  0.25                                 /
+*
+*     Roof, road and wall emissivity
+      DATA DATA_EMIS_ROOF/
+     1               0.90  ,  0.90  ,  0.90  ,  0.90  ,  0.92  ,
+     1               0.90  ,  0.90  ,  0.90  ,  0.90  ,  0.90  ,
+     1               0.90  ,  0.90                                 /
+*
+      DATA DATA_EMIS_ROAD/
+     1               0.90  ,  0.90  ,  0.90  ,  0.90  ,  0.90  , 
+     1               0.90  ,  0.90  ,  0.90  ,  0.90  ,  0.90  ,
+     1               0.90  ,  0.90                                 / 
+*
+      DATA DATA_EMIS_WALL/
+     1               0.85  ,  0.85  ,  0.85  ,  0.85  ,  0.90  ,
+     1               0.85  ,  0.85  ,  0.85  ,  0.85  ,  0.85  ,
+     1               0.85  ,  0.85                                 /
+*
+* Roof thermal properties
+* Dense and aerated concrete + insulation (Oke 87)
+* ------------------------------------------------
+*
+*     Roof heat capacity
+      DATA DATA_HC_ROOF(:,1)/
+     1              2.11E6 , 2.11E6 , 2.11E6 , 2.11E6 , 1.76E6 , 
+     1              2.11E6 , 2.11E6 , 2.11E6 , 2.11E6 , 2.11E6 , 
+     1              2.11E6 , 2.11E6                                /
+*
+      DATA DATA_HC_ROOF(:,2)/
+     1              0.28E6 , 0.28E6 , 0.28E6 , 0.28E6 , 0.04E6 , 
+     1              0.28E6 , 0.28E6 , 0.28E6 , 0.28E6 , 0.28E6 , 
+     1              0.28E6 , 0.28E6                                /
+*
+      DATA DATA_HC_ROOF(:,3)/
+     1              0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 2.21E6 , 
+     1              0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 
+     1              0.29E6 , 0.29E6                                /
+*
+*     Roof thermal conductivity
+      DATA DATA_TC_ROOF(:,1)/
+     1               1.51  ,  1.51  ,  1.51  ,  1.51  ,  1.40  ,  
+     1               1.51  ,  1.51  ,  1.51  ,  1.51  ,  1.51  ,  
+     1               1.51  ,  1.51                                 /
+*
+      DATA DATA_TC_ROOF(:,2)/
+     1               0.08  ,  0.08  ,  0.08  ,  0.08  ,  0.03  ,
+     1               0.08  ,  0.08  ,  0.08  ,  0.08  ,  0.08  ,  
+     1               0.08  ,  0.08                                 /
+*
+      DATA DATA_TC_ROOF(:,3)/
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  1.51  ,  
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  0.05  ,  
+     1               0.05  ,  0.05                                 /
+*
+*     Width of roof layers
+      DATA DATA_D_ROOF(:,1)/
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  0.03  ,  
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  0.05  ,  
+     1               0.05  ,  0.05                                 /
+*
+      DATA DATA_D_ROOF(:,2)/
+     1               0.40  ,  0.40  ,  0.40  ,  0.40  ,  0.01  ,
+     1               0.40  ,  0.40  ,  0.40  ,  0.40  ,  0.40  ,
+     1               0.40  ,  0.40                                 /
+*
+      DATA DATA_D_ROOF(:,3)/
+     1               0.10  ,  0.10  ,  0.10  ,  0.10  ,  0.03  ,
+     1               0.10  ,  0.10  ,  0.10  ,  0.10  ,  0.10  ,  
+     1               0.10  ,  0.10                                 /
+*
+* Road thermal properties
+* Asphalt + dry soil (Mill 93)
+* ----------------------------
+*
+*     Road heat capacity
+      DATA DATA_HC_ROAD(:,1)/
+     1              1.94E6 , 1.94E6 , 1.94E6 , 1.94E6 , 1.70E6 , 
+     1              1.94E6 , 1.94E6 , 1.94E6 , 1.94E6 , 1.94E6 , 
+     1              1.94E6 , 1.94E6                                /
+*
+      DATA DATA_HC_ROAD(:,2)/
+     1              1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 2.00E6 ,
+     1              1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 
+     1              1.28E6 , 1.28E6                                /
+*
+      DATA DATA_HC_ROAD(:,3)/
+     1              1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 1.40E6 , 
+     1              1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 1.28E6 , 
+     1              1.28E6 , 1.28E6                                /
+*
+*     Road thermal conductivity
+      DATA DATA_TC_ROAD(:,1)/
+     1              0.7454 , 0.7454 , 0.7454 , 0.7454 , 0.8200 , 
+     1              0.7454 , 0.7454 , 0.7454 , 0.7454 , 0.7454 , 
+     1              0.7454 , 0.7454                                /
+*
+      DATA DATA_TC_ROAD(:,2)/
+     1              0.2513 , 0.2513 , 0.2513 , 0.2513 , 2.1000 , 
+     1              0.2513 , 0.2513 , 0.2513 , 0.2513 , 0.2513 , 
+     1              0.2513 , 0.2513                                /
+*
+      DATA DATA_TC_ROAD(:,3)/
+     1              0.2513 , 0.2513 , 0.2513 , 0.2513 , 0.4000 , 
+     1              0.2513 , 0.2513 , 0.2513 , 0.2513 , 0.2513 , 
+     1              0.2513 , 0.2513                                /
+*
+*     Width of road layers
+      DATA DATA_D_ROAD(:,1)/
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  0.05  ,  
+     1               0.05  ,  0.05  ,  0.05  ,  0.05  ,  0.05  ,  
+     1               0.05  ,  0.05                                 /
+*
+      DATA DATA_D_ROAD(:,2)/
+     1               0.10  ,  0.10  ,  0.10  ,  0.10  ,  0.20  ,
+     1               0.10  ,  0.10  ,  0.10  ,  0.10  ,  0.10  ,  
+     1               0.10  ,  0.10                                 /
+*
+      DATA DATA_D_ROAD(:,3)/
+     1               1.00  ,  1.00  ,  1.00  ,  1.00  ,  1.00  ,
+     1               1.00  ,  1.00  ,  1.00  ,  1.00  ,  1.00  ,
+     1               1.00  ,  1.00                                 /
+*
+* Wall thermal properties
+* Concrete + insulation (Mills 93)
+* --------------------------------
+*
+*     Wall heat capacity
+      DATA DATA_HC_WALL(:,1)/
+     1              1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 2.11E6 ,
+     1              1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 
+     1              1.55E6 , 1.55E6                                /
+*
+      DATA DATA_HC_WALL(:,2)/
+     1              1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 1.00E6 , 
+     1              1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 1.55E6 , 
+     1              1.55E6 , 1.55E6                                /
+*
+      DATA DATA_HC_WALL(:,3)/
+     1              0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 2.11E6 ,
+     1              0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 0.29E6 , 
+     1              0.29E6 , 0.29E6                                /
+*
+*     Wall thermal conductivity
+      DATA DATA_TC_WALL(:,1)/
+     1              0.9338 , 0.9338 , 0.9338 , 0.9338 , 1.5100 , 
+     1              0.9338 , 0.9338 , 0.9338 , 0.9338 , 0.9338 , 
+     1              0.9338 , 0.9338                                /
+*
+      DATA DATA_TC_WALL(:,2)/
+     1              0.9338 , 0.9338 , 0.9338 , 0.9338 , 0.6700 , 
+     1              0.9338 , 0.9338 , 0.9338 , 0.9338 , 0.9338 , 
+     1              0.9338 , 0.9338                                /
+*
+      DATA DATA_TC_WALL(:,3)/
+     1              0.050  , 0.050  , 0.050  , 0.050  , 1.510  , 
+     1              0.050  , 0.050  , 0.050  , 0.050  , 0.050  , 
+     1              0.050  , 0.050                                 /
+*
+*     Width of wall layers
+      DATA DATA_D_WALL(:,1)/
+     1              0.020  , 0.020  , 0.020  , 0.020  , 0.030  , 
+     1              0.020  , 0.020  , 0.020  , 0.020  , 0.020  , 
+     1              0.020  , 0.020                                 /
+*
+      DATA DATA_D_WALL(:,2)/
+     1              0.125  , 0.125  , 0.125  , 0.125  , 0.140  , 
+     1              0.125  , 0.125  , 0.125  , 0.125  , 0.125  , 
+     1              0.125  , 0.125                                 /
+*
+      DATA DATA_D_WALL(:,3)/
+     1              0.050  , 0.050  , 0.050  , 0.050  , 0.030  ,
+     1              0.050  , 0.050  , 0.050  , 0.050  , 0.050  ,
+     1              0.050  , 0.050                                 /
+*
+* Anthropogenic heat fluxes 
+* ------------------------- 
+*     Sensible heat flux due to traffic
+      DATA DATA_H_TRAFFIC/  
+     1                20.  ,   20.  ,   20.  ,   20.  ,   20.  ,
+     1                10.  ,   30.  ,   30.  ,   10.  ,   10.  , 
+     1                10.  ,    0.                                 /
+*
+*     Sensible heat flux due to industry
+      DATA DATA_H_INDUSTRY/
+     1                10.  ,   10.  ,   10.  ,   10.  ,   30.  ,
+     1                 5.  ,    0.  ,    0.  ,    5.  ,    5.  ,
+     1                 5.  ,    0.                                 /
+*
+*     Latent heat flux due to traffic
+      DATA DATA_LE_TRAFFIC/  
+     1                 0.  ,    0.  ,    0.  ,    0.  ,    0.  ,
+     1                 0.  ,    0.  ,    0.  ,    0.  ,    0.  ,
+     1                 0.  ,    0.                                 /
+*
+*     Latent heat flux due to industry
+      DATA DATA_LE_INDUSTRY/
+     1                 0.  ,    0.  ,    0.  ,    0.  ,    0.  ,
+     1                 0.  ,    0.  ,    0.  ,    0.  ,    0.  ,
+     1                 0.  ,    0.                                 /
+*
+*
+*
+*********************************************************************
+*
+      EXTERNAL AGGCOVERURB
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC (DATA_BLDD         , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_BLD_HEIGHTD  , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_Z0_TOWND     , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_WALL_O_HORD  , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_CAN_HW_RATIOD, REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_ALB_ROOFD    , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_ALB_ROADD    , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_ALB_WALLD    , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_EMIS_ROOFD   , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_EMIS_ROADD   , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_EMIS_WALLD   , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_HC_ROOFD     , REAL   , (NCLASSURB,ROOF_LAYER))
+      AUTOMATIC (DATA_TC_ROOFD     , REAL   , (NCLASSURB,ROOF_LAYER))
+      AUTOMATIC (DATA_D_ROOFD      , REAL   , (NCLASSURB,ROOF_LAYER))
+      AUTOMATIC (DATA_HC_ROADD     , REAL   , (NCLASSURB,ROAD_LAYER))
+      AUTOMATIC (DATA_TC_ROADD     , REAL   , (NCLASSURB,ROAD_LAYER))
+      AUTOMATIC (DATA_D_ROADD      , REAL   , (NCLASSURB,ROAD_LAYER))
+      AUTOMATIC (DATA_HC_WALLD     , REAL   , (NCLASSURB,WALL_LAYER))
+      AUTOMATIC (DATA_TC_WALLD     , REAL   , (NCLASSURB,WALL_LAYER))
+      AUTOMATIC (DATA_D_WALLD      , REAL   , (NCLASSURB,WALL_LAYER))
+      AUTOMATIC (DATA_H_TRAFFICD   , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_LE_TRAFFICD  , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_H_INDUSTRYD  , REAL   , (NCLASSURB           ))
+      AUTOMATIC (DATA_LE_INDUSTRYD , REAL   , (NCLASSURB           ))
+*
+************************************************************************
+*
+*
+      INTEGER I, J
+      REAL    sumcovf, sumurb
+*
+****
+*
+*     Aspect ratio of the street canyons
+      DATA_CAN_HW_RATIO(:) = 0.5 * DATA_WALL_O_HOR(:) / (1.-DATA_BLD(:))
+*
+*
+*
+*                     Do the aggregation
+*
+         do i=1,nclassurb
+          DATA_BLDD(i)          = DATA_BLD(i)
+          DATA_BLD_HEIGHTD(i)   = DATA_BLD_HEIGHT(i)  
+          DATA_Z0_TOWND(i)      = DATA_Z0_TOWN(i)      
+          DATA_WALL_O_HORD(i)   = DATA_WALL_O_HOR(i) 
+          DATA_CAN_HW_RATIOD(i) = DATA_CAN_HW_RATIO(i)
+          DATA_ALB_ROOFD(i)     = DATA_ALB_ROOF(i)    
+          DATA_ALB_ROADD(i)     = DATA_ALB_ROAD(i)    
+          DATA_ALB_WALLD(i)     = DATA_ALB_WALL(i)    
+          DATA_EMIS_ROOFD(i)    = DATA_EMIS_ROOF(i)  
+          DATA_EMIS_ROADD(i)    = DATA_EMIS_ROAD(i)  
+          DATA_EMIS_WALLD(i)    = DATA_EMIS_WALL(i)  
+          do j=1,ROOF_LAYER
+           DATA_HC_ROOFD(i,j)   = DATA_HC_ROOF(i,j)  
+           DATA_TC_ROOFD(i,j)   = DATA_TC_ROOF(i,j)  
+           DATA_D_ROOFD(i,j)    = DATA_D_ROOF(i,j)   
+          end do
+          do j=1,ROAD_LAYER
+           DATA_HC_ROADD(i,j)   = DATA_HC_ROAD(i,j)  
+           DATA_TC_ROADD(i,j)   = DATA_TC_ROAD(i,j)  
+           DATA_D_ROADD(i,j)    = DATA_D_ROAD(i,j)
+          end do
+          do j=1,WALL_LAYER
+           DATA_HC_WALLD(i,j)   = DATA_HC_WALL(i,j)  
+           DATA_TC_WALLD(i,j)   = DATA_TC_WALL(i,j)  
+           DATA_D_WALLD(i,j)    = DATA_D_WALL(i,j)
+          end do
+          DATA_H_TRAFFICD(i)    = DATA_H_TRAFFIC(i)  
+          DATA_LE_TRAFFICD(i)   = DATA_LE_TRAFFIC(i)  
+          DATA_H_INDUSTRYD(i)   = DATA_H_INDUSTRY(i)  
+          DATA_LE_INDUSTRYD(i)  = DATA_LE_INDUSTRY(i) 
+        end do
+*
+*
+*
+*       Averaged urban parameters
+        CALL aggcoverurb(f(covf),DATA_BLDD         ,DATA_BLDD         ,
+     1                   f(BLD)         ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_BLD_HEIGHTD  ,DATA_BLD_HEIGHTD  ,
+     1                   f(BLD_HEIGHT)  ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_Z0_TOWND     ,DATA_Z0_TOWND     ,
+     1                   f(Z0_TOWN)     ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_WALL_O_HORD  ,DATA_WALL_O_HORD  ,
+     1                   f(WALL_O_HOR)  ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_CAN_HW_RATIOD,DATA_CAN_HW_RATIOD,
+     1                   f(CAN_HW_RATIO),f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_ALB_ROOFD    ,DATA_ALB_ROOFD    ,
+     1                   f(ALB_ROOF)    ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_ALB_ROADD    ,DATA_ALB_ROADD    ,
+     1                   f(ALB_ROAD)    ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_ALB_WALLD    ,DATA_ALB_WALLD    ,
+     1                   f(ALB_WALL)    ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_EMIS_ROOFD   ,DATA_EMIS_ROOFD   ,
+     1                   f(EMIS_ROOF)   ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_EMIS_ROADD   ,DATA_EMIS_ROADD   ,
+     1                   f(EMIS_ROAD)   ,f(dlat),ni,nclassurb,nclass  )
+        CALL aggcoverurb(f(covf),DATA_EMIS_WALLD   ,DATA_EMIS_WALLD   ,
+     1                   f(EMIS_WALL)   ,f(dlat),ni,nclassurb,nclass  )
+        do j=1,ROOF_LAYER
+          CALL aggcoverurb(f(covf),DATA_HC_ROOFD(:,j),DATA_HC_ROOFD(:,j),
+     1                     f(HC_ROOF+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_TC_ROOFD(:,j),DATA_TC_ROOFD(:,j),
+     1                     f(TC_ROOF+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_D_ROOFD(:,j) ,DATA_D_ROOFD(:,j) ,
+     1                     f(D_ROOF +ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+        end do
+        do j=1,ROAD_LAYER
+          CALL aggcoverurb(f(covf),DATA_HC_ROADD(:,j),DATA_HC_ROADD(:,j),
+     1                     f(HC_ROAD+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_TC_ROADD(:,j),DATA_TC_ROADD(:,j),
+     1                     f(TC_ROAD+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_D_ROADD(:,j) ,DATA_D_ROADD(:,j) ,
+     1                     f(D_ROAD +ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+        end do
+        do j=1,WALL_LAYER
+          CALL aggcoverurb(f(covf),DATA_HC_WALLD(:,j),DATA_HC_WALLD(:,j),
+     1                     f(HC_WALL+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_TC_WALLD(:,j),DATA_TC_WALLD(:,j),
+     1                     f(TC_WALL+ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+          CALL aggcoverurb(f(covf),DATA_D_WALLD(:,j) ,DATA_D_WALLD(:,j) ,
+     1                     f(D_WALL +ni*(j-1)),f(dlat),ni,nclassurb,nclass)
+        end do
+          CALL aggcoverurb(f(covf),DATA_H_TRAFFICD  ,DATA_H_TRAFFICD  ,
+     1                     f(H_TRAFFIC)  ,f(dlat),ni,nclassurb,nclass )
+          CALL aggcoverurb(f(covf),DATA_LE_TRAFFICD ,DATA_LE_TRAFFICD ,
+     1                     f(LE_TRAFFIC) ,f(dlat),ni,nclassurb,nclass )
+          CALL aggcoverurb(f(covf),DATA_H_INDUSTRYD ,DATA_H_INDUSTRYD ,
+     1                     f(H_INDUSTRY) ,f(dlat),ni,nclassurb,nclass )
+          CALL aggcoverurb(f(covf),DATA_LE_INDUSTRYD,DATA_LE_INDUSTRYD,
+     1                     f(LE_INDUSTRY),f(dlat),ni,nclassurb,nclass )
+*
+*
+*
+      RETURN
+      END

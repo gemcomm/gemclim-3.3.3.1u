@@ -1,0 +1,117 @@
+#if defined(DOC)
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+#endif
+#ifdef DOC
+c Declare stack's variables:
+c     zstkb[pt]  Bottom of stack and its pointer.
+c     zstkc[pt]  Current position in stack and its pointer.
+c     zstkt[pt]  Top of stack and its pointer.
+c     zstkdim    Number of REALs allocatable on the stack.
+c     zstksta    Status of hpalloc or hpdeallc.
+c     zstkvar    If 1 then space is allocated using hpalloc.
+c                If 2 then space comes from an array argument.
+c
+c Example:
+c     program test
+c     #include "stk.cdk" ! Declarations.
+c     real a(10)
+c     pointer (pta,a)
+c     STK_INIT(10)       ! Reserve space on stack for 10 reals.
+c     STK_ALLOC(pta,10)
+c     ...
+c     STK_DEALL(pta)
+c     STK_FREE           ! Free everything on current stack.
+c     end
+c
+c Note: STK_DEALL frees the named pointer and everything after.
+c    Example:
+c       STK_ALLOC(pta)
+c       STK_ALLOC(ptb)
+c       STK_DEALL(pta) ... PTB Also deallocated.
+c Also, to inhibit generation of allocation validation code,
+c define STKNOVAL in your ".ftn".
+c
+c Author: Marc Gagnon
+c Revision 001 : Bernard Bilodeau (Jan 2001) - Eliminate stkmemw
+#endif
+      real zstkb(1), zstkc(2), zstkt(1)
+      pointer (zstkbpt,zstkb), (zstkcpt,zstkc), (zstktpt,zstkt)
+      integer zstkdim, zstkvar, zstksta
+      external hpalloc,hpdeallc
+#ifndef STKDEF
+#define STKDEF
+#define STK_INITA(AAptr,AAnb)\
+zstkvar = 2~~\
+zstkdim = AAnb~~\
+zstkbpt = loc(AAptr)~~\
+zstkcpt = zstkbpt~~\
+zstktpt = loc(zstkb(zstkdim+1))~~
+
+#ifndef STKNOVAL
+
+
+#define STK_INITM(AAnb)\
+zstkvar = 1~~\
+zstkdim = AAnb~~\
+call hpalloc(zstkbpt,zstkdim,zstksta,1)~~\
+if( zstksta .ne. 0 ) then~~\
+  write(0,*) 'Cannot allocate a ',zstkdim,' words stack in file ',\
+__FILE__,' at line ',__LINE__~~\
+  call qqexit(1)~~\
+endif~~\
+zstkcpt = zstkbpt~~\
+zstktpt = loc(zstkb(zstkdim+1))~~
+
+#define STK_ALLOC(AAptr,AAnb)\
+AAptr=zstkcpt~~\
+zstkcpt=loc(zstkc((AAnb)+1))~~\
+if( zstkcpt .gt. zstktpt ) then~~\
+  write(0,*) 'Cannot allocate ',AAnb,' reals to pointer AAptr in file ',\
+__FILE__,' at line ',__LINE__~~\
+  call qqexit(1)~~\
+endif~~
+
+#define STK_DEALL(AAptr)\
+if( AAptr .eq. 0 .or. AAptr .lt. zstkbpt .or. AAptr .ge. zstkcpt ) then~~\
+  write(0,*) 'Bad deallocation of pointer AAptr (',AAptr,') in file ',\
+__FILE__,' at line ',__LINE__~~\
+  call qqexit(1)~~\
+endif~~\
+zstkcpt=AAptr~~\
+AAptr=0~~
+
+#else
+
+
+#define STK_INITM(AAnb)\
+zstkvar = 1~~\
+zstkdim = AAnb~~\
+call hpalloc(zstkbpt,zstkdim,zstksta,1)~~\
+zstkcpt = zstkbpt~~\
+zstktpt = loc(zstkb(zstkdim+1))~~
+
+#define STK_ALLOC(AAptr,AAnb)AAptr=zstkcpt~~zstkcpt=loc(zstkc((AAnb)+1))
+#define STK_DEALL(AAptr)zstkcpt=AAptr
+#endif
+
+#define STK_FREE if(zstkvar .eq. 1) then~~\
+call hpdeallc(zstkbpt,zstksta,1)~~endif~~
+#define STK_STAT\
+print *,'Stack status at line ',__LINE__,' in file ',__FILE__~~\
+print *,'bottom=',zstkbpt,' top=',zstktpt,' cur. pos.=',zstkcpt,\
+' free=',zstktpt-zstkcpt,' max=',zstkdim
+#endif

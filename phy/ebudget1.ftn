@@ -1,0 +1,571 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P EBUDGET1
+*
+#include "phy_macros_f.h"
+      SUBROUTINE EBUDGET1( T, TS, T2, W2, WF, WL, 
+     1        WS, DT, ALPHAS, CD, RAINRATE,
+     1        VMOD, VDIR, RG, ALVG, ALBT, RAT, THETAA, HU, PS, RHOA,
+     1        U, V, VEG, HRSURF, HV, DEL, RESA, RS, CT,
+     1        CG, ZCS, PSN, PSNV, PSNG, WSAT, D2, SNODP, 
+     1        TST, T2T, RNET, HFLUX, LE, LEG, LEV,
+     1        LES, LER, LETR, GFLUX, EFLUX,
+     1        LEFF, DWATERDT, DSNOWDT, FREEZS, RHOMAX, 
+     1        MELTS_TOT, MELTS_RN, FTEMP, FVAP, 
+     1        N )
+*
+#include "impnone.cdk"
+*
+      INTEGER N
+      REAL T(N), TS(N), T2(N), WS(N), DT, ALPHAS(N), CD(N)
+      REAL RAINRATE(N)
+      REAL W2(N), WF(N), WL(N), WSAT(N), D2(N), SNODP(N)
+      REAL VMOD(N), VDIR(N), RG(N), ALVG(N), ALBT(N), RAT(N), THETAA(N)
+      REAL HU(N), PS(N), RHOA(N), U(N), V(N), VEG(N)
+      REAL HRSURF(N), HV(N), DEL(N), RESA(N), RS(N), CT(N)
+      REAL CG(N), ZCS(N), PSN(N), PSNV(N), PSNG(N)
+      REAL TST(N), T2T(N), RNET(N), HFLUX(N), LE(N)
+      REAL LEG(N), LEV(N), LES(N), LER(N), LETR(N), GFLUX(N)
+      REAL EFLUX(N)
+      REAL FTEMP(N), FVAP(N)
+      REAL LEFF(N), DWATERDT(N), DSNOWDT(N), FREEZS(N)
+      REAL RHOMAX(N), MELTS_TOT(N), MELTS_RN(N)
+*
+*Author
+*          S. Belair (January 1997)
+*Revisions
+* 001      S. Belair (November 1998)
+*             Use physics package thermodynamic functions
+*
+* 002      S. Belair (December 1998)
+*             Correction to the latent heat coefficients due to
+*             soil water freezing.
+*             Calculation of the FREEZG and MELTG tendencies for
+*             soil water freezing and melting.
+*             Tendencies for the surface temperature TS.
+*
+* 003      S. Belair (January 1999)
+*             Tendencies for melting and freezing of snow
+*
+* 004      B. Bilodeau (December 1999)
+*             real downward radiation as an argument 
+*             different albedos for vegetation and snow as arguments
+*
+* 005      S. Belair (January 2000)
+*             diagnostic equation for the maximum density of snow
+*             effect of incident rain on the snowpack
+*
+* 006      B. Bilodeau (January 2001)
+*             Automatic arrays
+*
+* 007      S. Belair (Fall 2003)
+*             include the effect of soil freeze/thaw
+*
+* 008      B. Bilodeau (April 2007)
+*             add snow melting diagnostics
+*
+*
+*Object
+*
+*     Calculates the evolution of the surface and deep-soil temperature
+*     (i.e., Ts and T2), as well as all the surface fluxes.
+*
+*
+****  METHOD
+**    ------
+*
+*     1- find the grid-averaged albedo, emissivity, and roughness length
+*     2- compute the za, zb, and zc terms involved in the numerical
+*        resolution of the equations for Ts and T2.
+*     3- find Ts(t) and T2(t).
+*     4- derive the surface fluxes.*
+*
+*Arguments
+*
+*
+*          - Input -
+* T         surface air temperature
+* TS        surface temperature
+* T2        mean surface temperature
+* W2        soil water
+* WF        frozen soil water
+* WL        liquid water in the snow pack
+* WS        equivalent water content of the snow reservoir
+* DT        timestep
+* ALPHAS    albedo of snow
+* CD        transfer coefficient of momentum
+* RAINRATE  rainrate
+* VMOD,VDIR module and direction of the surface winds
+* RG        global radiation (downward solar)
+* ALVG      surface albedo associated with vegetation type
+* ALBT      total surface albedo (snow + vegetation)
+* RAT       atmospheric radiation incident on the ground (NIR)
+* THETAA    air potential temperature at the lowest level
+* HU        specific humidity of air at the lowest level
+* PS        surface pressure
+* RHOA      air density near the surface
+* U,V       horizontal wind at the lowest level
+* VEG       fraction of the grid covered by vegetation
+* HRSURF    relative humidity of the surface
+* HV        Halstead coefficient (relative humidity of veg. canopy)
+* DEL       portion of the leaves covered by water
+* RESA      aerodynamic surface resistance
+* RS        stomatal resistance
+* CT        total heat capacity coefficient
+* ZCS       heat capacity coefficient for the snow canopy
+* PSN       fraction of the grid covered by snow
+* PSNV      fraction of vegetation covered by snow
+* PSNG      fraction of bare ground covered by snow
+* WSAT      volumetric water content at saturation
+* D2        soil depth
+*
+*
+*           - Output -
+* TST       new surface temperature
+* T2T       new mean surface temperature
+* RNET      net radiation
+* HFLUX     sensible heat flux
+* LE        latent heat flux
+* LEG       latent heat flux over bare ground
+* LEV       latent heat flux over vegetation
+* LES       latent heat flux over snow
+* LER       direct latent heat flux from vegetation leaves
+* LETR      evapotranspiration latent heat flux
+* GFLUX     ground flux
+* EFLUX     water vapor flux
+* DWATERDT  net tendency of melting-freezing of soil water
+* DSNOWDT   net tendency of melting-freezing of snow water
+* FREEZS    tendency of freezing water in the snow pack
+* MELTS_TOT total snow melting (accumulator)
+* MELTS_RN  snow melting due to rain (accumulator)
+*
+*
+#include "consphy.cdk"
+*
+      INTEGER I
+*
+*
+      REAL EMISSN, KCOEF, RHOW
+      REAL PRATE, AA, BB, CC, B2M4AC, M
+      REAL MLTRAIN, RAIN1, RAIN2
+      REAL DTRAIN, PRDT
+      REAL MELTSR
+*
+      REAL PETIT
+      DATA PETIT/1.E-7/
+*
+*
+************************************************************************
+*     AUTOMATIC ARRAYS
+************************************************************************
+*
+      AUTOMATIC ( EMIST     , REAL , (N) )
+      AUTOMATIC ( ZQSAT     , REAL , (N) )
+      AUTOMATIC ( ZDQSAT    , REAL , (N) )
+      AUTOMATIC ( ZQSATT    , REAL , (N) )
+      AUTOMATIC ( RORA      , REAL , (N) )
+      AUTOMATIC ( A         , REAL , (N) )
+      AUTOMATIC ( B         , REAL , (N) )
+      AUTOMATIC ( C         , REAL , (N) )
+      AUTOMATIC ( TN        , REAL , (N) )
+      AUTOMATIC ( ZHV       , REAL , (N) )
+      AUTOMATIC ( FREEZFRAC , REAL , (N) )
+      AUTOMATIC ( FREEZG    , REAL , (N) )
+      AUTOMATIC ( MELTG     , REAL , (N) )
+      AUTOMATIC ( TNMT0     , REAL , (N) )
+      AUTOMATIC ( MELTS     , REAL , (N) )
+      AUTOMATIC ( WORK      , REAL , (N) )
+      AUTOMATIC ( EG        , REAL , (N) )
+      AUTOMATIC ( ES        , REAL , (N) )
+      AUTOMATIC ( EV        , REAL , (N) )
+      AUTOMATIC ( FMLTRAIN  , REAL , (N) )
+*
+************************************************************************
+*
+#include "dintern.cdk"
+#include "fintern.cdk"
+*
+*
+*                                THE FOLLOWING SHOULD BE PUT IN 
+*                                A COMMON COMDECK
+*
+      EMISSN = 1.0
+      RHOW   = 1000.  
+      KCOEF  = 1.E-6
+*
+      RAIN1  = 2.8e-8
+      RAIN2  = 2.8e-7
+*
+*
+*
+*
+*
+**       1.     GRID-AVERAGED ALBEDO, EMISSIVITY, AND ROUGHNESS LENGTH
+*       ------------------------------------------------------
+*                          (considering snow surfaces)
+*
+      DO I=1,N
+*
+*                               For the albedo
+*
+        ALBT(I) = ( 1.-PSN(I) )*ALVG(I) + PSN(I)*ALPHAS(I)
+*
+*                               For the emissivity
+*
+*                               ATTENTION ... ATTENTION ... ATTENTION ...
+*                               The surface emissivity for bare soil and
+*                               vegetation is now fixed at 0.95 ... this
+*                               could be changed in the future.  We could
+*                               use an analysis for example.  Or determine
+*                               the emissivity from the vegetation or soil
+*                               types.
+*
+        EMIST(I) = ( 1.-PSN(I) )*0.95 +
+     1               PSN(I)  * EMISSN
+      END DO
+*
+*
+*
+*
+*        2.     LATENT HEAT COEFFICIENTS - CORRECTION DUE TO FREEZING
+*               AND MELTING OF SOIL WATER
+*               -----------------------------------------------------
+*
+*                               Using the fraction of frozen water
+*                               in the soil, calculate the "effective"
+*                               latent heat of evaporation/sublimation
+*
+      DO I=1,N
+        FREEZFRAC(I) = WF(I) / (W2(I)+WF(I)+PETIT)
+        LEFF(I)      = FREEZFRAC(I)      * (CHLC+CHLF)
+     1               + (1.-FREEZFRAC(I)) *  CHLC
+      END DO
+*
+*
+*
+*
+**       3.     COEFFICIENTS FOR THE TIME INTEGRATION OF  TS
+*               --------------------------------------------
+*
+*                            Thermodynamic functions
+*
+*
+      DO I=1,N
+*
+        ZQSAT(I)  = FOQST( TS(I),PS(I) )
+        ZDQSAT(I) = FODQS( ZQSAT(I),TS(I) )
+*
+      END DO
+*
+*
+*
+*
+*                              function zrsra
+*
+      DO I=1,N
+        RORA(I) = RHOA(I) / RESA(I)
+      END DO
+*
+*                                              terms za, zb, and zc for the
+*                                              calculation of ts(t)
+*
+      DO I=1,N
+*
+        A(I) = 1. / DT + CT(I) * (4. * EMIST(I) * STEFAN
+     1     * (TS(I)**3) +  RORA(I) * ZDQSAT(I) *
+     1     ( CHLC*VEG(I)*(1-PSNV(I))*HV(I)
+     1     + LEFF(I)*(1.-VEG(I))*(1.-PSNG(I))*HRSURF(I)
+     1     + (CHLC+CHLF)*PSN(I) )+ RORA(I) * CPD)
+     1     + 2. * PI / 86400.
+*
+        B(I) = 1. / DT + CT(I) * (3. * EMIST(I) * STEFAN
+     1     * (TS(I)** 3) + RORA(I) * ZDQSAT(I) *
+     1     ( CHLC*VEG(I)*(1-PSNV(I))*HV(I)
+     1     + LEFF(I)*(1.-VEG(I))*(1.-PSNG(I))*HRSURF(I)
+     1     + (CHLC+CHLF)*PSN(I) ) )
+*
+        C(I) = 2. * PI * T2(I) / 86400. + CT(I)
+     1     * (RORA(I) * CPD * THETAA(I) + RG(I)
+     1     * (1. - ALBT(I)) + EMIST(I)*RAT(I) - RORA(I)
+     1     * ( CHLC*VEG(I)*(1.-PSNV(I))*HV(I)
+     1     * (ZQSAT(I)-HU(I))
+     1     + LEFF(I)*(1.-VEG(I))*(1.-PSNG(I))
+     1     * (HRSURF(I)*ZQSAT(I)-HU(I))
+     1     + (CHLC+CHLF)*PSN(I) * (ZQSAT(I)-HU(I)) ) )
+*
+      END DO
+*
+*
+      DO I=1,N
+        TST(I) = ( TS(I)*B(I) + C(I) ) / A(I)
+      END DO
+*
+*
+*
+*
+**       4.     MELTING AND FREEZING TENDENCIES OF SNOW
+*               ---------------------------------------
+*
+*
+*
+*                             Calculate the temperature TN
+*                             (include cover effect of vegetation)
+      DO I=1,N
+        TN(I) = (1.-VEG(I))*TST(I) + VEG(I)*T2(I)
+      END DO
+*
+*
+*                             Common portion of the MELTS and FREEZS
+*                             equations
+*
+      DO I=1,N
+        WORK(I) = PSN(I) * (TN(I)-TRPL) / ( ZCS(I)*CHLF*DT )
+      END DO
+*
+*
+*                             MELTS and FREEZS tendencies
+*                             Also calculate the maximum snow density
+*
+      DO I=1,N
+        IF (WORK(I).LT.0.) THEN
+          MELTS(I)  = 0.0
+          FREEZS(I) = MIN( -WORK(I), WL(I)/DT )
+          RHOMAX(I) = 450. - 20470. / (SNODP(I)+PETIT) *
+     1                ( 1.-EXP(-SNODP(I)/67.3))
+          RHOMAX(I) = 0.001 * RHOMAX(I)
+        ELSE
+          MELTS(I)  = MIN( WORK(I) , WS(I)/DT )
+          FREEZS(I) = 0.0
+          RHOMAX(I) = 600. - 20470. / (SNODP(I)+PETIT) *
+     1                ( 1.-EXP(-SNODP(I)/67.3))
+          RHOMAX(I) = 0.001 * RHOMAX(I)
+        END IF
+      END DO
+*
+*                              new temperature Ts(t) after melting
+*
+      DO I=1,N
+        TST(I) = TST(I) + CT(I) * CHLF * (FREEZS(I)-MELTS(I)) * DT
+      END DO
+*
+*
+*
+*
+*
+*
+*        4.     EFFECT OF RAIN ON TEMPERATURE OF SNOW PACK
+*               ------------------------------------------
+*
+*                                When rain is falling on snow,
+*                                melting is accelerated due to heat
+*                                transfers between the incident rain
+*                                and the snow pack (since rain is
+*                                usually warmer then the snow pack).
+*
+*                                It is hypothesized that the temperature
+*                                of falling water is the same as that
+*                                of air at the lowest atmospheric level.
+*
+      DO I=1,N
+        IF (RAINRATE(I).LT.RAIN1) THEN
+          FMLTRAIN(I) = 0.
+        ELSE IF (RAINRATE(I).GT.RAIN2) THEN
+          FMLTRAIN(I) = 1.
+        ELSE
+          FMLTRAIN(I) = ( RAINRATE(I) - RAIN1 ) / 
+     1                  ( RAIN2       - RAIN1 )
+        END IF
+      END DO
+*
+      DO I=1,N
+        IF (T(I).GT.TRPL.AND.WS(I).GT.0.0.AND.
+     1      RAINRATE(I).GT.0.) THEN
+          MLTRAIN = ( T(I)-TRPL ) / ( 2.*ZCS(I)*CHLF*DT )
+          MELTS(I) = MELTS(I) + FMLTRAIN(I) * MLTRAIN
+          MELTS_RN (I) = MELTS_RN (I) + MLTRAIN*DT
+        END IF
+      END DO  
+
+*
+*
+*
+*
+*                              Melting-Freezing tendency for the
+*                              WS and WL reservoirs
+*
+      DO I=1,N
+        DSNOWDT(I) = ( FREEZS(I)-MELTS(I) ) * DT
+*       DIAGNOSTIC : accumulated melting (in kg/m2 or mm)
+        MELTS_TOT(I) = MELTS_TOT(I) + MELTS(I)*DT
+      END DO
+*
+*
+*
+*
+*        5.     FREEZING AND MELTING TENDENCIES FOR SOIL WATER
+*               ----------------------------------------------
+*
+*
+*
+*                            Recalculate TN with the new surface
+*                            temperature (include cover effect of
+*                            vegetation canopy AND snow pack)
+*
+      DO I=1,N
+        TN(I) = (1-PSN(I)) * ( (1-VEG(I))*TST(I)+VEG(I)*T2(I) )
+     1        +    PSN(I)  *    T2(I)
+*
+*                            Calculate the K coefficient in the
+*                            FREEZG and MELTG flux terms
+*
+        TNMT0(I) = TN(I)  - TRPL
+      END DO
+*
+*
+*
+*                             Calculate the freezing and melting
+*                             tendencies
+*
+      DO I=1,N
+*
+        IF (TNMT0(I).GE.0.) THEN
+          FREEZG(I) = 0.
+          MELTG(I)  = KCOEF * TNMT0(I)
+        ELSE
+          FREEZG(I) = - KCOEF * (W2(I)/WSAT(I)) * TNMT0(I)
+          MELTG(I)  = 0.
+        END IF
+*
+        DWATERDT(I) = (FREEZG(I)-MELTG(I))*DT        
+*
+      END DO
+*
+*
+*
+*
+*                             Make sure we don't remove more liquid
+*                             or solid water than there is in the soil
+*
+      DO I=1,N
+        IF (DWATERDT(I).GE.0.) THEN
+              DWATERDT(I) = MIN( W2(I), DWATERDT(I) )
+        ELSE
+              DWATERDT(I) = MAX( -WF(I), DWATERDT(I) )
+        END IF
+      END DO
+*
+*
+*
+*                              Update the surface temperature TS
+*
+*     DO I=1,N
+*       TST(I) = TST(I) + CG(I)*CHLF*DWATERDT(I)
+*     END DO
+*
+*
+*
+*
+*
+**       6.     T2 AT TIME 'T+DT'
+*               -----------------
+*
+      DO I=1,N
+        T2T(I) = (T2(I) + DT*TST(I)/86400.) /
+     1           (1.+DT/86400.)
+*
+*                            Include the effect of soil freeze/thaw
+        T2T(I) = T2T(I) 
+     1         + RHOW*CG(I)*CHLF*D2(I)*DWATERDT(I)*DT/86400.
+      END DO
+*
+*
+**       7.     FLUX CALCULATIONS
+*               -----------------
+*
+*
+      DO I=1,N
+*                                            recalculate the qsat function
+*
+        ZQSATT(I) = FOQST(  TST(I),  PS(I)   )
+*
+*                                            net radiation
+*
+        RNET(I) = (1. - ALBT(I)) * RG(I) + EMIST(I) *
+     1      (RAT(I) - STEFAN * (TST(I)** 4))
+*
+*                                            sensible heat flux
+*
+        HFLUX(I) = RHOA(I) * CPD * (TST(I) - THETAA(I)) / RESA(I)
+        FTEMP(I) = (TST(I) - THETAA(I)) / RESA(I)
+*
+*                                            latent heat of evaporation from
+*                                            the ground
+*
+        LEG(I) = RHOA(I) * LEFF(I) * (1.-VEG(I))*(1.-PSNG(I))
+     1         * (HRSURF(I)* ZQSATT(I) - HU(I)) / RESA(I)
+*
+        EG(I) = (1.-VEG(I))*(1.-PSNG(I))
+     1         * (HRSURF(I)* ZQSATT(I) - HU(I)) / RESA(I)
+*
+*                                            latent heat of evaporation from
+*                                            the snow canopy
+*
+        LES(I) = RHOA(I) * (CHLC+CHLF) * PSN(I) *
+     1           (ZQSATT(I) - HU(I)) / RESA(I)
+*
+        ES(I) =  PSN(I) * (ZQSATT(I) - HU(I)) / RESA(I)
+*
+*                                            latent heat of evaporation from
+*                                            vegetation
+*
+        LEV(I) = RHOA(I) * CHLC * VEG(I)*(1-PSNV(I))
+     1         * HV(I) * (ZQSATT(I) - HU(I)) / RESA(I)
+*
+        EV(I) =  VEG(I)*(1-PSNV(I))
+     1         * HV(I) * (ZQSATT(I) - HU(I)) / RESA(I)
+*
+*                                            latent heat of evapotranspiration
+*
+        ZHV(I) = MAX(0., SIGN(1.,ZQSAT(I) - HU(I)))
+        LETR(I) = ZHV(I) * (1. - DEL(I)) * RHOA(I)
+     1          * CHLC * VEG(I)*(1-PSNV(I))
+     1          * (ZQSATT(I)  - HU(I)) / (RESA(I) + RS(I))
+*
+*
+*                                            latent heat of direct evaporation
+*
+        LER(I)  = LEV(I) - LETR(I)
+*
+*                                            total latent heat of evaporation
+*
+        LE(I) = LEG(I) + LEV(I) + LES(I)
+*
+*                                            total water vapor flux
+        EFLUX(I) = EG(I) + EV(I) + ES(I)
+        FVAP(I)  = EFLUX(I)
+*
+*                                            heat flux into the ground
+*
+        GFLUX(I) = RNET(I) - HFLUX(I) - LE(I)
+*
+      END DO
+*
+*
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

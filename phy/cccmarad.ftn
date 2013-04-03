@@ -1,0 +1,631 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P CCCMARAD - DRIVER ROUTINE FOR RADIATION
+*
+      subroutine cccmarad (f, fsiz, v, vsiz, 
+     +                     tt, qq, ps, sig, 
+     +                     tau, kount, icpu,
+     +                     trnch , n , m , nk , nkp,
+     +                     liqwcin, icewcin, liqwpin, icewpin, cldfrac)
+#include "impnone.cdk"
+*
+      integer fsiz, kount, trnch, vsiz, n, m, nk, nkp
+      integer it, icpu
+      real f(fsiz), v(vsiz), tt(m,nkp), qq(m,nk), ps(n), sig(n,nk)
+      real liqwcin(n,nk), icewcin(n,nk), cldfrac(n*nk)
+      real liqwpin(m,nk), icewpin(m,nk)
+      real tau
+*
+*Authors
+*        p. vaillancourt, d. talbot, j. li, rpn, cmc, cccma; (may 2006)
+*
+*Revisions
+* 001    B. Dugas        (Apr 06) - Use QCO2 parametre from options.cdk
+* 002    J. Cole         (May 06) - Implement the ISCCP cloud simulator
+* 003    P. Vaillancourt (Jun 06) - allow output of CLT,CLB,CSTT and CSB as timeseries
+* 004    K. Winger       (Jun 06) - Use QCH4, QN2O, QF11, QF12
+*                                     parameters from options.cdk
+* 005    B. Dugas        (Sep 06) - Rename QF11,QF12 to QCFC11,QCFC12
+* 006    P. Vaillancourt (Sep 06) - calculate rmu0 and r0r only once, ensure iv=0 at night
+* 007    P. Vaillancourt (Jan 06) - move calculation of shtj,tfull; modify call to aerooppro
+* 008    P.Vaillancourt  (Apr 08) - use integer variables(il1,il2) instead of actual integers
+* 009    P. Vaillancourt (Jun 08) - move calculation of NT to cldoppro
+* 010    P. Vaillancourt (Dec 08) - new outputs for cloud cover from cldoppro (create cldoppro3)
+*                                 - move cldoppro3 out of radiation loop, to be called every timestep
+*                                 - FSD,FSF,FSI,FSV,and PARR corrected for sw variation between rad timesteps
+*                                 - allow output of FSD,FSF,FSI,FSV,PARR,ECC,ECCL,ECCM,ECCH, and TCC as timeseries
+* 011    P. Vaillancourt (Feb 12) - assume temperature is isothermal above model top 
+*         
+*
+*Object
+*        prepares all inputs for radiative transfer scheme 
+*        (cloud optical properties, trace gases, ozone, aerosols..)
+*        executes ccc radiative transfer for infrared and solar radiation
+*
+*Arguments
+*
+*          - input/output -
+* f        field of permanent physics variables
+* fsiz     dimension of f
+*
+*          - input -
+* tt       temperature
+* qq       specific humidity
+* ps       surface pressure
+* sig      sigma levels
+* tau      timestep
+* kount    number of timesteps
+* icpu     task number
+* kntrad   frequency of call for infra-red radiation
+* trnch    index of the vertical plane (ni*nk) for which
+*          calculations are to be done.
+* n        horizontal dimension
+* m        1st dimension of t and q
+* nk       number of layers
+* nkp      number of flux levels (nk+1)
+* liqwcin  in-cloud liquid water content (kg/kg)
+* icewcin  in-cloud ice    water content (kg/kg)
+* liqwpin  in-cloud liquid water path (g/m^2)
+* icewpin  in-cloud ice    water path (g/m^2)
+* cldfrac  cloud fraction (0.-1.)
+*
+* Notes
+*          cccmarad produces:
+*          infra-red rate (ti) of cooling
+*          shortwave rate (t2) of heating
+*          shortwave flux to ground (fdss)
+*          infra-red flux to ground (fdsi)
+*          infra-red flux to the top of the atmosphere (ei)
+*          shortwave flux to the top of the atmosphere (ev)
+*          planetary albedo (ap=ev/incident solar flux)
+*
+* BEWARE :
+*          Remove comments to the lines at the end of preintp if pressure at model
+*          top is less than .0005 Pa
+*          When pressure a model top is less than 10 hPa then minor bands are used
+*          These variables change values for different topology but do not impact 
+*            on validation for different topology : maxc lev1 ncum ncdm in cldifm
+*                                                   mcont               in raddriv
+*                                                   lstart              in qozon3
+*
+*
+*Implicites
+*
+#include "indx_sfc.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "clefcon.cdk"
+#include "consphy.cdk"
+#include "options.cdk"
+#include "ozopnt.cdk"
+#include "radparam.cdk"
+#include "raddata.cdk"
+#include "nbsnbl.cdk"
+#include "tracegases.cdk"
+*
+! ISCCP
+#include "mcica.cdk"
+*
+*Modules
+*
+      external ckdlw,ckdsw,dataero,tracedata
+*
+      real juliand
+      external juliand
+c
+      real hzp, seuil, julien, r0r
+c
+      parameter (seuil=1.e-3)
+
+*
+*     pointeurs des variables volatiles de la radiation
+*     determines par une routine de gestion de memoire
+*
+**********************************************************
+*     AUTOMATIC ARRAYS
+**********************************************************
+      AUTOMATIC (  p1      , real     , (n)       )
+      AUTOMATIC (  p2      , real     , (n*npcl)  )
+      AUTOMATIC (  p3      , real     , (n)       )
+      AUTOMATIC (  p4      , real     , (n)       )
+      AUTOMATIC (  p5      , real     , (n)       )
+      AUTOMATIC (  p6      , real     , (n)       )
+      AUTOMATIC (  p7      , integer  , (n)       )
+      AUTOMATIC (  p8      , integer  , (n)       )
+      AUTOMATIC (  p10     , real     , (nkp)     )
+      AUTOMATIC (  p11     , real     , (nkp)     )
+      AUTOMATIC (  pbl     , real     , (n)       )
+      AUTOMATIC (  albpla  , real     , (n)       )
+      AUTOMATIC (  fdl     , real     , (n)       )
+      AUTOMATIC (  ful     , real     , (n)       )
+      AUTOMATIC (  fslo    , real     , (n)       )
+      AUTOMATIC (  rmu0    , real     , (n)       )
+      AUTOMATIC (  v1      , real     , (n)       )
+      AUTOMATIC (  ws      , real     , (n)       )
+      AUTOMATIC (  ws_vs   , real     , (n)       )
+      AUTOMATIC (  cosas_vs, real     , (n)       )
+      AUTOMATIC (  shtj    , real     , (n,nkp)   )
+      AUTOMATIC (  tfull   , real     , (n,nkp)   )
+      AUTOMATIC (  s_qrt   , real     , (n,nkp)   )
+      AUTOMATIC (  salb    , real     , (n,nbs)   )
+      AUTOMATIC (  tauae   , real     , (n,nk,5)  )
+      AUTOMATIC (  exta    , real     , (n,nk,nbs))
+      AUTOMATIC (  exoma   , real     , (n,nk,nbs))
+      AUTOMATIC (  exomga  , real     , (n,nk,nbs))
+      AUTOMATIC (  fa      , real     , (n,nk,nbs))
+      AUTOMATIC (  taucs   , real     , (n,nk,nbs))
+      AUTOMATIC (  omcs    , real     , (n,nk,nbs))
+      AUTOMATIC (  gcs     , real     , (n,nk,nbs))
+      AUTOMATIC (  absa    , real     , (n,nk,nbl))
+      AUTOMATIC (  taucl   , real     , (n,nk,nbl))
+      AUTOMATIC (  omcl    , real     , (n,nk,nbl))
+      AUTOMATIC (  gcl     , real     , (n,nk,nbl))
+c
+      real hz0, hz, heurser, ptop, ptopoz, alwcap, fwcap, albrmu
+      integer i, k, l
+      logical lcsw, lclw, aerosolback
+      integer il1,il2
+      
+      real dummy1(N),dummy2(N),dummy3(N),dummy4(N)
+
+*
+! ISCCP      
+*
+      real ::
+     1 liqwcin_s(n,nk,nx_loc), ! subcolumns of cloud liquid water
+     2 icewcin_s(n,nk,nx_loc)  ! subcolumns of cloud ice water
+*
+      real ::
+     3 sigma_qcw(n,nk),        ! std. dev. of cloud water/mean cloud water
+     4 rlc_cf(n,nk),           ! decorelation length for cloud amount      (km)
+     5 rlc_cw(n,nk),           ! decorrelation length for cloud condensate (km)
+     6 cldtot(n)               ! total cloud fraction as computed using stochastic
+                               ! cloud generator
+*
+      integer ::
+     1 ncldy(n),               ! number of cloudy subcolumns
+     2 iseed(n)                ! integer pseudo-random number seed
+*
+      real ::
+     1 rseed                   ! real pseudo-random number seed
+*
+#include "solcons.cdk"
+*
+      data lcsw, lclw, aerosolback / .true., .true., .true./
+*
+c  use integer variables instead of actual integers
+      il1=1
+      il2=n
+*
+      it = icpu
+*
+      hz0 = date(5) + float(DATE(6))/360000.0
+      hz = amod (hz0 + (float(kount) * tau) / 3600., 24.0)
+*
+c...  redefine co2, ch4, n2o, f11 and f12 concentrations
+c... following corresponding parameters from /OPTIONR/
+*
+      co2_ppm = qco2     * 1.e-6
+      rmco2   =  co2_ppm * 44D0     / 28.97
+*
+      ch4_ppm = qch4     * 1.e-6
+      rmch4   =  ch4_ppm * 16.00D0  / 28.97
+*
+      n2o_ppm = qn2o     * 1.e-6
+      rmn2o   =  n2o_ppm * 44.00D0  / 28.97
+*
+      f11_ppm = qcfc11   * 1.e-9
+      rmf11   = f11_ppm  * 137.37D0 / 28.97
+*
+      f12_ppm = qcfc12   * 1.e-9
+      rmf12   = f12_ppm  * 120.91D0 / 28.97
+*
+      do k = 1, nk
+        do i = 1, n
+          f(t2+(k-1)*n+i-1) = 0.0
+        enddo
+      enddo
+      do i = 1, n
+        f(fdss    +i-1) = 0.0
+        f(ev      +i-1) = 0.0
+        f(flusolis+i-1) = 0.0
+      enddo
+c
+c...    calculate the variation of solar constant
+c
+        julien = juliand(tau, kount, date)
+        alf = julien / 365. * 2 * pi
+        r0r = solcons(alf)
+c
+c...    cosine of solar zenith angle at greenwich hour
+c
+        call suncos1(rmu0, dummy1, dummy2, dummy3, dummy4, n,
+     1               f(dlat), f(dlon), hz, julien, date, .false.)
+c
+c...    calculate cloud optical properties and dependent diagnostic cloud variables
+c...    such as cloud cover, effective and true; cloud top temp and pressure
+c...    called every timestep
+c
+        call cldoppro3 (taucs, omcs, gcs, taucl, omcl, gcl,
+     1                 f(topthw), f(topthi), f(ecc),f(tcc),
+     2                 f(eccl), f(eccm), f(ecch),
+     3                 v(ctp), v(ctt), liqwcin, icewcin,
+     4                 liqwpin, icewpin, cldfrac,
+     5                 tt, sig, ps, f(mg), f(ml), m,
+     6                 n, nk, nkp)
+
+
+c...  pour les pas de temps radiatifs
+      if (kount .eq. 0 .or. mod((kount-1), kntrad) .eq. 0)          then
+
+c
+c...    calculte sigma(shtj) and temperature(tfull) at flux levels 
+c
+        do i = 1, n
+           s_qrt(i,1) = sig(i,1) / sig(i,2)
+           s_qrt(i,nkp) = 1.0
+c The following line extrapolates the temperature above model top for moon layer temperature
+c           tfull(i,1) = 0.5 * (3.0 * tt(i,1) - tt(i,2))
+c The following line assumes temperature is isothermal above model top
+c This assumption must also be imposed in raddriv (see calc of a1(i,5) and planck subroutines
+           tfull(i,1) =  tt(i,1)
+
+           tfull(i,nkp) = tt(i,nk+1)
+c           tfull(i,nkp) = f(tsrad+i-1) 
+c          tfull(i,nkp) : choose either ground temperature or 2m temperature (does have an impact)
+        enddo 
+        do k = 2, nk
+          do i = 1, n
+            s_qrt(i,k) = sig(i,k-1) * sig(i,k) 
+            tfull(i,k) = 0.5 * (tt(i,k-1) + tt(i,k))
+          enddo
+        enddo
+
+        call vssqrt (shtj,s_qrt,n*nkp) 
+
+        do i = 1, n
+          shtj(i,1)  = sig(i,1) * shtj(i,1)
+        enddo 
+*
+c
+c...    calculate aerosol optical properties
+c
+        do i = 1, n
+            pbl(i) = 1500.0
+        enddo 
+        call aerooppro (tauae,exta,exoma,exomga,fa,absa,
+     1                  tt,shtj,sig,ps,f(dlat),f(mg), f(ml),pbl, 
+     2                  aerosolback,il1, il2, n, nk, nkp ) 
+c
+c...    from ozone zonal monthly climatology: interpolate to proper date and grid,
+c       calculate total amount above model top (ptop)
+
+        call pntozon
+
+        call radfac3 (f(o3s),f(oztoit),sig,nkp,nk,npcl,f(dlat),ps,n,n,
+     1                nkp, p2, p3, p4, p5, p6, p7, p8, p10, p11, nlacl,
+     2                goz(fozon), goz(clat), goz(pref))
+*
+c       must modify oztoit to fit the needs of raddriv who expects an average
+c       mixing ratio rather than an integral (convert cm back to kg/kg) 
+        do i = 1, n
+c          ptop = sig(i,1)*ps(i)
+           ptopoz = -10.0
+c          look for ozone reference pressure level closest to model top
+           do k = 0, npcl-1
+              if (goz(pref+k) .lt. ptop_nml*100) then
+                  ptopoz = goz(pref+k) 
+              endif
+           enddo
+           if (ptopoz.gt.0.0) f(oztoit+i-1)=f(oztoit+i-1)*
+     1                                   grav*2.144e-2/ptopoz
+        enddo
+c
+c...    calculate cosine of solar zenith angle at kount + kntrad - 1
+c
+        julien = juliand(tau, kount + kntrad - 1, date)
+        hzp = amod (hz0 + (float (kount + kntrad - 1) * tau) / 3600.,
+     1              24.)
+        call suncos1(f(cosas), dummy1, dummy2, dummy3, dummy4, n,
+     1               f(dlat), f(dlon), hzp, julien, date, .false.)
+c
+        do i = 1, n
+c...      albedo (6% to 80%), temporally set the same for all 4 band
+          salb(i,1) = amax1 (amin1 (f(alvis + (indx_agrege-1) * n + 
+     1                     i - 1), 0.80), 0.06)
+*         f(salb6z+i-1) = salb(i,1)
+          f(salb6z+i-1) = 0.0 
+          do l = 2, nbs
+             salb(i,l) = salb(i,1)
+          enddo
+*
+c...      adjust the cosine of solar zenith angle to radition call time
+          f(cosas+i-1) = (rmu0(i) + f(cosas+i-1)) * 0.5  
+*
+        enddo
+
+c
+c----------------------------------------------------------------------------------
+c       open water albedo adjusted for solar angle and white caps, 
+c       fwcap is fraction of white caps, alwcap is albedo of white caps
+c       ws is the 10m wind speed, f(cosas) is cosine of solar zenith angle,
+c       albrmu is albedo corrected for solar zenith angle
+c       ref for white cap effect is : monahan et al., 1980, jpo, 10,2094-2099
+c       ref for solar angle dependence  : taylor et al., 1996, qjrms,122,839-861
+c       danger: if this code is accepted, it should migrate to where the agregated
+c               albedo is calculated. furthermore, the 10m wind speed should be
+c               recalculated when needed, present ws comes from the beginning
+c               of the previous time step, rather than the end
+c----------------------------------------------------------------------------------
+c
+        do i = 1, n
+           ws_vs(i)=f(udiag+i-1)*f(udiag+i-1)+f(vdiag+i-1)*f(vdiag+i-1)
+        enddo
+        call vspown1(ws, ws_vs, 1.705, n)
+        call vspown1(cosas_vs, f(cosas), 1.4, n)
+        alwcap = 0.3
+        do i = 1, n
+c          au pas de temps zero f(glsea) n est pas defini car la radiation est faite avant la sfc
+           if (f(mg+i-1) .le. 0.01 .and. f(glsea+i-1) .le. 0.01 .and.  
+     1         f(ml+i-1) .le. 0.01 .and. f(cosas+i-1) .gt. seuil ) then
+             fwcap     = amin1 (3.84e-06 * ws(i), 1.0)
+             albrmu    = 0.037 / (1.1 * cosas_vs(i) + 0.15)
+             salb(i,1) = (1.-fwcap) * albrmu + fwcap * alwcap
+             salb(i,1) = amax1 (amin1 (salb(i,1), 0.80), 0.03)
+             f(salb6z+i-1) = salb(i,1)
+             do l = 2, nbs
+                salb(i,l) = salb(i,1)
+             enddo
+           endif
+        enddo
+c
+        if (simisccp) then
+c
+! ISCCP
+c
+! seed random number generator
+c
+           do i = 0, n-1
+c
+! generate the random number based on local latitude,longitude,hour
+! and julien day.  created so that the size of the seed should not 
+! exceed 2^31-1.  if it does then there will be problems.
+c
+              rseed = 1.0e5*((f(dlat+i)+(pi/2.0))*2.0*pi+ f(dlon+i))
+     1              + hz*1.0e6
+     2              + julien*100.0
+c
+              iseed(i+1) = int(rseed) 
+c
+           end do
+c
+!          call random_seed(generator=2) ! specific to ibm
+           call random_seed(put=iseed)
+c
+! define the cloud overlap parameters and horizontal variability
+c
+           call prep_mcica(rlc_cf, rlc_cw, sigma_qcw, cldfrac, n,il1,il2,nk)
+c
+! generate sub-olumns of liquid and ice water contents
+c
+           call mcica_cld_gen(cldfrac, liqwcin, icewcin, rlc_cf, rlc_cw,
+     +                        sigma_qcw, tt, sig, ps, n, il1, il2, nk,
+     +                        ncldy, liqwcin_s, icewcin_s, cldtot)
+c
+! call the ISCCP simulator
+c
+           call isccp_sim_driver(
+     +                  f(itp), f(ictp), f(itau), f(icep), f(itcf), ! output
+     +                  f(isun),
+     +                  liqwcin_s, icewcin_s, ps, sig, shtj,        ! input
+     +                  il1, il2, n, nk, nkp,
+     +                  f(cosas), f(tsrad), tt, qq, f(mg), f(ml))
+c
+        endif
+c  
+!       actual call to the Li & Barker (2005) radiation
+c
+        call raddriv (f(fsg),f(fsd0),f(fsf0),f(fsv0),f(fsi0),
+     1                albpla,fdl,ful,f(t20), f(ti),
+     2                f(cstt),f(csb),f(clt),f(clb),f(parr0),
+     3                f(fluxds0),f(fluxus0),f(fluxdl),f(fluxul),
+     4                fslo, f(fsamoon), ps, shtj, sig, 
+     5                tfull, tt, f(tsrad), f(o3s),f(oztoit),
+     6                qq, f(cosas), r0r, salb, taucs,
+     7                omcs, gcs, taucl, omcl, gcl, 
+     8                cldfrac, tauae, exta, exoma, exomga,
+     9                fa, absa, lcsw, lclw,
+     1                il1, il2, n, nk, nkp)
+c
+c       ti (t2): infrared (solar) cooling (heating) rate 
+c       fdsi (fdss): infrared (solar) downward flux at surface.
+c       ei (ev): infrared (solar) upward flux at toa
+c       ap: albedo planetaire.
+c
+        do 1100 i = 0, n - 1
+          f(fdsi+i)  = fdl(i+1)
+          f(ei+i)    = ful(i+1)
+          f(fdss0+i) = f(fsg+i) 
+          f(ev0+i)   = consol * r0r * f(cosas+i) * albpla(i+1) 
+c
+c...      moduler les flux et les taux par le cosinus de l'angle solaire.
+c...      rapport des cosinus : angle actuel sur angle moyen.
+c
+          v1(i+1) = rmu0(i+1) / f(cosas+i)
+          v1(i+1) = min(v1(i+1),2.0)
+          f(vv1+i)= v1(i+1)
+c
+          if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)     then
+            f(fdss+i)             = f(fdss0+i)             * v1(i+1)
+            f(ev  +i)             = f(ev0  +i)             * v1(i+1)
+            f(flusolis+i)         = ( f(fsd0+i)+f(fsf0+i) )  * v1(i+1) 
+            v(fsd  +i)            = f(fsd0  +i)             * v1(i+1)
+            v(fsf  +i)            = f(fsf0  +i)             * v1(i+1)
+            v(fsv  +i)            = f(fsv0  +i)             * v1(i+1)
+            v(fsi  +i)            = f(fsi0  +i)             * v1(i+1)
+            v(parr  +i)           = f(parr0 +i)             * v1(i+1)
+            v(fluxds+(nkp-1)*n+i) = f(fluxds0+(nkp-1)*n+i) * v1(i+1)
+            v(fluxus+(nkp-1)*n+i) = f(fluxus0+(nkp-1)*n+i) * v1(i+1)
+          endif
+ 1100   continue
+c
+        do 1200 k = 1, nk
+        do 1200 i = 0, n - 1
+          if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)     then
+            f(t2+(k-1)*n+i)     = f(t20+(k-1)*n+i)     * v1(i+1)
+            v(fluxds+(k-1)*n+i) = f(fluxds0+(k-1)*n+i) * v1(i+1)
+            v(fluxus+(k-1)*n+i) = f(fluxus0+(k-1)*n+i) * v1(i+1)
+          endif
+ 1200   continue
+c
+c
+c...    in case mod(kount-1,kntrad) non zero
+c
+      else
+c
+c...    ajustement du solaire aux pas non multiples de kntrad par 
+c       modulation avec cosinus de l'angle solaire
+c
+c...    moduler par le cosinus de l'angle solaire. mettre a zero les
+c       valeurs appropriees de fdss, ev et t2.
+c
+        do 1300 i = 0, n - 1
+c
+c...      rapport des cosinus de l'angle present et de l'angle moyen.
+c
+          v1(i+1) = rmu0(i+1) / f(cosas+i)
+          v1(i+1) = min(v1(i+1),2.0)
+          f(vv1+i) = v1(i+1)
+c
+          if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)       then
+            f(fdss +i) = f(fdss0+i) * v1(i+1)
+            f(ev   +i) = f(ev0  +i) * v1(i+1)
+            f(flusolis+i) = ( f(fsd0+i)+f(fsf0+i) ) * v1(i+1) 
+            v(fsd  +i)            = f(fsd0  +i)     * v1(i+1)
+            v(fsf  +i)            = f(fsf0  +i)     * v1(i+1)
+            v(fsv  +i)            = f(fsv0  +i)     * v1(i+1)
+            v(fsi  +i)            = f(fsi0  +i)     * v1(i+1)
+            v(parr +i)            = f(parr0 +i)     * v1(i+1)
+          endif
+c
+ 1300   continue
+c
+        do 1400 k = 1, nk
+        do 1400 i = 0, n - 1
+          if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)       then
+            f(t2+(k-1)*n+i) = f(t20+(k-1)*n+i) * v1(i+1)
+          endif
+ 1400   continue
+c
+        do 1450 k = 1, nkp
+        do 1450 i = 0, n - 1
+          if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)     then
+            v(fluxds+(k-1)*n+i) = f(fluxds0+(k-1)*n+i) * v1(i+1)
+            v(fluxus+(k-1)*n+i) = f(fluxus0+(k-1)*n+i) * v1(i+1)
+          endif
+ 1450   continue
+c
+c...    end of radiation loop        
+      endif
+c
+      do i = 0, n - 1
+        v(cang+i) = rmu0(i+1)
+c
+c       iv represente le flux entrant au sommet de l'atmosphere 
+c       if below ensures iv is zero when sun is set
+c
+        if (f(cosas+i) .gt. seuil .and. rmu0(i+1) .gt. seuil)     then
+          v(iv+i) = consol * r0r * rmu0(i+1)
+        else
+          v(iv+i) = 0.0
+        endif
+c
+        if (v(iv+i) .gt. 1.0)                                       then
+          v(ap+i) = f(ev+i) / v(iv+i)
+        else
+          v(ap+i) = 0.
+        endif
+c
+        p1(i+1) = v(iv+i) - f(ev+i) - f(ei+i)
+      enddo
+c
+c...  extraction pour diagnostics
+c
+      call serxst (f(ti)    ,'ti',trnch,n,0.0    ,1.0,-1)
+      call mzonxst(f(ti)    ,'ti',trnch,n,heurser,ps ,-2,it)
+      call serxst (f(t2)    ,'t2',trnch,n,0.0    ,1.0,-1)
+      call mzonxst(f(t2)    ,'t2',trnch,n,heurser,ps ,-2,it)
+      call serxst (v(ctp )  ,'bp',trnch,n,0.0    ,1.0,-1)
+      call mzonxst(v(ctp)   ,'bp',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(ctt)   ,'be',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(ctt)   ,'be',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(topthw),'w3',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(topthw),'w3',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(topthi),'w4',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(topthi),'w4',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(iv)    ,'iv',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(iv)    ,'iv',trnch,n,heurser,1.0,-1,it)
+      call serxst (p1       ,'nr',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(p1       ,'nr',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(tcc)   ,'tcc',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(tcc)   ,'tcc',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(ecc)   ,'ecc',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(ecc)   ,'ecc',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(eccl)  ,'eccl',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(eccl)  ,'eccl',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(eccm)  ,'eccm',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(eccm)  ,'eccm',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(ecch)  ,'ecch',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(ecch)  ,'ecch',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(ev)    ,'ev',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(ev)    ,'ev',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(ei)    ,'ei',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(ei)    ,'ei',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(ap)    ,'ap',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(ap)    ,'ap',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(fdss)  ,'fs',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(fdss)  ,'fs',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(flusolis),'fu',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(flusolis),'fu',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(fsd)   ,'fsd',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(fsd)   ,'fsd',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(fsf)   ,'fsf',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(fsf)   ,'fsf',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(fsv)   ,'fsv',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(fsv)   ,'fsv',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(fsi)   ,'fsi',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(fsi)   ,'fsi',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(parr)  ,'parr',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(parr)  ,'parr',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(clb)   ,'clb',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(clb)   ,'clb',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(clt)   ,'clt',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(clt)   ,'clt',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(cstt)  ,'cst',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(cstt)  ,'cst',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(csb)   ,'csb',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(csb)   ,'csb',trnch,n,heurser,1.0,-1,it)
+      call serxst (f(cosas) ,'co',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(f(cosas) ,'co',trnch,n,heurser,1.0,-1,it)
+      call serxst (v(cang)  ,'cx',trnch,n,0.0    ,1.0,-1   )
+      call mzonxst(v(cang)  ,'cx',trnch,n,heurser,1.0,-1,it)
+
+c
+c
+      return
+      end
+
+

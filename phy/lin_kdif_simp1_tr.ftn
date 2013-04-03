@@ -1,0 +1,149 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P LIN_KDIF_SIMP1_TR
+      SUBROUTINE LIN_KDIF_SIMP1_TR(D, DSIZ, F, FSIZ, V, VSIZ, NI, NK, LINTYPE)
+#include "impnone.cdk"
+*
+      INTEGER DSIZ, FSIZ, VSIZ, NI, NK, LINTYPE
+      REAL D(DSIZ), F(FSIZ), V(VSIZ)
+*
+*Author
+*     Stephane Laroche - Janvier 2001
+*
+*Revisions
+* 001   S. Laroche   - TRAJ of LIN_KDIF_SIMP1 from Yves Delage linear physics
+*                      
+*
+*Object
+*          To calculate the (unnormalized) diffusion coefficients KM and KT
+*          and the (unnormalized) boundary conditions for the diffusion of
+*          wind, temperature, and moisture
+*          using simplified physical parameterizations.
+
+*Arguments
+*
+*          - Input/Output -
+* F        field of permanent physics variables
+* V        volatile bus
+* FSIZ     dimension of F
+* VSIZ     dimension of V
+*
+*          - Input -
+* NI       horizontal dimension
+* NK       vertical dimension
+*
+*
+*Notes
+*    DRAG = false : only a background value of diffusion coefficients
+*    DRAG = true  : boundary layer dependent on z0 and on latitude
+*    CHAUF= true  : surface heat flux over oceans dependent also on z0t
+*    EVAP = true  : evaporation over oceans dependent also on z0t 
+*
+**
+      INTEGER K,I
+      REAL KDIF(NI,NK),ZEDIAG(NI,NK),UET(NI)
+      REAL lnz0,lnz0t,lnza,lnzu,lnzt,ruv,ctu
+
+      REAL DIFBAK
+      DATA DIFBAK/0.1/
+      SAVE DIFBAK
+*
+*
+#include "indx_sfc.cdk"
+#include "phy_macros_f.h"
+#include "phybus.cdk"
+#include "options.cdk"
+#include "consphy.cdk"
+#include "dintern.cdk"
+#include "surfcon.cdk"
+#include "fintern.cdk"
+#include "zuzt.cdk"
+*
+      integer IK
+*     fonction-formule pour l'adressage
+      IK(i,k) = (K-1)*NI + I - 1
+*
+*     ************************* TRAJECTORY  *************************
+*
+      DO K=1,NK
+      DO I=1,NI
+         V(GTE+IK(I,K)) = -GRAV/CPD
+         V(GQ +IK(I,K)) = 0.0
+      ENDDO
+      ENDDO
+
+      DO I=1,NI
+        V(ALFAT+I-1) = 0.0
+        V(ALFAQ+I-1) = 0.0
+      ENDDO
+
+      IF(LINTYPE.EQ.1) THEN
+
+       DO K=1,NK-1
+       DO I=1,NI
+         F(KMM+IK(I,K)) = DIFBAK
+         F(KTM+IK(I,K)) = DIFBAK/BETA
+       ENDDO
+       ENDDO
+
+       DO I=1,NI
+         F(BMM+I-1) = 0.0
+         F(BTM+I-1) = 0.0
+       ENDDO
+
+
+       IF (DRAG) THEN
+
+        DO K=1,NK-2
+          DO I=1,NI
+            ZEDIAG(I,K) = V(ZE+IK(I,K))
+          ENDDO
+        ENDDO
+        K=NK-1
+        DO I=1,NI
+          ZEDIAG(I,K) = V(ZA+I-1)
+          UET(I)      = 0.001
+        ENDDO
+
+        CALL KDIFSIMP(KDIF,UET,ZEDIAG,F(Z0),V(FCOR),DIFBAK,NK-1,NI)
+         DO K=1,NK-1
+           DO I=1,NI
+             F(KMM+IK(I,K)) = KDIF(I,K)
+             F(KTM+IK(I,K)) = KDIF(I,K)/BETA
+           ENDDO
+         ENDDO
+
+        DO I=1,NI
+*
+          lnza  = ALOG (V(ZA+I-1)+F(Z0+I-1))
+          lnz0  = ALOG(F(Z0+I-1))
+          lnz0t = ALOG(F(Z0T+I-1))
+          CTU  = karman/((lnza-lnz0t)*BETA)*UET(i)*(1.-NINT(F(MG+I-1)))
+
+          F(BMM+I-1) = karman/(lnza-lnz0)*UET(i)
+          F(BTM+I-1) =  0.0
+          IF(CHAUF.OR.EVAP) F(BTM+I-1) = CTU
+*
+        END DO
+
+       ENDIF
+
+      ENDIF
+*
+      RETURN
+      CONTAINS
+#include "fintern90.cdk"
+      END

@@ -1,0 +1,257 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+***S/P DIFUVDF
+*
+      SUBROUTINE DIFUVDF (TU, U, KU, GU, R, ALFA, BETA, S, SK,
+     %                    TAU, TYPE, F, A, B, C, D, NU, NR, N, NK)
+*
+#include "impnone.cdk"
+      INTEGER NU, NR, N, NK
+      REAL TU(NU, NK), U(NU, NK), KU(NR, NK), GU(NR, NK), R(NR,NK)
+      REAL ALFA(N), BETA(N), S(NK), SK(NK), TAU, F
+      INTEGER TYPE
+      REAL A(N, NK), B(N, NK), C(N, NK), D(N, NK)
+*
+*Author
+*          R. Benoit (Mar 89)
+*
+*Object
+*          to solve a vertical diffusion equation by finite
+*          differences
+*
+*Arguments
+*
+*          - Output -
+* TU       U tendency (D/DT U) due to the vertical diffusion and to
+*          term R
+*
+*          - Input -
+* U        variable to diffuse (U,V,T,Q,E)
+* KU       diffusion coefficient
+* GU       optional countergradient term
+* R        optional inhomogeneous term
+* ALFA     inhomogeneous term for the surface flux
+* BETA     homogeneous term for the surface flux
+* S        sigma coordinates of full levels
+* SK       sigma coordinates of diffusion coefficient levels
+* TAU      length of timestep
+* TYPE     type of variable to diffuse (1='U',2='UT' or 3='E')
+* F        waiting factor for time 'N+1'
+* A        work space (N,NK)
+* B        work space (N,NK)
+* C        work space (N,NK)
+* D        work space (N,NK)
+* NU       1st dimension of TU and U
+* NR       1st dimension of KU, GU and R
+* N        number of columns to process
+* NK       vertical dimension
+*
+*Notes
+*          D/DT U = D(U) + R
+*          D(U) = D/DS J(U)
+*          J(U) = KU*(D/DS U + GU)
+*          Limiting Conditions where S=ST: J=0(for 'U'), D=0(for 'UT'
+*          and ST=1)
+*          U=0(for 'E')
+*          Limiting Conditions where S=SB: J=ALFA+BETA*U(S(NK))(for
+*          'U'/'UT'), J=0(for 'E')
+*          ST = S(1)-1/2 (S(2)-S(1)) (except for 'TU')
+*          SB = SK(NK)
+*
+**
+*
+      INTEGER I, K, NKX
+      REAL SC, SCTU, ST, SB, HM, HP, HD, KUM, KUP, SCK1
+      EXTERNAL DIFUVD1, DIFUVD2
+      LOGICAL DEBUG
+      SAVE DEBUG
+      DATA DEBUG /.FALSE./
+*
+      IF (DEBUG) THEN
+         PRINT *,' S/R DIFUVDF..TAU,TYPE,F,NU,N,NK=',
+     %   TAU,TYPE,F,NU,N,NK
+         PRINT *,' S=',S
+         PRINT *,' SK=',SK
+         I=1
+         PRINT *,' ALFA(',I,')=',ALFA(I)
+         PRINT *,' BETA(',I,')=',BETA(I)
+         PRINT *,' U(',I,',*)=',(K,U(I,K),K=1,NK)
+         PRINT *,' KU(',I,',*)=',(K,KU(I,K),K=1,NK)
+         PRINT *,' GU(',I,',*)=',(K,GU(I,K),K=1,NK)
+         PRINT *,' R(',I,',*)=',(K,R(I,K),K=1,NK)
+      ENDIF
+      ST=S(1)
+      SB=SK(NK)
+*
+      IF (TYPE.LE.2) THEN
+         SC=1
+         SCTU=0
+         NKX=NK
+         SCK1=1
+         IF (TYPE.EQ.2) THEN
+            SCK1=0
+            ST=S(1)
+         ENDIF
+      ELSE IF (TYPE.EQ.3) THEN
+         SC=1-F
+         SCTU=1
+         NKX=NK-1
+      ELSE
+         PRINT *,' S/R DIFUVDF. TYPE INCONNU= ',TYPE,' STOP...'
+         CALL QQEXIT(1)
+      ENDIF
+*
+* (1) CONSTRUIRE L'OPERATEUR TRIDIAGONAL DE DIFFUSION N=(A,B,C)
+*                ET LE TERME CONTRE-GRADIENT (DANS D)
+*
+      IF (TYPE.LE.2) THEN
+*
+*     K=1
+*
+         HM=0
+         HP=S(2)-S(1)
+         HD=0.5*(S(1)+S(2))-ST
+         DO 10 I=1,N
+            A(I,1)=0
+            B(I,1)=-SCK1*KU(I,1)/(HP*HD)
+            C(I,1)=-SCK1*B(I,1)
+10          D(I,1)=SCK1*KU(I,1)*GU(I,1)/HD
+*
+*     K=2...NK-1
+*
+         DO 11 K=2,NK-1,1
+            HM=S(K)-S(K-1)
+            HP=S(K+1)-S(K)
+            HD=0.5*(HM+HP)
+            DO 11 I=1,N
+               A(I,K)=KU(I,K-1)/(HM*HD)
+               B(I,K)=-(KU(I,K-1)/HM +KU(I,K)/HP)/HD
+               C(I,K)=KU(I,K)/(HP*HD)
+11             D(I,K)=(KU(I,K)*GU(I,K)-KU(I,K-1)*GU(I,K-1))/HD
+*
+*     K=NK
+*
+         HM=S(NK)-S(NK-1)
+         HP=0
+         HD=SB-0.5*(S(NK-1)+S(NK))
+         DO 12 I=1,N
+            A(I,NK)=KU(I,NK-1)/(HM*HD)
+            B(I,NK)=-(KU(I,NK-1)/HM + 0)/HD
+            C(I,NK)=0
+12          D(I,NK)=(0-KU(I,NK-1)*GU(I,NK-1))/HD
+*
+*
+      ELSE IF (TYPE.EQ.3) THEN
+*
+*     TYPE='E'
+*
+*     K=1
+*
+         HM=S(2)-S(1)
+         HP=SK(2)-SK(1)
+         HD=0.5*(SK(2)+SK(1)) -S(1)
+         DO 13 I=1,N
+            KUM=0.5*KU(I,1)
+            KUP=0.5*(KU(I,1)+KU(I,2))
+            A(I,1)=KUM/(HM*HD)
+            B(I,1)=-(KUM/HM+KUP/HP)/HD
+            C(I,1)=KUP/(HP*HD)
+13          D(I,1)=(KUP*(GU(I,1)+GU(I,2))-KUM*GU(I,1))/(2*HD)
+*
+*     K=2...NK-2
+*
+         DO 14 K=2,NK-2,1
+            HM=SK(K)-SK(K-1)
+            HP=SK(K+1)-SK(K)
+            HD=0.5*(HM+HP)
+            DO 14 I=1,N
+               KUM=0.5*(KU(I,K-1)+KU(I,K))
+               KUP=0.5*(KU(I,K+1)+KU(I,K))
+               A(I,K)=KUM/(HM*HD)
+               B(I,K)=-(KUM/HM +KUP/HP)/HD
+               C(I,K)=KUP/(HP*HD)
+14             D(I,K)=(KUP*(GU(I,K)+GU(I,K+1))
+     %                -KUM*(GU(I,K-1)+GU(I,K)))/(2*HD)
+*
+*     K=NK-1=NKX
+*
+         HM=SK(NK-1)-SK(NK-2)
+         HP=0
+         HD=SB-0.5*(SK(NK-1)+SK(NK-2))
+         DO 15 I=1,N
+            KUM=0.5*(KU(I,NK-1)+KU(I,NK-2))
+            KUP=0
+            A(I,NKX)=KUM/(HM*HD)
+            B(I,NKX)=-(KUM/HM + 0)/HD
+            C(I,NKX)=0
+15          D(I,NKX)=(0-KUM*(GU(I,NK-1)+GU(I,NK-2)))/(2*HD)
+*
+      ENDIF
+*
+*
+* (2) CALCULER LE COTE DROIT D=TAU*(SC*N(U)+R+D/DS(KU*GU))
+*
+      IF (DEBUG) THEN
+         PRINT *,' ETAPE(2) DE DIFUVDF'
+         I=1
+         PRINT *,' A(',I,',*)=',(K,A(I,K),K=1,NK)
+         PRINT *,' B(',I,',*)=',(K,B(I,K),K=1,NK)
+         PRINT *,' C(',I,',*)=',(K,C(I,K),K=1,NK)
+         PRINT *,' D(',I,',*)=',(K,D(I,K),K=1,NK)
+      ENDIF
+      CALL DIFUVD1 (D, SC, A, B, C, U, D, N, NU, NKX)
+      DO 20 K=1,NKX
+         DO 20 I=1,N
+20       D(I,K)=TAU*(D(I,K)+R(I,K))  +SCTU*U(I,K)
+      IF (DEBUG) THEN
+         PRINT *,' ETAPE(2) DE DIFUVDF. D FINAL'
+         I=1
+         PRINT *,' D(',I,',*)=',(K,D(I,K),K=1,NK)
+      ENDIF
+*
+* (3) CALCULER OPERATEUR DU COTE GAUCHE
+*
+      DO 30 K=1,NKX
+         DO 30 I=1,N
+            A(I,K)= -F*TAU*A(I,K)
+            B(I,K)=1-F*TAU*B(I,K)
+30          C(I,K)= -F*TAU*C(I,K)
+*
+* (4) AJOUTER TERME DE FLUX DE SURFACE POUR TYPE='U'/'UT'
+*
+      IF (TYPE.LE.2) THEN
+         HD=SB-0.5*(S(NK-1)+S(NK))
+         DO 40 I=1,N
+            B(I,NKX)=B(I,NKX)-F*TAU*BETA(I)/HD
+40          D(I,NKX)=D(I,NKX)+(ALFA(I)+BETA(I)*U(I,NKX))*TAU/HD
+      ENDIF
+*
+* (5) RESOUDRE SYSTEME TRIDIAGONAL [A,B,C] X = D. METTRE X DANS TU.
+*
+      CALL DIFUVD2 (TU, A, B, C, D, D, NU, N, NKX)
+*
+* (6) OBTENIR TENDANCE
+*
+      DO 60 K=1,NKX
+         DO 60 I=1,N
+60       TU(I,K)=(TU(I,K)-SCTU*U(I,K))/TAU
+*     K=NKX+1..NK
+      DO 70 K=NKX+1,NK
+         DO 70 I=1,N
+70       TU(I,K)=0
+*
+      RETURN
+      END

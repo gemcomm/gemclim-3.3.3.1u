@@ -1,0 +1,80 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+*** S/P Ntables
+      SUBROUTINE Ntables (pkappa,qsatvp,npkappa,nqsatvp,xkap,ptop)
+*
+#include "impnone.cdk"
+      integer npkappa,nqsatvp
+      real pkappa(npkappa), qsatvp(nqsatvp)
+      real xkap,ptop
+      real pmax, tmin, tmax, svpt0, svp1, svp2, svp3
+      parameter (pmax=140., tmin=150., tmax=360.)
+      parameter (svpt0=273.15, svp1=.6112, svp2=17.67, svp3=29.65)
+c     parameter (svpt0=273.16, svp1=.61078, svp2=17.269, svp3=35.86)
+*
+*Author
+*      S. Moorthi and M. Suarez (July 92) -  Relaxed Arakawa-Schubert
+*
+*Revisions
+*      G. Pellerin (Avr 97) - Standard Documentation
+*
+*Object
+*      Construct tables for values for:
+*   a.  (po/p)**xkappa for selected values of p-ptop
+*   b.  saturation vapor pressure for selected values of t-tmin
+*      Index refers to value of ps in units of (pmax-ptop)/(npkappa-4),
+*      values of T in units of (tmax-tmin)/(nqsatvp-4).  For the
+*      interpolation algorithm, see routines Npxkap and Nqsat.
+*
+*Notes
+*  The program will not execute properly if t is outside the range
+*  tmax ... tmin or if ps .gt. pmax.  No warning is printed.
+*
+*Arguments
+*          - Input -
+* npkappa  magic number for tables of 1400
+* nqsatvp  magic number for tables of 844
+* ptop     Model top pressure
+* xkap     R/Cp, where R is the gas constant
+*            -Outputs-
+* pkappa:  Exner function
+* qsatvp:  Saturated vapor pressure (mb)
+*
+      integer n
+      real pr,p,t,tr,a
+      pkappa(1)=pmax
+      pkappa(2)=ptop 
+      pr=(pmax-ptop)/(npkappa-4)
+      pkappa(3)=pr     
+c
+      do n=4,npkappa
+      p=ptop+(n-4)*pr
+      pkappa(n)=(100./p)**xkap
+      Enddo
+c
+      qsatvp(1)=tmax
+      qsatvp(2)=tmin
+      tr=(tmax-tmin)/(nqsatvp-4)
+      qsatvp(3)=tr
+
+      do n=4,nqsatvp 
+      t=tmin+(n-4)*tr
+      a=svp2*(t-svpt0)/(t-svp3)
+      qsatvp(n)=svp1*exp(a)
+      Enddo  
+c      
+      return
+      end

@@ -1,0 +1,81 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+      SUBROUTINE DIFUVD9 (SE, STAGE, S, n, NK, KA)
+#include "impnone.cdk"
+      INTEGER n, NK, KA
+      REAL SE(n,NK), S(n,NK)
+      LOGICAL STAGE
+*
+      INTEGER K, I
+      LOGICAL INIT
+      DATA INIT /.TRUE./
+      SAVE INIT
+*
+*Author
+*          R. Benoit (Mar 89)
+*
+*Object
+*          to calculate the centered sigma levels
+*
+*Arguments
+*
+*          - Output -
+* SE       sigma levels for ('E')
+*
+*          - Input -
+* STAGE    .TRUE. for 'E' (staggered) level intervals
+* S        sigma levels
+* N        1st horizontal dimension
+* NK       vertical dimension
+* KA       level to extract
+*
+**
+*
+1000  CONTINUE
+*
+      IF (STAGE) THEN
+*
+         DO 1 K=1,KA-1
+            do 1 i=1,n
+1           SE(i,K)=(S(i,K)+S(i,K+1))/2
+         DO 4 K=KA,NK
+            do 4 i=1,n
+4           SE(i,K)=1
+      ELSE
+*
+         DO 2 K=1,NK
+            do 2 i=1,n
+2           SE(i,K)=S(i,K)
+      ENDIF
+*
+      IF (INIT) THEN
+*
+*     PRINT *,' S/R DIFUVD9...STAGE= ',STAGE
+*     PRINT '(3A10/(I10,2F10.6))' , 'K','S(1,K)','SE(1,K)',
+*    %                              (K,S(1,K),SE(1,K),K=1,NK)
+*     PRINT *,' KA=',KA,' NK=',NK
+*     IF (KA.LT.NK) PRINT *,'  '
+*     IF (KA.LT.NK) PRINT *,' ***************************'
+*     IF (KA.LT.NK) PRINT *,' * ANEMOMETRE 5M INACTIF   *'
+*     IF (KA.LT.NK) PRINT *,' ***************************'
+*     IF (KA.LT.NK) PRINT *,'  '
+*     PRINT *,' RAPPORT DE CENTRAGE DU NIVEAU KA au point 1'
+*     PRINT *,' (1-S(1,KA))/(1-S(1,KA-1))=',(1-S(1,KA))/(1-S(1,KA-1))
+      INIT = .FALSE.
+      ENDIF
+*
+      RETURN
+      end

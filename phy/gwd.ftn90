@@ -1,0 +1,329 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!**S/P  GWD5
+#include "phy_macros_f.h"
+      SUBROUTINE GWD5 ( D, F, VB, SIZED, SIZEF, SIZEV, &
+                        T, TAU, KOUNT, TRNCH, N, M, NK, &
+                        ITASK )
+!
+      IMPLICIT none
+      INTEGER ITASK, SIZED, SIZEF, SIZEV, TRNCH, N, M, NK, KOUNT
+      REAL D(SIZED), F(SIZEF), VB(SIZEV)
+      REAL T(M,NK)
+      REAL TAU
+!
+!Author
+!          J.Mailhot RPN(May1990)
+!
+!Revision
+! 001      B. Bilodeau  (Mar 1991)
+!               Extraction of GU and of GV with MVZNXST
+! 002      N. Brunet  (May91)
+!               New version of thermodynamic functions
+!               and file of constants
+! 003      B. Bilodeau  (July 1991)- Adaptation to UNIX
+! 004      R. Benoit (August 1993)- Local Sigma
+! 005      B. Bilodeau (May 1994) - New physics interface
+! 006      B. Bilodeau (Nov 95) - Implement "STK" memory allocation
+! 007      M. Desgagne (Oct 1995) - New interface
+! 008      L. Lefaivre (Nov 1995) - GWDRAG option extended to gwdfx95
+!                                  (1995 formulation of McFarlane)
+! 009      B. Bilodeau (Nov 96) - Replace common block pntclp by
+!                                 common block gwdbus
+! 010      B. Bilodeau (Nov 2000) - New comdeck phybus.cdk
+! 011      B. Bilodeau and B. Dugas (Feb/Jun 2001) - Automatic arrays
+! 012      A. Zadra  (Jun 2001) - New blocking parameterization
+! 013      N. Brunet (Jul 2001) - Adaptation of blocking code 
+!                                 to global model
+! 014      B. Bilodeau (Apr 2003) - call to sgoflx3 
+!                                   (derived from lin_sgoflx1)
+! 015      J.-P. Toviessi (May 2003) - IBM conversion
+!                 - calls to vexp routine (from massvp4 library)
+!                 - calls to vlog routine (from massvp4 library)
+! 016      M. Charron (August 2004) - Include Hines' non-orographic GWD
+! 017      L. Spacek (Dec 2007) - add "vertical staggering" option
+! 018      L. Spacek (Sep 2008) - add coefficients for extrapolation in gwd5
+! 019      A. Zadra & R. McTaggart-Cowan (June 2011) - provide top level index for
+!                 tendency calculations to oro and non-oro schemes
+! 020      L. Spacek    (Sep 2011) - Eliminate obsolete options
+! 021      A. Plante    (Sep 2011) - pass std_p_prof to GWSPECTRUM
+! 022         ???       (Jan 2012) - pass hines_flux_filter to GWSPECTRUM
+!
+!Object
+!          to model the gravity wave drag
+!
+!Arguments
+!
+!          - Input/Output -
+! F        field of permanent physics variables
+! SIZEF    dimension of F
+! U        U component of wind as input
+!          U component of wind modified by the gravity wave
+!          drag as output
+! V        V component of wind as input
+!          V component of wind modified by the gravity wave
+!          drag as output
+!
+!          - Input -
+! T        virtual temperature
+! S        local sigma levels
+!
+!          - Output -
+! RUG      gravity wave drag tendency on the U component of real
+!          wind
+! RVG      gravity wave drag tendency on the V component of real
+!          wind
+! RUN      non-oro. gravity wave drag tendency on the U component of real
+!          wind
+! RVN      non-oro. gravity wave drag tendency on the V component of real
+!          wind
+! RTN      non-oro. gravity wave drag tendency on temperature
+!
+!          - Input -
+! TAU      timestep times a factor: 1 for two time-level models
+!                                   2 for three time-level models
+! TRNCH    index of the vertical plane(NI*NK) for which the
+!          calculations are done.
+! N        horizontal dimension
+! M        1st dimension of U,V,T
+! NK       vertical dimension
+! ITASK    number for multi-tasking
+!
+!Notes
+!          This routine needs at least:
+!          ( 12*NK + 12 )*N + 3*NK words in dynamic allocation
+!            +3*nk       -"-         for local sigma
+!            +2*nk       -"-         for gather on s, sh
+!                           - 3*nk   s1,s2,s3 change from 1d to 2d
+!
+!IMPLICITES
+!
+#include "tables.cdk"
+#include "options.cdk"
+#include "phybus.cdk"
+#include "consphy.cdk"
+!
+!MODULES
+!
+!     ROUTINES DE GESTION DE MEMOIRE
+!
+      EXTERNAL SERGET
+!
+!     ROUTINES D'EXTRACTION DE SERIES TEMPORELLES
+!
+      EXTERNAL SERXST
+      EXTERNAL MVZNXST
+!
+!
+!***********************************************************************
+!     AUTOMATIC ARRAYS
+!***********************************************************************
+!
+      AUTOMATIC ( FCORIO  , REAL*8   , (N   ) )
+      AUTOMATIC ( LAND    , REAL*8   , (N   ) )
+      AUTOMATIC ( LAUNCH  , REAL*8   , (N   ) )
+      AUTOMATIC ( SXX8    , REAL*8   , (N   ) )
+      AUTOMATIC ( SYY8    , REAL*8   , (N   ) )
+      AUTOMATIC ( SXY8    , REAL*8   , (N   ) )
+      AUTOMATIC ( TT      , REAL*8   , (N,NK) )
+      AUTOMATIC ( TE      , REAL*8   , (N,NK) )
+      AUTOMATIC ( UU      , REAL*8   , (N,NK) )
+      AUTOMATIC ( VV      , REAL*8   , (N,NK) )
+      AUTOMATIC ( PP      , REAL*8   , (N   ) )
+      AUTOMATIC ( SIGMA   , REAL*8   , (N,NK) )
+      AUTOMATIC ( S1      , REAL*8   , (N,NK) )
+      AUTOMATIC ( S2      , REAL*8   , (N,NK) )
+      AUTOMATIC ( S3      , REAL*8   , (N,NK) )
+      AUTOMATIC ( UTENDGW , REAL*8   , (N,NK) )
+      AUTOMATIC ( VTENDGW , REAL*8   , (N,NK) )
+      AUTOMATIC ( UTENDNO , REAL*8   , (N,NK) )
+      AUTOMATIC ( VTENDNO , REAL*8   , (N,NK) )
+      AUTOMATIC ( TTENDNO , REAL*8   , (N,NK) )
+      AUTOMATIC ( MTDIR8  , REAL*8   , (N   ) )
+      AUTOMATIC ( SLOPE8  , REAL*8   , (N   ) )
+      AUTOMATIC ( XCENT8  , REAL*8   , (N   ) )
+      AUTOMATIC ( WORK    , REAL     , (N,NK) )
+!
+!***********************************************************************
+!
+      INTEGER I,J,K,IS,NIK,TOPLEV
+      LOGICAL ENVELOP,BLOCKING
+!
+      REAL U(M,NK), V(M,NK), S(M,NK), P(M)
+      REAL RUG(M,NK), RVG(M,NK), RUN(M,NK), RVN(M,NK), RTN(M,NK)
+      POINTER (IUU , U  ), (IVV  , V  ), (ISS , S), (IP , P), &
+              (IRUG, RUG), (IRVG , RVG), (IRUN, RUN), (IRVN , RVN), &
+              (IRTN, RTN)
+!
+!--------------------------------------------------------------------
+!
+      IUU     = LOC (D (  UPLUS))
+      IVV     = LOC (D (  VPLUS))
+      ISS     = LOC (D (  SIGM ))
+      IP      = LOC (D (  PPLUS))
+      IRUG    = LOC (VB(  UGWD ))
+      IRVG    = LOC (VB(  VGWD ))
+      IRUN    = LOC (VB(  UGNO ))
+      IRVN    = LOC (VB(  VGNO ))
+      IRTN    = LOC (VB(  TGNO ))
+!
+      ENVELOP = .TRUE.
+      BLOCKING = .TRUE.
+      NIK=N*NK-1
+!
+      CALL TOTHERMO(WORK,  T, VB(AT2T),VB(AT2M),N,NK+1,NK,.false.)
+!
+!
+!     TT   - TEMPERATURE AUX NIVEAUX PLEINS
+!     UU   - COMPOSANTE U DU VENT  (VENT REEL)
+!     VV   - COMPOSANTE V DU VENT  (VENT REEL)
+      DO 100 K=1,NK
+         DO 100 J=1,N
+            TT(J,K) = WORK(J,K)
+            UU(J,K) = U(J,K)
+            VV(J,K) = V(J,K)
+  100    CONTINUE
+         DO 105 J=1,N
+            PP(J) = P(J)
+  105    CONTINUE
+!
+!     POINTEUR POUR LA ROUTINE DE GWD : -1 = CONTINENT
+!                                        0 = OCEAN
+!
+      DO 110 J=1,N
+         LAND(J) = - ABS( NINT( f(MG+J-1) ) )
+  110    CONTINUE
+!
+!     s1, s2, s3 => 2d
+!
+!
+!     S1    - DEMI-NIVEAUX
+!     S2    - NIVEAUX PLEINS
+!     S3    - DEMI-NIVEAUX
+!
+      CALL TOTHERMO(T,WORK, VB(AT2T),VB(AT2M),N,NK+1,NK,.true.)
+      DO K=1 ,NK-1
+         do j=1,n
+            S1(J,K)=0.5*(S(J,K)+S(J,K+1))
+            S2(J,K)=dble(S(J,K))
+
+!     TE   - TEMPERATURE AUX DEMI-NIVEAUX
+            TE(J,K) = WORK(J,K)
+         enddo
+         call vlog(S3(1,K),S1(1,K),n)
+         call vlog(S2(1,K),S2(1,K),n)
+         do j=1,n
+           S3(j,K) = CAPPA*S3(j,K)
+           S2(j,K) = CAPPA*S2(j,K)
+         enddo
+         call vexp(S3(1,K),S3(1,K),n)
+         call vexp(S2(1,K),S2(1,K),n)
+      enddo
+!
+      do J=1,N
+         S1(J,NK)=0.5*(S(J,NK)+1.)
+         S2(J,NK)=dble(S(J,NK))
+
+!     TE   - TEMPERATURE AUX DEMI-NIVEAUX
+!
+         TE(J,NK) = WORK(J,NK)+VB(AT2T+NIK+J)*(T(J,NK)-T(J,NK-1))
+       enddo 
+
+       call vlog(S3(1,NK),S1(1,NK),n)
+       call vlog(S2(1,NK),S2(1,NK),n)
+       do j=1,n
+          S3(j,NK) = CAPPA*S3(j,NK)
+          S2(j,NK) = CAPPA*S2(j,NK)
+       enddo
+       call vexp(S3(1,NK),S3(1,NK),n)
+       call vexp(S2(1,NK),S2(1,NK),n)
+!
+      DO I=1,N
+         LAUNCH(I)  = F (LHTG  +I-1)
+         SXX8  (I)  = F (dhdx  +I-1)
+         SYY8  (I)  = F (dhdy  +I-1)
+         SXY8  (I)  = F (dhdxdy+I-1)
+         MTDIR8(I)  = F (mtdir +I-1)
+         SLOPE8(I)  = F (slope +I-1)
+         XCENT8(I)  = F (xcent +I-1)
+         FCORIO(I)  = VB(fcor  +I-1)
+      END DO
+!
+!
+      DO K=1,NK
+         DO J=1,N
+            SIGMA(J,K) = S(J,K)
+         END DO
+      END DO
+!
+!     TOP LEVEL FOR STAGGERED PHYSICS IS K=2 (K=1 TENDENCIES ARE IGNORED)
+      TOPLEV = 1
+      IF (D(SIGT) > 0) TOPLEV = 2
+!
+      IF(GWDRAG.EQ.'GWD95') THEN
+         print *,'GWDRAG unsupported value ',GWDRAG
+         CALL ABORT
+      ELSE IF(GWDRAG.EQ.'GWD86') THEN
+!
+        CALL SGOFLX3 (UU, VV, UTENDGW, VTENDGW, &
+                      TE, TT, SIGMA, S1, &
+                      NK, N, 1, N, &
+                      GRAV, RGASD, CAPPA, TAU, TAUFAC, &
+                      LAND, LAUNCH, SLOPE8, XCENT8, MTDIR8, &
+                      PP, FCORIO, &
+                      .TRUE., .TRUE., .FALSE., .FALSE., &
+                      .TRUE., TOPLEV)
+!
+      ENDIF
+!
+!
+      DO 200 K=1,NK
+         DO 200 J=1,N
+            RUG(J,K) = UTENDGW(J,K)
+            RVG(J,K) = VTENDGW(J,K)
+            U  (J,K) =      UU(J,K)
+            V  (J,K) =      VV(J,K)
+  200    CONTINUE
+!
+      CALL SERXST( RUG, 'GU', TRNCH, N, 0.0, 1.0, -1)
+      CALL SERXST( RVG, 'GV', TRNCH, N, 0.0, 1.0, -1)
+      CALL MVZNXST(RUG,RVG,'GU','GV',TRNCH,N,1.0,-1,ITASK)
+!
+      IF (NON_ORO) THEN
+
+        CALL GWSPECTRUM3( N      , N      , NK, &
+                          SIGMA  , S1     , S2, &
+                          S3     , PP     , TE, &
+                          TT     , UU     , VV, &
+                          TTENDNO, VTENDNO, UTENDNO,        &
+                          hines_flux_filter, GRAV  , RGASD, &
+                          TAU    , rmscon , iheatcal,       &
+                          kount  , trnch  ,                 &
+                          TOPLEV , STD_P_PROF, NON_ORO_PBOT)
+
+        DO 201 K=1,NK
+           DO 201 J=1,N
+              RUN(J,K) = UTENDNO(J,K)
+              RVN(J,K) = VTENDNO(J,K)
+              RTN(J,K) = TTENDNO(J,K)
+              U  (J,K) =      UU(J,K)
+              V  (J,K) =      VV(J,K)
+              T  (J,K) =      TT(J,K)
+  201      CONTINUE
+      ENDIF
+
+      RETURN
+      END

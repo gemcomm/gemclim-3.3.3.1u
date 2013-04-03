@@ -1,0 +1,317 @@
+!-------------------------------------- LICENCE BEGIN ------------------------------------
+!Environment Canada - Atmospheric Science and Technology License/Disclaimer, 
+!                     version 3; Last Modified: May 7, 2008.
+!This is free but copyrighted software; you can use/redistribute/modify it under the terms 
+!of the Environment Canada - Atmospheric Science and Technology License/Disclaimer 
+!version 3 or (at your option) any later version that should be found at: 
+!http://collaboration.cmc.ec.gc.ca/science/rpn.comm/license.html 
+!
+!This software is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+!without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+!See the above mentioned License/Disclaimer for more details.
+!You should have received a copy of the License/Disclaimer along with this software; 
+!if not, you can write to: EC-RPN COMM Group, 2121 TransCanada, suite 500, Dorval (Quebec), 
+!CANADA, H9P 1J3; or send e-mail to service.rpn@ec.gc.ca
+!-------------------------------------- LICENCE END --------------------------------------
+!     #######################################################
+!
+SUBROUTINE PREP_HOR_SNOW_FIELD( HPROGRAM,                       &
+                                HFILE,HFILETYPE,KLUOUT,OUNIF,   &
+                                HSNSURF,KPATCH,                 &
+                                PLAT,PLON,TPSNOW,PF,            &
+                                PDEPTH,PPATCH                   )
+!     #######################################################
+!
+!
+!!****  *PREP_HOR_SNOW_FIELD* - reads, interpolates and prepares a snow field
+!!
+!!    PURPOSE
+!!    -------
+!
+!!**  METHOD
+!!    ------
+!!
+!!    REFERENCE
+!!    ---------
+!!      
+!!
+!!    AUTHOR
+!!    ------
+!!     V. Masson 
+!!
+!!    MODIFICATIONS
+!!    -------------
+!!      Original    01/2004
+!!------------------------------------------------------------------
+!
+!
+USE MODD_TYPE_SNOW
+!
+USE MODD_PREP_SNOW,      ONLY : XGRID_SNOW
+USE MODD_SURF_PAR,       ONLY : XUNDEF
+USE MODD_DATA_COVER_PAR, ONLY : NVEGTYPE
+!
+!USE MODI_PREP_SNOW_GRIB
+!USE MODI_PREP_SNOW_UNIF
+USE MODI_PREP_SNOW_GEM
+USE MODI_HOR_INTERPOL
+USE MODI_VEGTYPE_GRID_TO_PATCH_GRID
+USE MODI_SNOW_HEAT_TO_T_WLIQ
+!
+!*      0.1    declarations of arguments
+!
+CHARACTER(LEN=6),   INTENT(IN)  :: HPROGRAM  ! program calling surf. schemes
+CHARACTER(LEN=28),  INTENT(IN)  :: HFILE     ! file name
+CHARACTER(LEN=6),   INTENT(IN)  :: HFILETYPE ! file type
+INTEGER,            INTENT(IN)  :: KLUOUT    ! logical unit of output listing
+LOGICAL,            INTENT(IN)  :: OUNIF     ! flag for prescribed uniform field
+CHARACTER(LEN=8)                :: HSNSURF   ! type of field
+INTEGER,            INTENT(IN)  :: KPATCH    ! patch number for output scheme
+REAL, DIMENSION(:), INTENT(IN)  :: PLAT      ! output latitudes
+REAL, DIMENSION(:), INTENT(IN)  :: PLON      ! output longitudes
+TYPE(SURF_SNOW)                 :: TPSNOW    ! snow fields
+REAL,DIMENSION(:,:),  INTENT(OUT),OPTIONAL :: PF     ! output field (x,kpatch)
+REAL,DIMENSION(:,:,:),INTENT(IN), OPTIONAL :: PDEPTH ! thickness of each snow layer
+REAL,DIMENSION(:,:),  INTENT(IN), OPTIONAL :: PPATCH ! fraction of each patch
+!
+!
+!*      0.2    declarations of local variables
+!
+REAL, POINTER, DIMENSION(:,:,:)     :: ZFIELDIN  ! field to interpolate horizontally
+REAL, POINTER, DIMENSION(:,:)       :: ZFIELD ! field to interpolate horizontally
+REAL, ALLOCATABLE, DIMENSION(:,:,:) :: ZFIELDOUT ! field interpolated   horizontally
+REAL, ALLOCATABLE, DIMENSION(:,:)   :: ZD        ! snow depth (x, kpatch)
+REAL, ALLOCATABLE, DIMENSION(:,:,:) :: ZW        ! work array (x, fine   snow grid, kpatch)
+REAL, ALLOCATABLE, DIMENSION(:,:,:) :: ZHEAT     ! work array (x, output snow grid, kpatch)
+REAL, ALLOCATABLE, DIMENSION(:,:,:) :: ZGRID     ! grid array (x, output snow grid, kpatch)
+!
+INTEGER                       :: JPATCH    ! loop on patches
+INTEGER                       :: JVEGTYPE  ! loop on vegtypes
+INTEGER                       :: JLAYER    ! loop on layers
+!----------------------------------------------------------------------------
+!
+!*      1.     Does the field exist?
+!
+!
+IF (HSNSURF(1:1)=='H' .AND. TPSNOW%SCHEME=='D95') RETURN
+! 
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      2.     Reading of input  configuration (Grid and interpolation type)
+!
+IF (OUNIF) THEN
+!  CALL PREP_SNOW_UNIF(KLUOUT,HSNSURF,ZFIELDIN)
+ELSE IF (HFILETYPE=='GRIB  ') THEN
+!  CALL PREP_SNOW_GRIB(HPROGRAM,HSNSURF,HFILE,KLUOUT,ZFIELDIN)
+ELSE IF (HPROGRAM=='MC2GEM') THEN
+  CALL PREP_SNOW_GEM(HPROGRAM,HSNSURF,ZFIELDIN)
+END IF
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      3.     Horizontal interpolation
+!
+ALLOCATE(ZFIELDOUT(SIZE(PLAT),SIZE(ZFIELDIN,2),SIZE(ZFIELDIN,3)))
+ALLOCATE(ZFIELD(SIZE(ZFIELDIN,1),SIZE(ZFIELDIN,2)))
+!
+DO JVEGTYPE = 1, SIZE(ZFIELDIN,3)
+  ZFIELD=ZFIELDIN(:,:,JVEGTYPE)
+  CALL HOR_INTERPOL(KLUOUT,ZFIELD,ZFIELDOUT(:,:,JVEGTYPE))
+END DO
+!
+DEALLOCATE(ZFIELD)
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      4.     Transformation from vegtype grid to patch grid, if any
+!
+ALLOCATE(ZW (SIZE(ZFIELDOUT,1),SIZE(ZFIELDOUT,2),KPATCH))
+!
+ZW = 0.
+IF (SIZE(ZFIELDOUT,3)==NVEGTYPE) THEN
+  ZW(:,:,:) = VEGTYPE_GRID_TO_PATCH_GRID(ZFIELDOUT)
+ELSE
+  DO JPATCH=1,KPATCH
+    ZW(:,:,JPATCH) = ZFIELDOUT(:,:,1)
+  END DO
+END IF
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      5.     Defines normalized output grid, if depths of snow layers are present
+! 
+IF (PRESENT(PDEPTH)) THEN
+!
+!* total snow depth
+!
+  ALLOCATE(ZD(SIZE(TPSNOW%WSNOW,1),KPATCH))
+  ZD(:,:)=0.
+  DO JPATCH=1,KPATCH
+    DO JLAYER=1,TPSNOW%NLAYER
+      WHERE (PDEPTH(:,JLAYER,JPATCH)/=XUNDEF) ZD(:,JPATCH) = ZD(:,JPATCH) + PDEPTH(:,JLAYER,JPATCH)
+    END DO
+  END DO
+!
+!* grid at center of layers
+!
+  ALLOCATE(ZGRID(SIZE(ZW,1),TPSNOW%NLAYER,KPATCH))
+  DO JPATCH=1,KPATCH
+    ZGRID(:,1,JPATCH) = 0.5 * PDEPTH(:,1,JPATCH)
+    DO JLAYER=2,TPSNOW%NLAYER
+      ZGRID(:,JLAYER,JPATCH) = ZGRID(:,JLAYER-1,JPATCH) + 0.5 * PDEPTH(:,JLAYER-1,JPATCH) &
+                                                        + 0.5 * PDEPTH(:,JLAYER  ,JPATCH)
+    END DO
+  END DO
+!
+!* normalized grid
+!
+  DO JPATCH=1,KPATCH
+    DO JLAYER=1,TPSNOW%NLAYER
+      WHERE (ZD(:,JPATCH)/=0.)
+        ZGRID(:,JLAYER,JPATCH) = ZGRID(:,JLAYER,JPATCH) / ZD(:,JPATCH)
+      ELSEWHERE
+        ZGRID(:,JLAYER,JPATCH) = 0.5
+      END WHERE
+    END DO
+  END DO
+!
+  DEALLOCATE(ZD)
+!
+ELSE
+  IF (HSNSURF(1:1)=='R' .OR. HSNSURF(1:1)=='H') THEN
+    WRITE(KLUOUT,*) 'when interpolation profiles of snow pack quantities,'
+    WRITE(KLUOUT,*) 'depth of snow layers must be given'
+    STOP
+  END IF
+END IF
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      6.     Return to historical variable
+!
+SELECT CASE (HSNSURF(1:1))
+  !
+ CASE('D','W')  ! total snow depth or snow content
+  !
+  DO JPATCH=1,KPATCH
+    PF(:,JPATCH) = ZW(:,1,JPATCH)
+  END DO
+  !
+  IF (PRESENT(PPATCH)) WHERE(PPATCH(:,:)==0.) PF(:,:) = XUNDEF
+  !
+  !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  !
+ CASE('R') 
+  !
+  !* interpolation on snow levels
+  CALL INIT_FROM_REF_GRID(XGRID_SNOW,ZW,ZGRID,TPSNOW%RHO)
+  !
+  !* mask for areas where there is no snow
+  DO JPATCH=1,KPATCH
+    DO JLAYER=1,TPSNOW%NLAYER
+      WHERE(PDEPTH(:,1,JPATCH)==0. .OR. PDEPTH(:,1,JPATCH)==XUNDEF) TPSNOW%RHO(:,JLAYER,JPATCH) = XUNDEF
+    END DO
+  END DO
+  !
+  !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  !
+ CASE('A')
+  !
+  DO JPATCH=1,KPATCH
+    TPSNOW%ALB(:,JPATCH) = ZW(:,1,JPATCH)
+  END DO
+  !
+  !!* mask for areas where there is no snow
+  !DO JPATCH=1,KPATCH
+  !  WHERE(PDEPTH(:,1,JPATCH)==0. .OR. PDEPTH(:,1,JPATCH)==XUNDEF)  TPSNOW%ALB(:,JPATCH) = XUNDEF
+  !END DO
+  !
+  !- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  !
+ CASE('H') 
+  !
+  IF (TPSNOW%SCHEME=='3-L') THEN
+    !* interpolation of heat on snow levels
+    CALL INIT_FROM_REF_GRID(XGRID_SNOW,ZW,ZGRID,TPSNOW%HEAT)
+    !
+    !* mask for areas where there is no snow
+    DO JPATCH=1,KPATCH
+      DO JLAYER=1,TPSNOW%NLAYER
+        WHERE(PDEPTH(:,1,JPATCH)==0. .OR. PDEPTH(:,1,JPATCH)==XUNDEF) TPSNOW%HEAT(:,JLAYER,JPATCH) = XUNDEF
+      END DO
+    END DO
+    !
+  ELSE IF (TPSNOW%SCHEME=='1-L') THEN
+    !* interpolation of heat on snow levels
+    ALLOCATE(ZHEAT(SIZE(ZFIELDOUT,1),TPSNOW%NLAYER,KPATCH))
+    CALL INIT_FROM_REF_GRID(XGRID_SNOW,ZW,ZGRID,ZHEAT)
+    !
+    !* transformation from heat to temperature
+    CALL SNOW_HEAT_TO_T_WLIQ(ZHEAT,TPSNOW%RHO,TPSNOW%T)
+    WHERE (TPSNOW%T>XTT) TPSNOW%T = XTT
+    DEALLOCATE(ZHEAT)
+    !
+    !* mask for areas where there is no snow
+    DO JPATCH=1,KPATCH
+      DO JLAYER=1,TPSNOW%NLAYER
+        WHERE(PDEPTH(:,1,JPATCH)==0. .OR. PDEPTH(:,1,JPATCH)==XUNDEF) TPSNOW%T(:,JLAYER,JPATCH) = XUNDEF
+      END DO
+    END DO
+    !
+  END IF
+  !
+END SELECT
+!
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+!*      7.     Deallocations
+!
+DEALLOCATE(ZFIELDIN )
+DEALLOCATE(ZFIELDOUT)
+IF (PRESENT(PDEPTH)) DEALLOCATE(ZGRID    )
+DEALLOCATE(ZW       )
+!
+!-------------------------------------------------------------------------------------
+!
+CONTAINS
+!
+!-------------------------------------------------------------------------------------
+!
+SUBROUTINE INIT_FROM_REF_GRID(PGRID1,PT1,PD2,PT2)
+!
+USE MODI_INTERP_GRID2D
+!
+REAL, DIMENSION(:,:,:), INTENT(IN)  :: PT1    ! variable profile
+REAL, DIMENSION(:),     INTENT(IN)  :: PGRID1 ! normalized grid
+REAL, DIMENSION(:,:,:), INTENT(IN)  :: PD2    ! output layer thickness
+REAL, DIMENSION(:,:,:), INTENT(OUT) :: PT2    ! variable profile
+!
+INTEGER                                  :: JL  ! loop counter
+REAL, DIMENSION(SIZE(PT1,1),SIZE(PT1,2)) :: ZD1 ! input grid
+REAL, DIMENSION(SIZE(PD2,1),SIZE(PD2,2)) :: ZD2 ! output grid
+REAL, DIMENSION(SIZE(PD2,1))             :: ZDT  ! output total thickness
+INTEGER                       :: JPATCH    ! loop on patches
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+!
+DO JPATCH=1,KPATCH
+  ZD2(:,:) = 0.
+  ZDT (:)   = 0.
+  !
+  DO JL=1,SIZE(ZD2,2)
+    ZD2(:,JL) = ZDT(:) + PD2(:,JL,JPATCH)/2.
+    ZDT (:)    = ZDT(:) + PD2(:,JL,JPATCH)
+  END DO
+  !
+  DO JL=1,SIZE(PT1,2)
+    ZD1(:,JL) = PGRID1(JL) * ZDT(:)
+  END DO
+  !
+  CALL INTERP_GRID2D(ZD1,PT1(:,:,JPATCH),ZD2,PT2(:,:,JPATCH))
+END DO
+!
+!- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+END SUBROUTINE INIT_FROM_REF_GRID
+!-------------------------------------------------------------------------------------
+!
+END SUBROUTINE PREP_HOR_SNOW_FIELD

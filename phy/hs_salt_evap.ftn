@@ -1,0 +1,26 @@
+c Version 1.0
+c svp lowering in pa  pollard and shultz, 1994, in Pa, K
+c use salty in eqn; however, must convert to chlorinity,
+c to check against arons and kientzler, 1954 data
+c conversion to chlorinity is from Lewis, 1980     
+      subroutine hs_salt_evap (salty, evap, qa, delq,
+     +                     psurf, Tcutoff, hice, tg, delqs)
+      implicit none
+	real salty,evap,qa,delq,psurf,tcutoff,hice,tg,
+     +     delqs,qsurf,psurfpa,esurf,elower,esurfs,qgs,
+     +     alpha
+      if (hice.eq.0.0.and.tg.gt.Tcutoff) then
+       qsurf=qa-delq
+       psurfpa=psurf
+       esurf=(psurfpa*qsurf)/(0.622+0.378*qsurf)
+       elower=133.3224*(exp((1.186094*alog(salty))-
+     +     (5580.475512/(tg+273.15))+13.674717))
+       esurfs=esurf-elower
+       qgs=0.622*(esurfs/(psurfpa-0.378*esurfs))
+       delqs=qa-qgs
+       if (delq.eq.0) delq=1.e-15
+         alpha=evap/delq
+         evap=alpha*delqs
+      endif     ! if ice, no need to lower for salty,
+      return
+      end
